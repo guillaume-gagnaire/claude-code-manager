@@ -10,6 +10,10 @@ const marked = new Marked({
   gfm: true,
   breaks: false,
   renderer: {
+    // Raw HTML in a reply is shown as text: it could otherwise be styled over the app's own UI.
+    html({ text }: Tokens.HTML | Tokens.Tag) {
+      return escapeHtml(text);
+    },
     code({ text, lang }: Tokens.Code) {
       const l = (lang ?? '').trim().split(/\s+/)[0] ?? '';
       return (
@@ -24,16 +28,23 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'A') node.setAttribute('rel', 'noopener noreferrer');
 });
 
-const cache = new Map<string, string>();
+const CACHE_SIZE = 500;
+const cached = new Map<string, string>();
 
-export function renderMarkdown(text: string): string {
-  const hit = cache.get(text);
-  if (hit !== undefined) return hit;
+/** Renders sanitized HTML. `cache` is off for streaming text, whose intermediate states are never reused. */
+export function renderMarkdown(text: string, cache = true): string {
+  const hit = cached.get(text);
+  if (hit !== undefined) {
+    // Least-recently-used order: a hit moves to the end.
+    cached.delete(text);
+    cached.set(text, hit);
+    return hit;
+  }
   const raw = marked.parse(text, { async: false }) as string;
-  const html = DOMPurify.sanitize(raw, { ADD_ATTR: ['data-lang'], FORBID_TAGS: ['style', 'form', 'input'] });
-  if (text.length < 20000) {
-    if (cache.size > 400) cache.clear();
-    cache.set(text, html);
+  const html = DOMPurify.sanitize(raw, { ADD_ATTR: ['data-lang'], FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'] });
+  if (cache && text.length < 50_000) {
+    cached.set(text, html);
+    if (cached.size > CACHE_SIZE) cached.delete(cached.keys().next().value!);
   }
   return html;
 }

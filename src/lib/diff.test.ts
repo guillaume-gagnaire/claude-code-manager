@@ -85,3 +85,23 @@ describe('splitRows', () => {
     ]);
   });
 });
+
+describe('parseUnifiedDiff inside hunks', () => {
+  it('keeps changed lines that look like file headers (SQL/Lua comments)', () => {
+    const files = parseUnifiedDiff(`diff --git a/q.sql b/q.sql
+--- a/q.sql
++++ b/q.sql
+@@ -1,2 +1,2 @@
+--- old comment
++++ new comment
+ select 1;
+`);
+    expect(files[0].hunks[0].lines.map((l) => [l.kind, l.text])).toEqual([
+      ['del', '-- old comment'],
+      ['add', '++ new comment'],
+      ['ctx', 'select 1;'],
+    ]);
+    expect(files[0].add).toBe(1);
+    expect(files[0].del).toBe(1);
+  });
+});

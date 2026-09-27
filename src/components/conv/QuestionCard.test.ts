@@ -43,7 +43,12 @@ describe('QuestionCard', () => {
     const multi = item({
       questions: [
         { question: 'Base ?', header: 'Base', options: [{ label: 'PG' }, { label: 'SQLite' }] },
-        { question: 'Outils ?', header: 'Outils', multiSelect: true, options: [{ label: 'ESLint' }, { label: 'Prettier' }, { label: 'Vitest' }] },
+        {
+          question: 'Outils ?',
+          header: 'Outils',
+          multiSelect: true,
+          options: [{ label: 'ESLint' }, { label: 'Prettier' }, { label: 'Vitest' }],
+        },
       ],
     });
     render(QuestionCard, { item: multi, agentId: 'a1', pending: true });
@@ -68,5 +73,14 @@ describe('QuestionCard', () => {
   it('says when the question was never answered', () => {
     render(QuestionCard, { item: item(), agentId: 'a1', pending: false });
     expect(screen.getByText('Question restée sans réponse')).toBeInTheDocument();
+  });
+});
+
+describe('QuestionCard edge cases', () => {
+  it('renders options that share a label', () => {
+    fakeBackend();
+    const dup = item({ questions: [{ question: 'Q ?', options: [{ label: 'Oui' }, { label: 'Oui' }] }] });
+    render(QuestionCard, { item: dup, agentId: 'a1', pending: true });
+    expect(screen.getAllByRole('button', { name: 'Oui' })).toHaveLength(2);
   });
 });

@@ -11,7 +11,9 @@
     "tauri": "tauri",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "version:set": "node scripts/version.mjs"
+    "version:set": "node scripts/version.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.2.0",
@@ -40,6 +42,8 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^20.19.43",
     "jsdom": "^26.1.0",
+    "prettier": "^3.9.9",
+    "prettier-plugin-svelte": "^3.5.2",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",

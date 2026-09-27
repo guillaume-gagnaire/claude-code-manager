@@ -12,11 +12,14 @@ export interface Call {
 export function fakeBackend(handlers: Record<string, (args: any) => unknown> = {}) {
   const calls: Call[] = [];
   mockWindows('main');
-  mockIPC((cmd, args) => {
-    calls.push({ cmd, args: (args ?? {}) as Record<string, any> });
-    const h = handlers[cmd];
-    return h ? h(args) : null;
-  });
+  mockIPC(
+    (cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, any> });
+      const h = handlers[cmd];
+      return h ? h(args) : null;
+    },
+    { shouldMockEvents: true },
+  );
   return {
     calls,
     called: (cmd: string) => calls.filter((c) => c.cmd === cmd),
@@ -41,7 +44,15 @@ export const SETTINGS: Settings = {
 };
 
 export function project(over: Partial<Project> = {}): Project {
-  return { id: 'p1', name: 'demo-api', path: 'C:\\code\\demo-api', color: 'oklch(0.72 0.12 48)', worktreePerAgent: false, createdAt: 1, ...over };
+  return {
+    id: 'p1',
+    name: 'demo-api',
+    path: 'C:\\code\\demo-api',
+    color: 'oklch(0.72 0.12 48)',
+    worktreePerAgent: false,
+    createdAt: 1,
+    ...over,
+  };
 }
 
 export function agent(over: Partial<Agent> = {}): Agent {

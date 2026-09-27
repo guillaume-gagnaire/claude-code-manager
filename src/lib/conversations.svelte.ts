@@ -14,6 +14,7 @@ export class Conversation {
 
   async load() {
     this.buffer = [];
+    this.error = null;
     try {
       const items = await api.getConversation(this.agentId);
       this.items = items;

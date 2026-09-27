@@ -18,7 +18,7 @@
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
-      html = renderMarkdown(text);
+      html = renderMarkdown(text, false);
     });
   });
 

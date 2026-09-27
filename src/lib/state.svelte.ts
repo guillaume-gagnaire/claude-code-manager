@@ -90,12 +90,14 @@ class AppState {
     return this.terminals.find((t) => t.id === id) ?? null;
   });
 
-
   private uiTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Events received while the initial snapshot is in flight (newer than the snapshot). */
+  private early: UiEvent[] | null = null;
   private toastId = 0;
 
   async init() {
-    const s = await api.subscribe((e) => this.onEvent(e));
+    this.early = [];
+    const s = await api.subscribe((e) => (this.early ? this.early.push(e) : this.onEvent(e)));
     this.projects = s.projects;
     this.agents = Object.fromEntries(s.agents.map((a) => [a.id, a]));
     this.ui = { ...s.ui, view: s.ui.view || 'project', selectedAgent: s.ui.selectedAgent ?? {} };
@@ -108,6 +110,9 @@ class AppState {
     this.shells = s.shells;
     this.claudeFound = s.claudeFound;
     this.version = s.version;
+    const early = this.early;
+    this.early = null;
+    for (const e of early) this.onEvent(e);
     this.ready = true;
     setInterval(() => (this.now = Date.now()), 1000);
   }

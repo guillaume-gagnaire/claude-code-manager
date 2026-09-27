@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { trapFocus } from '../../lib/focus';
 
   let {
     title,
@@ -14,7 +15,16 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="overlay" onclick={onclose}>
-  <div class="modal" style:width="{width}px" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" aria-modal="true" aria-label={title}>
+  <div
+    class="modal"
+    use:trapFocus
+    style:width="{width}px"
+    onclick={(e) => e.stopPropagation()}
+    role="dialog"
+    tabindex="-1"
+    aria-modal="true"
+    aria-label={title}
+  >
     <div class="head">
       <span class="t">{title}</span>
       <div style="flex:1"></div>

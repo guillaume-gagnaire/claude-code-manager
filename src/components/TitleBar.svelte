@@ -4,6 +4,7 @@
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
   import { app } from '../lib/state.svelte';
+  import { closeTerminal } from '../lib/term-actions';
   import type { Project } from '../lib/types';
 
   const win = getCurrentWindow();
@@ -15,7 +16,7 @@
     win.isMaximized().then((m) => (maximized = m));
     const un = win.onResized(() => win.isMaximized().then((m) => (maximized = m)));
     return () => {
-      un.then((f) => f());
+      un.then((f) => f()).catch(() => {});
     };
   });
 
@@ -32,13 +33,14 @@
     menu.show(e, [
       {
         label: 'Renommer…',
-        onClick: () =>
-          (app.modal = {
+        onClick: () => {
+          app.modal = {
             kind: 'rename',
             title: 'Renommer le projet',
             value: p.name,
             onSubmit: (name) => save({ ...p, name }),
-          }),
+          };
+        },
       },
       {
         label: p.worktreePerAgent ? 'Désactiver le worktree par agent' : 'Activer le worktree par agent',
@@ -50,20 +52,24 @@
       {
         label: 'Fermer le projet…',
         danger: true,
-        onClick: () =>
-          (app.modal = {
+        onClick: () => {
+          app.modal = {
             kind: 'confirm',
             title: `Fermer « ${p.name} » ?`,
             body: "Le projet et ses agents sont retirés de l'application (conversations comprises). Les fichiers et les worktrees sur le disque ne sont pas touchés.",
             confirm: 'Fermer le projet',
             danger: true,
             onConfirm: async () => {
-              await app.run(api.removeProject(p.id));
+              // Only forget the project once the backend removed it.
+              const removed = await app.run(api.removeProject(p.id).then(() => true));
+              if (!removed) return;
+              for (const t of app.terminals.filter((x) => x.projectId === p.id)) closeTerminal(t.id);
               app.projects = app.projects.filter((x) => x.id !== p.id);
               if (app.ui.activeProject === p.id) app.ui.activeProject = app.projects[0]?.id ?? null;
               app.persistUi();
             },
-          }),
+          };
+        },
       },
     ]);
   }
@@ -81,8 +87,8 @@
     const [moved] = list.splice(from, 1);
     list.splice(dropIndex > from ? dropIndex - 1 : dropIndex, 0, moved);
     app.projects = list;
-    api.reorderProjects(list.map((p) => p.id));
-    dragId = dropIndex = null;
+    app.run(api.reorderProjects(list.map((p) => p.id)));
+    ((dragId = null), (dropIndex = null));
   }
 </script>
 
@@ -117,7 +123,7 @@
           e.preventDefault();
           onDrop();
         }}
-        ondragend={() => (dragId = dropIndex = null)}
+        ondragend={() => ((dragId = null), (dropIndex = null))}
       >
         <span class="swatch" style:background={p.color}></span>
         <span class="name">{p.name}</span>
@@ -128,7 +134,14 @@
         {#if s.waiting > 0}<span class="pill" title="Agents en attente de réponse">{s.waiting}</span>{/if}
       </button>
     {/each}
-    <button class="add" title="Ajouter un projet" aria-label="Ajouter un projet" onclick={() => (app.modal = { kind: 'newProject' })}>+</button>
+    <button
+      class="add"
+      title="Ajouter un projet"
+      aria-label="Ajouter un projet"
+      onclick={() => {
+        app.modal = { kind: 'newProject' };
+      }}>+</button
+    >
   </nav>
   <div class="spacer" data-tauri-drag-region></div>
   <div class="right">
@@ -147,7 +160,9 @@
           ><path d="M2.5 2.5V.5h7v7h-2" /><rect x=".5" y="2.5" width="7" height="7" /></svg
         >
       {:else}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><rect x=".5" y=".5" width="9" height="9" /></svg>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"
+          ><rect x=".5" y=".5" width="9" height="9" /></svg
+        >
       {/if}
     </button>
     <button class="ctl close" title="Fermer (l'app reste dans la zone de notification)" aria-label="Fermer" onclick={() => win.hide()}>

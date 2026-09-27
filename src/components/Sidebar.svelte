@@ -12,7 +12,13 @@
   let { project }: { project: Project } = $props();
 
   const SL: Record<string, string> = { running: 'En cours', waiting: 'Question', idle: 'Prêt', done: 'Terminé', error: 'Erreur' };
-  const SC: Record<string, string> = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)', error: 'var(--del)' };
+  const SC: Record<string, string> = {
+    running: 'var(--ok)',
+    waiting: 'var(--wait)',
+    idle: 'var(--dim)',
+    done: 'var(--ok)',
+    error: 'var(--del)',
+  };
 
   let termMenuBtn = $state<HTMLButtonElement>();
   let renaming = $state<string | null>(null);
@@ -33,6 +39,8 @@
   }
 
   async function commitRename(a: Agent) {
+    // Enter then the blur of the removed input: rename once.
+    if (renaming !== a.id) return;
     const v = renameValue.trim();
     renaming = null;
     if (v && v !== a.name) await app.run(api.renameAgent(a.id, v));
@@ -44,9 +52,7 @@
       a.archived
         ? { label: 'Restaurer', onClick: () => app.run(api.archiveAgent(a.id, false)) }
         : { label: 'Archiver', hint: 'garde la conversation', onClick: () => app.run(api.archiveAgent(a.id, true)) },
-      ...(a.worktree
-        ? [{ label: 'Ouvrir le worktree dans l’éditeur', onClick: () => app.run(api.openInEditor(a.worktree!.path)) }]
-        : []),
+      ...(a.worktree ? [{ label: 'Ouvrir le worktree dans l’éditeur', onClick: () => app.run(api.openInEditor(a.worktree!.path)) }] : []),
       { label: '', separator: true },
       { label: 'Supprimer…', danger: true, onClick: () => confirmDelete(a) },
     ]);
@@ -136,7 +142,9 @@
         </div>
         <div class="meta">
           <span>{modelLabel(a.model)}</span><span class="sep">·</span><span>{duration(a)}</span>
-          {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}>⎇ {a.worktree.branch.replace(/^ccm\//, '')}</span>{/if}
+          {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}
+              >⎇ {a.worktree.branch.replace(/^ccm\//, '')}</span
+            >{/if}
         </div>
         <div class="meta dim">
           <span>{fTok(a.tokens)} tok</span><span>{fUsd(a.cost)}</span><span>{git?.agents[a.id] ?? 0} fich.</span>
@@ -224,10 +232,11 @@
     {/if}
     <div class="colors">
       <span class="clabel">Couleur</span>
-      {#each PROJECT_COLORS as c (c)}
+      {#each PROJECT_COLORS as c, i (c)}
         <button
           class="swatch"
-          aria-label="Couleur du projet"
+          aria-label="Couleur {i + 1}"
+          aria-pressed={project.color === c}
           style:background={c}
           style:box-shadow={project.color === c ? '0 0 0 2px var(--panel), 0 0 0 3px var(--text)' : 'none'}
           onclick={() => setColor(c)}

@@ -6,9 +6,10 @@
   import PatchView from './PatchView.svelte';
   import Self from './ToolRow.svelte';
 
-  let { item, cwd, children = [] }: { item: ToolItem; cwd: string; children?: ConvItem[] } = $props();
+  let { item, cwd, childrenOf = () => [] }: { item: ToolItem; cwd: string; childrenOf?: (id: string) => ConvItem[] } = $props();
   let open = $state(false);
 
+  const children = $derived(childrenOf(item.id));
   const arg = $derived(toolArg(item, cwd));
   const diff = $derived(hasDiff(item));
   const res = $derived(toolResultSummary(item));
@@ -49,7 +50,7 @@
         <div class="sub">
           {#if item.input.prompt}<div class="prompt">{item.input.prompt}</div>{/if}
           {#each subTools as c (c.id)}
-            <Self item={c} {cwd} />
+            <Self item={c} {cwd} {childrenOf} />
           {/each}
           {#if subText}<div class="subtext"><Markdown text={subText.text} streaming={subText.streaming} /></div>{/if}
         </div>

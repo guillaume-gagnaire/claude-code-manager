@@ -11,28 +11,37 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let seq = 0;
 
   const scope = $derived(app.filesScope);
+  // The agent object changes on every backend update: refetch on id / scope / git changes only.
+  const agentId = $derived(agent?.id ?? null);
+  const projectId = $derived(project.id);
   const SC: Record<string, string> = { A: 'var(--add)', M: 'var(--wait)', D: 'var(--del)' };
 
   $effect(() => {
     void app.gitTick;
-    const pid = project.id;
-    const aid = scope === 'agent' ? (agent?.id ?? null) : null;
+    const pid = projectId;
+    const aid = scope === 'agent' ? agentId : null;
+    const agentScope = scope === 'agent';
     clearTimeout(timer);
-    timer = setTimeout(() => load(pid, aid), 120);
+    timer = setTimeout(() => load(pid, aid, agentScope), 120);
   });
 
-  async function load(pid: string, aid: string | null) {
-    if (scope === 'agent' && !aid) {
+  async function load(pid: string, aid: string | null, agentScope: boolean) {
+    const mine = ++seq;
+    if (agentScope && !aid) {
       files = [];
       return;
     }
     loading = true;
     try {
-      files = await api.gitFiles(pid, aid);
+      const result = await api.gitFiles(pid, aid);
+      if (mine !== seq) return; // superseded by a newer request
+      files = result;
       error = null;
     } catch (e) {
+      if (mine !== seq) return;
       error = String(e);
       files = [];
     }
@@ -65,8 +74,14 @@
   </div>
   <div class="scope">
     <div class="segmented" style="width:100%">
-      <button style="flex:1;font-family:var(--ui);font-size:12px" class:on={scope === 'agent'} onclick={() => (app.filesScope = 'agent')}>Cet agent</button>
-      <button style="flex:1;font-family:var(--ui);font-size:12px" class:on={scope === 'project'} onclick={() => (app.filesScope = 'project')}>Tout le projet</button>
+      <button style="flex:1;font-family:var(--ui);font-size:12px" class:on={scope === 'agent'} onclick={() => (app.filesScope = 'agent')}
+        >Cet agent</button
+      >
+      <button
+        style="flex:1;font-family:var(--ui);font-size:12px"
+        class:on={scope === 'project'}
+        onclick={() => (app.filesScope = 'project')}>Tout le projet</button
+      >
     </div>
   </div>
   <div class="hint mono">{hint}</div>
@@ -79,7 +94,12 @@
     {#each files as f (f.agentId + ':' + f.path)}
       <button
         class="file"
-        onclick={() => openDiff([f.path], scope === 'agent' ? (agent?.id ?? null) : (f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null), f.path)}
+        onclick={() =>
+          openDiff(
+            [f.path],
+            scope === 'agent' ? (agent?.id ?? null) : f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null,
+            f.path,
+          )}
       >
         <span class="st" style:color={SC[f.status]}>{f.status}</span>
         <span class="names">
@@ -110,7 +130,9 @@
   </div>
   {#if scope === 'agent' && agent?.worktree}
     <div class="foot merge">
-      <button class="btn" style="flex:1" onclick={() => agent && mergeAgent(agent)}>Merger {agent.worktree.branch} → {agent.worktree.baseBranch}…</button>
+      <button class="btn" style="flex:1" onclick={() => agent && mergeAgent(agent)}
+        >Merger {agent.worktree.branch} → {agent.worktree.baseBranch}…</button
+      >
     </div>
   {/if}
 </aside>

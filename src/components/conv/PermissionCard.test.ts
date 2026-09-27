@@ -57,7 +57,12 @@ describe('PermissionCard', () => {
   });
 
   it('summarizes the decision once answered', () => {
-    render(PermissionCard, { item: item({ decision: 'deny', message: 'utilise npm run clean' }), agentId: 'a1', pending: false, cwd: 'C:\\code' });
+    render(PermissionCard, {
+      item: item({ decision: 'deny', message: 'utilise npm run clean' }),
+      agentId: 'a1',
+      pending: false,
+      cwd: 'C:\\code',
+    });
     expect(screen.getByText(/Refusé/)).toBeInTheDocument();
     expect(screen.getByText(/utilise npm run clean/)).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();

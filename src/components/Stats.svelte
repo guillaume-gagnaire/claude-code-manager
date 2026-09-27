@@ -17,13 +17,24 @@
   let view = $state<StatsView | null>(null);
   let table = $state(false);
   let hover = $state<number | null>(null);
+  let error = $state<string | null>(null);
   let loadTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     const r = range;
     void app.usage.todayCost; // refresh when new turns are recorded
     clearTimeout(loadTimer);
-    loadTimer = setTimeout(() => api.stats(r).then((v) => (view = v)), 50);
+    loadTimer = setTimeout(
+      () =>
+        api
+          .stats(r)
+          .then((v) => {
+            view = v;
+            error = null;
+          })
+          .catch((e) => (error = String(e))),
+      50,
+    );
     localStorage.setItem('ccm.statsRange', r);
   });
 
@@ -48,7 +59,11 @@
     <div class="top">
       <div class="title">
         <span class="h">Statistiques</span>
-        <span class="s">Agents lancés depuis l'app · {projectCount} projet{projectCount > 1 ? 's' : ''}, {agentCount} agent{agentCount > 1 ? 's' : ''}</span>
+        <span class="s"
+          >Agents lancés depuis l'app · {projectCount} projet{projectCount > 1 ? 's' : ''}, {agentCount} agent{agentCount > 1
+            ? 's'
+            : ''}</span
+        >
       </div>
       <div style="flex:1"></div>
       <div class="ranges">
@@ -73,7 +88,9 @@
         <div class="kpi">
           <span class="kl">Coût moyen / prompt</span>
           <span class="kv mono">{k.costPerPrompt !== null ? fUsd(k.costPerPrompt) : '—'}</span>
-          <span class="ks">{k.tokensPerPrompt !== null ? `≈ ${fTok(k.tokensPerPrompt)} tokens / prompt` : 'aucun prompt sur la période'}</span>
+          <span class="ks"
+            >{k.tokensPerPrompt !== null ? `≈ ${fTok(k.tokensPerPrompt)} tokens / prompt` : 'aucun prompt sur la période'}</span
+          >
         </div>
         <div class="kpi">
           <span class="kl">Prompts</span>
@@ -132,7 +149,9 @@
                     <div class="tip" class:left={i > view.buckets.length / 2}>
                       <div class="tt">{b.label}</div>
                       {#each SERIES as s (s.key)}
-                        <div class="tr"><span class="sw" style:background={s.color}></span>{s.label}<span class="tv mono">{fTok(b[s.key])}</span></div>
+                        <div class="tr">
+                          <span class="sw" style:background={s.color}></span>{s.label}<span class="tv mono">{fTok(b[s.key])}</span>
+                        </div>
                       {/each}
                       <div class="tr total">Total<span class="tv mono">{fTok(total(b))}</span></div>
                       <div class="tr">Coût<span class="tv mono">{fUsd(b.cost)}</span></div>
@@ -156,7 +175,13 @@
             {@const p = projectOf(s.key)}
             <div class="share">
               <span class="sname"><span class="psw" style:background={p.color}></span>{p.name}</span>
-              <div class="track"><div class="fill" style:width="{(s.tokens / Math.max(1, view.byProject[0].tokens)) * 100}%" style:background={p.color}></div></div>
+              <div class="track">
+                <div
+                  class="fill"
+                  style:width="{(s.tokens / Math.max(1, view.byProject[0].tokens)) * 100}%"
+                  style:background={p.color}
+                ></div>
+              </div>
               <span class="stok mono">{fTok(s.tokens)}</span>
               <span class="scost mono">{fUsd(s.cost)}</span>
             </div>
@@ -178,6 +203,8 @@
           {/each}
         </section>
       </div>
+    {:else if error}
+      <div class="loading">Statistiques indisponibles : {error}</div>
     {:else}
       <div class="loading">Chargement…</div>
     {/if}

@@ -2,7 +2,7 @@
   import { app } from '../lib/state.svelte';
 </script>
 
-<div class="toasts">
+<div class="toasts" role="status" aria-live="polite">
   {#each app.toasts as t (t.id)}
     <div class="toast {t.kind}">{t.text}</div>
   {/each}

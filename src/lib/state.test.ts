@@ -57,7 +57,11 @@ describe('AppState', () => {
     const { emit } = await start();
     const c = conversationOf('a1');
     await new Promise((r) => setTimeout(r));
-    emit({ type: 'conv', agentId: 'a1', ops: [{ op: 'append', item: { kind: 'user', id: 'u1', text: 'Salut', images: 0, ts: 1, queued: false } }] });
+    emit({
+      type: 'conv',
+      agentId: 'a1',
+      ops: [{ op: 'append', item: { kind: 'user', id: 'u1', text: 'Salut', images: 0, ts: 1, queued: false } }],
+    });
     expect(c.items.map((i) => i.id)).toEqual(['u1']);
   });
 
@@ -101,5 +105,36 @@ describe('AppState', () => {
     const out = await app.run(Promise.reject('Le dossier C:\\x n’existe plus'));
     expect(out).toBeUndefined();
     expect(app.toasts.at(-1)).toMatchObject({ kind: 'error', text: 'Le dossier C:\\x n’existe plus' });
+  });
+});
+
+describe('AppState start-up', () => {
+  it('keeps backend events received while the initial snapshot was loading', async () => {
+    let channel: { onmessage: (e: UiEvent) => void } | null = null;
+    let release!: (s: InitialState) => void;
+    fakeBackend({
+      subscribe: (args: any) => {
+        channel = args.channel;
+        return new Promise<InitialState>((r) => (release = r));
+      },
+    });
+    const init = app.init();
+    await new Promise((r) => setTimeout(r));
+    // The agent started working before the (older) snapshot reached the UI.
+    channel!.onmessage({ type: 'agent', agent: agent({ status: 'running', tokens: 500 }) });
+    release({
+      projects: [project()],
+      agents: [agent({ status: 'done', tokens: 100 })],
+      ui: { activeProject: 'p1', view: 'project', selectedAgent: {} },
+      settings: SETTINGS,
+      usage: { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 },
+      git: {},
+      shells: [],
+      terminals: [],
+      claudeFound: true,
+      version: '0.1.0',
+    });
+    await init;
+    expect(app.agents.a1).toMatchObject({ status: 'running', tokens: 500 });
   });
 });

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from './lib/ipc';
   import { app } from './lib/state.svelte';
-  import { newTerminal } from './lib/term-actions';
+  import { handleShortcut } from './lib/shortcuts';
   import { checkForUpdate } from './lib/updater';
   import { createWarmer } from './lib/warm';
   import ContextMenu from './components/ContextMenu.svelte';
@@ -38,36 +38,7 @@
   $effect(() => warmSelected(app.agent));
 
   function onKeydown(e: KeyboardEvent) {
-    if (!e.ctrlKey || e.altKey) return;
-    const k = e.key.toLowerCase();
-    if (/^[1-9]$/.test(e.key) && !e.shiftKey) {
-      const p = app.projects[Number(e.key) - 1];
-      if (p) {
-        app.selectProject(p.id);
-        e.preventDefault();
-      }
-    } else if (k === 'n' && !e.shiftKey && app.project) {
-      e.preventDefault();
-      app.newAgent();
-    } else if (k === 'j') {
-      e.preventDefault();
-      app.nextWaiting();
-    } else if (k === ',') {
-      e.preventDefault();
-      app.modal = { kind: 'settings' };
-    } else if (k === 't' && !e.shiftKey && app.project) {
-      e.preventDefault();
-      newTerminal(app.project.id);
-    } else if (k === 'b' && e.shiftKey) {
-      e.preventDefault();
-      app.filesOpen = !app.filesOpen;
-    } else if (k === 'tab' && app.project) {
-      e.preventDefault();
-      const list = app.projectAgents;
-      if (!list.length) return;
-      const i = list.findIndex((a) => a.id === app.agent?.id);
-      app.selectAgent(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].id);
-    }
+    if (handleShortcut(e)) e.preventDefault();
   }
 </script>
 

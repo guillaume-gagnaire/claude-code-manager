@@ -80,7 +80,12 @@ export const test = base.extend<{ app: App }>({
     await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
     const launches = () =>
       fs.existsSync(log)
-        ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+        ? fs
+            .readFileSync(log, 'utf8')
+            .trim()
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l))
         : [];
     await use({ page, repo, data, launches });
     await browser.close().catch(() => {});
@@ -96,12 +101,14 @@ export const test = base.extend<{ app: App }>({
 });
 
 /** Adds `repo` as a project through the "Nouveau projet" dialog, with a first agent. */
-export async function addProject(page: Page, repo: string, opts: { worktrees?: boolean } = {}) {
+export async function addProject(page: Page, repo: string, opts: { worktrees?: boolean; name?: string; firstAgent?: boolean } = {}) {
   await page.getByRole('button', { name: 'Ajouter un projet' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Nouveau projet' });
   await dialog.getByPlaceholder('C:\\chemin\\vers\\le\\projet').fill(repo);
   await expect(dialog.getByText(/Dépôt git détecté · branche main · propre/)).toBeVisible();
-  if (opts.worktrees) await dialog.getByRole('button', { name: 'Un worktree git par agent' }).click();
+  if (opts.name) await dialog.locator('input').nth(1).fill(opts.name);
+  if (opts.firstAgent === false) await dialog.getByRole('switch', { name: 'Créer un premier agent' }).click();
+  if (opts.worktrees) await dialog.getByRole('switch', { name: 'Un worktree git par agent' }).click();
   await dialog.getByRole('button', { name: 'Créer le projet' }).click();
   await expect(dialog).toBeHidden();
 }

@@ -33,12 +33,12 @@
 {#if pending}
   <div class="card pending" data-testid="question-pending">
     <div class="title"><span class="pulse" style="width:8px;height:8px"></span>Claude attend ta réponse</div>
-    {#each item.questions as q (q.question)}
+    {#each item.questions as q, qi (qi)}
       <div class="q">
         {#if q.header && item.questions.length > 1}<span class="chip">{q.header}</span>{/if}
         <div class="text">{q.question}</div>
         <div class="opts">
-          {#each q.options as o, j (o.label)}
+          {#each q.options as o, j (j)}
             {@const on = (picks[q.question] ?? []).includes(o.label)}
             <button
               class="opt"
@@ -54,7 +54,7 @@
         </div>
         {#if q.options.some((o) => o.description)}
           <div class="descs">
-            {#each q.options as o (o.label)}
+            {#each q.options as o, j (j)}
               {#if o.description}<div><b>{o.label}</b> — {o.description}</div>{/if}
             {/each}
           </div>
@@ -70,14 +70,14 @@
   </div>
 {:else if item.answers}
   <div class="card done">
-    {#each item.questions as q (q.question)}
+    {#each item.questions as q, qi (qi)}
       <div class="done-q">{q.question}</div>
       <div class="ans mono">→ {item.answers[q.question] ?? '—'}</div>
     {/each}
   </div>
 {:else}
   <div class="card done">
-    {#each item.questions as q (q.question)}<div class="done-q">{q.question}</div>{/each}
+    {#each item.questions as q, qi (qi)}<div class="done-q">{q.question}</div>{/each}
     <div class="ans mono" style="color:var(--dim)">Question restée sans réponse</div>
   </div>
 {/if}

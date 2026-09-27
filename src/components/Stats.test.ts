@@ -72,3 +72,17 @@ describe('Stats', () => {
     expect(screen.getByText('Opus 5.5')).toBeInTheDocument();
   });
 });
+
+describe('Stats errors', () => {
+  it('says when the statistics cannot be read', async () => {
+    resetApp({ projects: [project()] });
+    fakeBackend({
+      stats: () => {
+        throw new Error('base verrouillée');
+      },
+    });
+    render(Stats);
+    expect(await screen.findByText(/base verrouillée/)).toBeInTheDocument();
+    expect(screen.queryByText('Chargement…')).not.toBeInTheDocument();
+  });
+});

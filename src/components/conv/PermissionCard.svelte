@@ -52,8 +52,10 @@
   </div>
 {:else}
   <div class="line mono" class:denied={item.decision === 'deny'}>
-    {#if item.decision === 'deny'}✕ Refusé{:else if item.decision}✓ {item.decision === 'always' ? 'Toujours autorisé' : 'Autorisé'}{:else}· Demande annulée{/if}
-    · {toolLabel(item.toolName)} {isPlan ? '' : summary}
+    {#if item.decision === 'deny'}✕ Refusé{:else if item.decision}✓ {item.decision === 'always' ? 'Toujours autorisé' : 'Autorisé'}{:else}·
+      Demande annulée{/if}
+    · {toolLabel(item.toolName)}
+    {isPlan ? '' : summary}
     {#if item.message}<span class="msg">— {item.message}</span>{/if}
   </div>
 {/if}

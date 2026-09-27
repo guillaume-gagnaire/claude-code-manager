@@ -42,16 +42,43 @@ describe('ToolRow', () => {
   });
 
   it('lists subagent tools under the Agent call', async () => {
-    const child = tool({ id: 'c1', name: 'Read', input: { file_path: 'C:\\code\\app\\README.md' }, parent: 't', result: { isError: false, text: 'a\nb' } });
-    render(ToolRow, { item: tool({ name: 'Task', input: { description: 'Explorer', prompt: 'Trouve les routes' } }), cwd: CWD, children: [child] });
+    const child = tool({
+      id: 'c1',
+      name: 'Read',
+      input: { file_path: 'C:\\code\\app\\README.md' },
+      parent: 't',
+      result: { isError: false, text: 'a\nb' },
+    });
+    render(ToolRow, {
+      item: tool({ name: 'Task', input: { description: 'Explorer', prompt: 'Trouve les routes' } }),
+      cwd: CWD,
+      childrenOf: (id: string) => (id === 't' ? [child] : []),
+    });
     expect(screen.getByText('1 outil')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Explorer/ }));
     expect(screen.getByText('Trouve les routes')).toBeInTheDocument();
     expect(screen.getByText('README.md')).toBeInTheDocument();
   });
 
+  it('shows the tools of a subagent started by a subagent', async () => {
+    const inner = tool({ id: 'inner', name: 'Task', input: { description: 'Sous-tâche' }, parent: 'outer' });
+    const leaf = tool({ id: 'leaf', name: 'Grep', input: { pattern: 'TODO' }, parent: 'inner', result: { isError: false, text: 'a.ts' } });
+    const all: Record<string, ToolItem[]> = { outer: [inner], inner: [leaf] };
+    render(ToolRow, {
+      item: tool({ id: 'outer', name: 'Task', input: { description: 'Principale' } }),
+      cwd: CWD,
+      childrenOf: (id: string) => all[id] ?? [],
+    });
+    await userEvent.click(screen.getByRole('button', { name: /Principale/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Sous-tâche/ }));
+    expect(screen.getByText('TODO')).toBeInTheDocument();
+  });
+
   it('flags failed tools', () => {
-    const { container } = render(ToolRow, { item: tool({ status: 'error', input: { command: 'npm run x' }, result: { isError: true, text: 'npm ERR! missing script' } }), cwd: CWD });
+    const { container } = render(ToolRow, {
+      item: tool({ status: 'error', input: { command: 'npm run x' }, result: { isError: true, text: 'npm ERR! missing script' } }),
+      cwd: CWD,
+    });
     expect(container.querySelector('.tool.err')).not.toBeNull();
     expect(screen.getByText('npm ERR! missing script')).toBeInTheDocument();
   });

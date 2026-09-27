@@ -26,12 +26,21 @@ describe('renderMarkdown', () => {
   });
 
   it('strips scripts, event handlers and javascript: links from model output', () => {
-    const d = dom('<img src=x onerror="alert(1)"><script>alert(2)</script>[clic](javascript:alert(3)) <iframe src="https://evil"></iframe>');
+    const d = dom(
+      '<img src=x onerror="alert(1)"><script>alert(2)</script>[clic](javascript:alert(3)) <iframe src="https://evil"></iframe>',
+    );
     expect(d.querySelector('script')).toBeNull();
     expect(d.querySelector('iframe')).toBeNull();
-    expect(d.querySelector('img')?.getAttribute('onerror')).toBeNull();
+    expect(d.querySelector('[onerror]')).toBeNull();
     const a = d.querySelector('a');
     expect(a?.getAttribute('href') ?? '').not.toMatch(/javascript:/i);
+  });
+
+  it('drops inline styles and classes so a reply cannot overlay the app (e.g. a fake permission button)', () => {
+    const d = dom('<div style="position:fixed;inset:0;z-index:99" class="card pending">Refuser</div>');
+    expect(d.querySelector('[style]')).toBeNull();
+    expect(d.querySelector('.pending')).toBeNull();
+    expect(d.textContent).toContain('Refuser');
   });
 
   it('marks links as noopener', () => {

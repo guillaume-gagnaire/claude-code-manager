@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { api } from '../lib/ipc';
   import { conversationOf } from '../lib/conversations.svelte';
   import { fDur, fTok, fUsd } from '../lib/format';
@@ -19,7 +20,13 @@
   let { agent, project }: { agent: Agent; project: Project } = $props();
 
   const SL: Record<string, string> = { running: 'En cours', waiting: 'Question', idle: 'Prêt', done: 'Terminé', error: 'Erreur' };
-  const SC: Record<string, string> = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)', error: 'var(--del)' };
+  const SC: Record<string, string> = {
+    running: 'var(--ok)',
+    waiting: 'var(--wait)',
+    idle: 'var(--dim)',
+    done: 'var(--ok)',
+    error: 'var(--del)',
+  };
 
   const conv = $derived(conversationOf(agent.id));
   const top = $derived(conv.items.filter((i) => !i.parent));
@@ -53,9 +60,8 @@
     showJump = false;
   }
 
-  $effect(() => {
-    void agent.id;
-    stick = true;
+  // The view is re-created for each agent ({#key}): scroll down once, not on every agent update.
+  onMount(() => {
     requestAnimationFrame(toBottom);
   });
 
@@ -97,7 +103,12 @@
       <span class="model mono" title="Contexte actuel : {fTok(agent.contextTokens)} tokens">{modelLabel(agent.model)}</span>
       <div class="m"><span class="k">Tokens</span><span class="v mono">{fTok(agent.tokens)}</span></div>
       <div class="m"><span class="k">Coût</span><span class="v mono">{fUsd(agent.cost)}</span></div>
-      <button class="m files" class:open={app.filesOpen} title="Voir les fichiers non commités" onclick={() => (app.filesOpen = !app.filesOpen)}>
+      <button
+        class="m files"
+        class:open={app.filesOpen}
+        title="Voir les fichiers non commités"
+        onclick={() => (app.filesOpen = !app.filesOpen)}
+      >
         <span class="k">Fichiers ▸</span><span class="v mono">{files}</span>
       </button>
       <div class="m"><span class="k">Durée</span><span class="v mono">{duration}</span></div>
@@ -106,7 +117,12 @@
 
   <div class="scroll" bind:this={scroller} onscroll={() => ((stick = atBottom()), stick && (showJump = false))}>
     <div class="msgs" bind:this={content}>
-      {#if conv.loaded && top.length === 0}
+      {#if conv.error}
+        <div class="load-error">
+          Impossible de charger la conversation : {conv.error}
+          <button class="btn" onclick={() => conv.load()}>Réessayer</button>
+        </div>
+      {:else if conv.loaded && top.length === 0}
         <div class="empty">
           <span class="t">Agent prêt</span>
           <span class="s">Décris la tâche à confier à Claude. L'agent travaille dans <span class="mono">{agent.cwd}</span>.</span>
@@ -129,7 +145,7 @@
           <Thinking {item} />
         {:else if item.kind === 'tool'}
           {#if item.name !== 'AskUserQuestion' && item.name !== 'ExitPlanMode'}
-            <ToolRow {item} cwd={agent.cwd} children={children.get(item.id) ?? []} />
+            <ToolRow {item} cwd={agent.cwd} childrenOf={(id) => children.get(id) ?? []} />
           {/if}
         {:else if item.kind === 'question'}
           <QuestionCard {item} agentId={agent.id} pending={agent.pending.includes(item.id)} />
@@ -294,6 +310,17 @@
     max-width: 420px;
     color: var(--wait);
     font-size: 12.5px;
+  }
+  .load-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--r);
+    border: 1px solid color-mix(in oklch, var(--del) 50%, transparent);
+    font-size: 12.5px;
+    color: var(--muted);
   }
   .assistant {
     display: flex;

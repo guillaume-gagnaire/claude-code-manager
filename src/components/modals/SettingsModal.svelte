@@ -12,6 +12,8 @@
 
   async function save() {
     busy = true;
+    // An emptied number field is null: the backend expects a number.
+    s.idleStopMinutes = Math.max(0, Math.floor(Number(s.idleStopMinutes) || 0));
     const shells = await app.run(api.saveSettings($state.snapshot(s)));
     busy = false;
     if (!shells) return;
@@ -34,24 +36,34 @@
     <h3>Claude Code</h3>
     <label class="f">
       <span>Chemin de l'exécutable <em>(vide = détection automatique)</em></span>
-      <input class="field mono" bind:value={s.claudePath} placeholder={app.claudeFound ? 'claude (trouvé dans le PATH)' : 'introuvable — indique le chemin de claude.exe'} />
+      <input
+        class="field mono"
+        bind:value={s.claudePath}
+        placeholder={app.claudeFound ? 'claude (trouvé dans le PATH)' : 'introuvable — indique le chemin de claude.exe'}
+      />
     </label>
     <div class="f">
       <span>Modèle par défaut</span>
       <div class="segmented">
-        {#each MODELS as m (m.value)}<button class:on={s.defaultModel === m.value} onclick={() => (s.defaultModel = m.value)}>{m.label}</button>{/each}
+        {#each MODELS as m (m.value)}<button class:on={s.defaultModel === m.value} onclick={() => (s.defaultModel = m.value)}
+            >{m.label}</button
+          >{/each}
       </div>
     </div>
     <div class="f">
       <span>Effort par défaut</span>
       <div class="segmented">
-        {#each EFFORTS as e (e.value)}<button class:on={s.defaultEffort === e.value} onclick={() => (s.defaultEffort = e.value)}>{e.label}</button>{/each}
+        {#each EFFORTS as e (e.value)}<button class:on={s.defaultEffort === e.value} onclick={() => (s.defaultEffort = e.value)}
+            >{e.label}</button
+          >{/each}
       </div>
     </div>
     <div class="f">
       <span>Mode de permission par défaut</span>
       <div class="segmented">
-        {#each MODES as m (m.value)}<button class:on={s.defaultMode === m.value} title={m.title} onclick={() => (s.defaultMode = m.value)}>{m.label}</button>{/each}
+        {#each MODES as m (m.value)}<button class:on={s.defaultMode === m.value} title={m.title} onclick={() => (s.defaultMode = m.value)}
+            >{m.label}</button
+          >{/each}
       </div>
     </div>
     <label class="f">
@@ -65,11 +77,19 @@
     <div class="toggle">
       <span>Son (question de Claude, fin de tour)</span>
       <button class="btn ghost small" onclick={() => api.playChime()}>Tester</button>
-      <button class="switch" class:on={s.sound} aria-label="Son" onclick={() => (s.sound = !s.sound)}></button>
+      <button class="switch" role="switch" aria-checked={s.sound} class:on={s.sound} aria-label="Son" onclick={() => (s.sound = !s.sound)}
+      ></button>
     </div>
     <div class="toggle">
       <span>Notifications Windows quand l'app n'est pas au premier plan</span>
-      <button class="switch" class:on={s.osNotifications} aria-label="Notifications Windows" onclick={() => (s.osNotifications = !s.osNotifications)}></button>
+      <button
+        class="switch"
+        role="switch"
+        aria-checked={s.osNotifications}
+        class:on={s.osNotifications}
+        aria-label="Notifications Windows"
+        onclick={() => (s.osNotifications = !s.osNotifications)}
+      ></button>
     </div>
   </section>
 
@@ -85,16 +105,32 @@
     </label>
     <div class="toggle">
       <span>Appliquer aussi le proxy aux terminaux intégrés</span>
-      <button class="switch" class:on={s.proxyTerminals} aria-label="Proxy dans les terminaux" onclick={() => (s.proxyTerminals = !s.proxyTerminals)}></button>
+      <button
+        class="switch"
+        role="switch"
+        aria-checked={s.proxyTerminals}
+        class:on={s.proxyTerminals}
+        aria-label="Proxy dans les terminaux"
+        onclick={() => (s.proxyTerminals = !s.proxyTerminals)}
+      ></button>
     </div>
-    <p class="note">Le proxy est transmis aux processus Claude Code, à la lecture des quotas et aux mises à jour. Il s'applique aux agents au prochain (re)démarrage de leur processus.</p>
+    <p class="note">
+      Le proxy est transmis aux processus Claude Code, à la lecture des quotas et aux mises à jour. Il s'applique aux agents au prochain
+      (re)démarrage de leur processus.
+    </p>
   </section>
 
   <section>
     <h3>Terminaux</h3>
     <label class="f"><span>PowerShell 7 <em>(vide = auto)</em></span><input class="field mono" bind:value={s.pwshPath} /></label>
     <label class="f"><span>Git Bash <em>(vide = auto)</em></span><input class="field mono" bind:value={s.bashPath} /></label>
-    <label class="f"><span>Distribution WSL <em>(vide = distribution par défaut)</em></span><input class="field mono" bind:value={s.wslDistro} placeholder="Ubuntu" /></label>
+    <label class="f"
+      ><span>Distribution WSL <em>(vide = distribution par défaut)</em></span><input
+        class="field mono"
+        bind:value={s.wslDistro}
+        placeholder="Ubuntu"
+      /></label
+    >
     <div class="detected">
       Détectés : {app.shells.map((x) => x.label).join(', ') || 'aucun'}
     </div>
@@ -102,7 +138,13 @@
 
   <section>
     <h3>Éditeur</h3>
-    <label class="f"><span>Commande pour ouvrir un fichier ou un dossier</span><input class="field mono" bind:value={s.editorCommand} placeholder="code" /></label>
+    <label class="f"
+      ><span>Commande pour ouvrir un fichier ou un dossier</span><input
+        class="field mono"
+        bind:value={s.editorCommand}
+        placeholder="code"
+      /></label
+    >
   </section>
 
   <section>

@@ -39,7 +39,10 @@ function assistant(block, id = `msg_${process.pid}_${++msg}`) {
 function streamText(text) {
   const id = `msg_${process.pid}_${++msg}`;
   const ev = (event) => out({ type: 'stream_event', event, parent_tool_use_id: null, session_id: sessionId });
-  ev({ type: 'message_start', message: { id, usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0 } } });
+  ev({
+    type: 'message_start',
+    message: { id, usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0 } },
+  });
   ev({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
   for (const part of text.match(/.{1,6}/gs) ?? []) ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: part } });
   assistant({ type: 'text', text }, id);
@@ -61,11 +64,21 @@ function result({ isError = false, subtype = 'success' } = {}) {
     result: isError ? 'Erreur simulée' : 'ok',
     modelUsage: { [`claude-${model}-test`]: { ...usage, canonicalModel: `claude-${model}-test` } },
   });
-  out({ type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 0.12, resetsAt: 1790558400 }, seven_day: { utilization: 0.34, resetsAt: 1790805600 } } } });
+  out({
+    type: 'rate_limit_event',
+    rate_limit_info: {
+      unifiedWindows: { five_hour: { utilization: 0.12, resetsAt: 1790558400 }, seven_day: { utilization: 0.34, resetsAt: 1790805600 } },
+    },
+  });
 }
 
 function toolResult(toolUseId, content, extra = {}) {
-  out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: false }] }, parent_tool_use_id: null, ...extra });
+  out({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: false }] },
+    parent_tool_use_id: null,
+    ...extra,
+  });
 }
 
 function onUser(text) {
@@ -81,9 +94,25 @@ function onUser(text) {
   if (text.includes('question')) {
     const tuid = `toolu_q${msg}`;
     assistant({ type: 'tool_use', id: tuid, name: 'AskUserQuestion', input: {} });
-    const input = { questions: [{ question: 'Quelle base de données ?', header: 'Base', multiSelect: false, options: [{ label: 'PostgreSQL', description: 'Relationnelle' }, { label: 'SQLite', description: 'Embarquée' }] }] };
+    const input = {
+      questions: [
+        {
+          question: 'Quelle base de données ?',
+          header: 'Base',
+          multiSelect: false,
+          options: [
+            { label: 'PostgreSQL', description: 'Relationnelle' },
+            { label: 'SQLite', description: 'Embarquée' },
+          ],
+        },
+      ],
+    };
     pendingAnswer = { id: 'req_question', tuid, kind: 'question' };
-    out({ type: 'control_request', request_id: 'req_question', request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input, tool_use_id: tuid, requires_user_interaction: true } });
+    out({
+      type: 'control_request',
+      request_id: 'req_question',
+      request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input, tool_use_id: tuid, requires_user_interaction: true },
+    });
     return;
   }
   if (text.includes('permission')) {
@@ -95,8 +124,14 @@ function onUser(text) {
       type: 'control_request',
       request_id: 'req_perm',
       request: {
-        subtype: 'can_use_tool', tool_name: 'Bash', input, tool_use_id: tuid, decision_reason: 'Commande destructive',
-        permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'rm -rf build' }], behavior: 'allow', destination: 'localSettings' }],
+        subtype: 'can_use_tool',
+        tool_name: 'Bash',
+        input,
+        tool_use_id: tuid,
+        decision_reason: 'Commande destructive',
+        permission_suggestions: [
+          { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'rm -rf build' }], behavior: 'allow', destination: 'localSettings' },
+        ],
       },
     });
     return;
@@ -106,7 +141,12 @@ function onUser(text) {
     const file = path.join(process.cwd(), 'src', 'app.ts');
     assistant({ type: 'tool_use', id: tuid, name: 'Edit', input: { file_path: file, old_string: 'a', new_string: 'b' } });
     toolResult(tuid, 'The file has been updated.', {
-      tool_use_result: { filePath: file, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['-const a = 1;', '+const a = 2;', '+const b = 3;'] }] },
+      tool_use_result: {
+        filePath: file,
+        structuredPatch: [
+          { oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['-const a = 1;', '+const a = 2;', '+const b = 3;'] },
+        ],
+      },
     });
     streamText('Fichier modifié.');
     result();
@@ -134,7 +174,11 @@ function onControlResponse(resp) {
     toolResult(p.tuid, 'build supprimé', { tool_use_result: { stdout: 'build supprimé', stderr: '', interrupted: false } });
     streamText(r.updatedPermissions ? 'Commande exécutée (règle enregistrée).' : 'Commande exécutée.');
   } else {
-    out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tuid, content: `Refusé : ${r.message}`, is_error: true }] }, parent_tool_use_id: null });
+    out({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tuid, content: `Refusé : ${r.message}`, is_error: true }] },
+      parent_tool_use_id: null,
+    });
     streamText(`Compris : ${r.message}`);
   }
   result();
@@ -149,9 +193,21 @@ rl.on('line', (line) => {
     const r = m.request;
     switch (r.subtype) {
       case 'initialize':
-        return ok(m.request_id, { commands: [{ name: 'compact', description: 'Compacte le contexte', argumentHint: '' }, { name: 'review', description: 'Revue de code', argumentHint: '[pr]' }], models: [], account: {} });
+        return ok(m.request_id, {
+          commands: [
+            { name: 'compact', description: 'Compacte le contexte', argumentHint: '' },
+            { name: 'review', description: 'Revue de code', argumentHint: '[pr]' },
+          ],
+          models: [],
+          account: {},
+        });
       case 'get_usage':
-        return ok(m.request_id, { rate_limits: { five_hour: { utilization: 12, resets_at: '2026-09-28T01:20:00+00:00' }, seven_day: { utilization: 34, resets_at: '2026-09-30T22:00:00+00:00' } } });
+        return ok(m.request_id, {
+          rate_limits: {
+            five_hour: { utilization: 12, resets_at: '2026-09-28T01:20:00+00:00' },
+            seven_day: { utilization: 34, resets_at: '2026-09-30T22:00:00+00:00' },
+          },
+        });
       case 'interrupt':
         clearTimeout(slowTimer);
         ok(m.request_id, { still_queued: [] });
@@ -160,6 +216,7 @@ rl.on('line', (line) => {
         return ok(m.request_id);
     }
   }
-  if (m.type === 'user') onUser(typeof m.message.content === 'string' ? m.message.content : m.message.content.map((b) => b.text ?? '').join(' '));
+  if (m.type === 'user')
+    onUser(typeof m.message.content === 'string' ? m.message.content : m.message.content.map((b) => b.text ?? '').join(' '));
 });
 rl.on('close', () => process.exit(0));

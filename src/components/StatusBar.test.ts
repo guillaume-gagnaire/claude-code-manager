@@ -28,7 +28,12 @@ describe('StatusBar', () => {
 
   it('shows quotas with the time left before the session reset, and the day cost', () => {
     fakeBackend();
-    app.usage = { fiveHour: { pct: 62, resetsAt: app.now + (1 * 3600 + 48 * 60) * 1000 }, sevenDay: { pct: 38.4, resetsAt: null }, todayCost: 4.12, updatedAt: 1 };
+    app.usage = {
+      fiveHour: { pct: 62, resetsAt: app.now + (1 * 3600 + 48 * 60) * 1000 },
+      sevenDay: { pct: 38.4, resetsAt: null },
+      todayCost: 4.12,
+      updatedAt: 1,
+    };
     render(StatusBar);
     expect(screen.getByText('62 %')).toBeInTheDocument();
     expect(screen.getByText('reset 1h48')).toBeInTheDocument();

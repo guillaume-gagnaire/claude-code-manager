@@ -45,10 +45,14 @@ describe('toolResultSummary', () => {
     expect(toolResultSummary(tool('Grep', {}, { result: { text: '', isError: false } }))).toBe('aucun résultat');
   });
   it('shows the last output line of a command', () => {
-    expect(toolResultSummary(tool('Bash', {}, { result: { text: 'building…\n3 passed · 1 failed\n', isError: false } }))).toBe('3 passed · 1 failed');
+    expect(toolResultSummary(tool('Bash', {}, { result: { text: 'building…\n3 passed · 1 failed\n', isError: false } }))).toBe(
+      '3 passed · 1 failed',
+    );
   });
   it('shows the error for failed tools', () => {
-    expect(toolResultSummary(tool('Bash', {}, { status: 'error', result: { text: 'npm ERR! missing script', isError: true } }))).toBe('npm ERR! missing script');
+    expect(toolResultSummary(tool('Bash', {}, { status: 'error', result: { text: 'npm ERR! missing script', isError: true } }))).toBe(
+      'npm ERR! missing script',
+    );
   });
   it('is empty while running', () => {
     expect(toolResultSummary(tool('Bash', {}, { status: 'running' }))).toBe('');

@@ -9,11 +9,16 @@
     <p>Ajoute un projet pour y lancer des agents Claude Code, suivre leurs questions et ouvrir des terminaux.</p>
     {#if !app.claudeFound}
       <p class="warn">
-        Claude Code est introuvable sur ce poste. Installe-le (<span class="mono">irm https://claude.ai/install.ps1 | iex</span>) ou indique son chemin dans les
-        réglages.
+        Claude Code est introuvable sur ce poste. Installe-le (<span class="mono">irm https://claude.ai/install.ps1 | iex</span>) ou indique
+        son chemin dans les réglages.
       </p>
     {/if}
-    <button class="btn primary big" onclick={() => (app.modal = { kind: 'newProject' })}>+ Ajouter un projet</button>
+    <button
+      class="btn primary big"
+      onclick={() => {
+        app.modal = { kind: 'newProject' };
+      }}>+ Ajouter un projet</button
+    >
   </div>
 </div>
 

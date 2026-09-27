@@ -1,6 +1,7 @@
 <script lang="ts">
   import { parseUnifiedDiff, splitRows, type DiffFile, type DiffLine } from '../lib/diff';
   import { api } from '../lib/ipc';
+  import { trapFocus } from '../lib/focus';
   import { app } from '../lib/state.svelte';
 
   let { projectId, agentId, paths, title }: { projectId: string; agentId: string | null; paths: string[]; title: string } = $props();
@@ -25,7 +26,9 @@
   });
 
   const file = $derived(files[current]);
-  const lines = $derived<DiffLine[]>(file ? file.hunks.flatMap((h) => [{ kind: 'meta', text: h.header, oldNo: null, newNo: null } as DiffLine, ...h.lines]) : []);
+  const lines = $derived<DiffLine[]>(
+    file ? file.hunks.flatMap((h) => [{ kind: 'meta', text: h.header, oldNo: null, newNo: null } as DiffLine, ...h.lines]) : [],
+  );
 
   function toggleSplit() {
     split = !split;
@@ -37,7 +40,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="overlay" onclick={() => (app.modal = null)}>
-  <div class="win" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" aria-label={title}>
+  <div class="win" use:trapFocus onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" aria-label={title}>
     <div class="head">
       <span class="t">{title}</span>
       <span class="n mono">{files.length} fichier{files.length > 1 ? 's' : ''}</span>

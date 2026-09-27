@@ -8,6 +8,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from './ipc';
+import { isAppShortcut } from './shortcuts';
 import type { TermInfo } from './types';
 
 export interface XTerm {
@@ -101,11 +102,21 @@ export async function openTerminal(projectId: string, shell: string, name: strin
   }
   fit.fit();
 
-  const info = await api.termSpawn({ projectId, shell, name, cols: term.cols, rows: term.rows }, (buf) => term.write(new Uint8Array(buf)));
+  let info: TermInfo;
+  try {
+    info = await api.termSpawn({ projectId, shell, name, cols: term.cols, rows: term.rows }, (buf) => term.write(new Uint8Array(buf)));
+  } catch (e) {
+    // Nothing to attach to: free the xterm instance, its WebGL context and its host.
+    term.dispose();
+    host.remove();
+    throw e;
+  }
   term.onData((d) => api.termWrite(info.id, d).catch(() => {}));
   term.onResize(({ cols, rows }) => api.termResize(info.id, cols, rows).catch(() => {}));
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
+    // Navigation shortcuts go to the app (the event keeps bubbling to its window handler).
+    if (isAppShortcut(e)) return false;
     // Windows Terminal conventions: Ctrl+C copies when there is a selection, Ctrl+V pastes.
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c' && term.hasSelection()) {
       navigator.clipboard.writeText(term.getSelection());

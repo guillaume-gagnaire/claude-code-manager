@@ -21,8 +21,12 @@
 
   let { agent }: { agent: Agent } = $props();
 
-  let text = $state('');
-  let images = $state<Img[]>([]);
+  // The agent object is replaced on every backend update: only its id may drive the draft.
+  const agentId = $derived(agent.id);
+  let draftFor = untrack(() => agent.id);
+  const initial = drafts.get(draftFor);
+  let text = $state(initial?.text ?? '');
+  let images = $state<Img[]>(initial?.images ?? []);
   let ta = $state<HTMLTextAreaElement>();
   let trigger = $state<Trigger | null>(null);
   let suggestions = $state<{ label: string; detail: string; value: string }[]>([]);
@@ -30,7 +34,7 @@
   let sending = $state(false);
   let dragOver = $state(false);
   let modeOpen = $state(false);
-  let prevAgent = '';
+  let fileInput = $state<HTMLInputElement>();
   let reqSeq = 0;
 
   const conv = $derived(conversationOf(agent.id));
@@ -48,18 +52,32 @@
         : 'Décris la tâche à confier à Claude…',
   );
 
+  // Reused for another agent (the id itself changed): switch drafts.
   $effect(() => {
-    const id = agent.id;
+    const id = agentId;
+    if (id === draftFor) return;
     untrack(() => {
-      if (prevAgent && prevAgent !== id) drafts.set(prevAgent, { text, images });
+      draftFor = id;
       const d = drafts.get(id);
       text = d?.text ?? '';
       images = d?.images ?? [];
-      prevAgent = id;
       trigger = null;
       suggestions = [];
       queueMicrotask(autosize);
     });
+  });
+
+  // Drafts are saved as they are typed, so they survive agent switches.
+  $effect(() => {
+    const draft = { text, images: images.slice() };
+    untrack(() => {
+      if (draft.text || draft.images.length) drafts.set(draftFor, draft);
+      else drafts.delete(draftFor);
+    });
+  });
+
+  $effect(() => {
+    queueMicrotask(autosize);
   });
 
   $effect(() => {
@@ -125,6 +143,8 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // A dialog is open above the composer: its keys (Escape…) are not for the agent.
+    if (app.modal) return;
     if (suggestions.length) {
       if (e.key === 'ArrowDown') {
         sel = (sel + 1) % suggestions.length;
@@ -206,26 +226,33 @@
   async function send() {
     const body = text.trim();
     if ((!body && !images.length) || sending) return;
+    // Text typed while Claude waits answers the question / refuses the permission.
+    const answering = body ? pendingItem : undefined;
     sending = true;
-    const sentImages = images.map(({ mediaType, data }) => ({ mediaType, data }));
     const prevText = text;
     const prevImages = images;
     text = '';
-    images = [];
-    drafts.delete(agent.id);
-    queueMicrotask(autosize);
-    let ok: unknown;
-    if (pendingItem?.kind === 'question' && body) {
-      const q = pendingItem as QuestionItem;
-      ok = await app.run(api.answerQuestion(agent.id, q.id, Object.fromEntries(q.questions.map((x) => [x.question, body]))));
-    } else if (pendingItem?.kind === 'permission' && body) {
-      ok = await app.run(api.answerPermission(agent.id, pendingItem.id, 'deny', body));
-    } else {
-      ok = await app.run(api.sendMessage(agent.id, body, sentImages));
-    }
-    if (ok === undefined) {
+    if (!answering) images = [];
+    try {
+      if (answering?.kind === 'question') {
+        const q = answering as QuestionItem;
+        await api.answerQuestion(agent.id, q.id, Object.fromEntries(q.questions.map((x) => [x.question, body])));
+      } else if (answering?.kind === 'permission') {
+        await api.answerPermission(agent.id, answering.id, 'deny', body);
+      } else {
+        await api.sendMessage(
+          agent.id,
+          body,
+          prevImages.map(({ mediaType, data }) => ({ mediaType, data })),
+        );
+      }
+      if (answering && prevImages.length) {
+        app.toast("Les images n'accompagnent pas une réponse : elles restent prêtes pour ton prochain message.");
+      }
+    } catch (e) {
       text = prevText;
       images = prevImages;
+      app.toast(String(e), 'error');
     }
     sending = false;
   }
@@ -321,7 +348,13 @@
         {/each}
       </div>
       <div class="mode-wrap">
-        <button class="mode" class:bypass={agent.mode === 'bypassPermissions'} aria-haspopup="menu" aria-expanded={modeOpen} onclick={() => (modeOpen = !modeOpen)}>
+        <button
+          class="mode"
+          class:bypass={agent.mode === 'bypassPermissions'}
+          aria-haspopup="menu"
+          aria-expanded={modeOpen}
+          onclick={() => (modeOpen = !modeOpen)}
+        >
           <span class="lab">Mode</span>{currentMode?.label ?? agent.mode}<span class="chev">▾</span>
         </button>
         {#if modeOpen}
@@ -352,8 +385,42 @@
       {#if busy}
         <button class="btn ghost stop" onclick={stop} title="Interrompre (Échap)">■ Stop</button>
       {/if}
-      <span class="kbd">↵ envoyer</span>
-      <button class="btn primary" disabled={sending || (!text.trim() && !images.length)} onclick={send}>
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        aria-label="Joindre une image"
+        onchange={(e) => {
+          addFiles(e.currentTarget.files ?? []);
+          e.currentTarget.value = '';
+        }}
+      />
+      <button
+        class="icon-btn attach"
+        title="Joindre une image (ou colle / glisse-la)"
+        aria-label="Joindre une image"
+        onclick={() => fileInput?.click()}
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          ><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" /></svg
+        >
+      </button>
+      <button
+        class="btn primary"
+        title="Entrée pour envoyer · Maj+Entrée pour aller à la ligne"
+        disabled={sending || (!text.trim() && !images.length)}
+        onclick={send}
+      >
         {busy && !pendingItem ? 'Mettre en file' : 'Envoyer'}
       </button>
     </div>

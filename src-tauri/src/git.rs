@@ -17,6 +17,8 @@ pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
     cmd.arg("-C")
         .arg(cwd)
         .arg("--no-optional-locks")
+        // Accented paths verbatim (UTF-8) instead of "\303\251" escapes in diff headers.
+        .args(["-c", "core.quotepath=false"])
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
@@ -644,5 +646,42 @@ mod tests {
         assert!(is_relevant(Path::new("C:\\p\\.git\\index")));
         assert!(!is_relevant(Path::new("C:\\p\\.git\\objects\\ab\\cd")));
         assert!(!is_relevant(Path::new("C:\\p\\.git\\index.lock")));
+    }
+}
+
+#[cfg(test)]
+mod repo_tests {
+    use super::*;
+    use std::process::Command;
+
+    fn repo(name: &str) -> String {
+        let dir = crate::paths::test_dir(name);
+        let g = |args: &[&str]| {
+            assert!(Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success())
+        };
+        g(&["init", "-q", "-b", "main"]);
+        g(&["config", "user.email", "t@t"]);
+        g(&["config", "user.name", "t"]);
+        std::fs::write(dir.join("résumé.md"), "a\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "init"]);
+        dir.to_string_lossy().to_string()
+    }
+
+    #[tokio::test]
+    async fn accented_paths_are_not_escaped() {
+        let r = repo("git-accents");
+        std::fs::write(Path::new(&r).join("résumé.md"), "b\n").unwrap();
+        let changes = file_changes(&r).await.unwrap();
+        assert_eq!(changes[0].path, "résumé.md");
+        assert_eq!((changes[0].add, changes[0].del), (1, 1));
+        let d = diff(&r, &[]).await.unwrap();
+        assert!(d.contains("+++ b/résumé.md"), "{d}");
     }
 }

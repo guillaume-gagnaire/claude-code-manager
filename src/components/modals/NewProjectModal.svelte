@@ -83,16 +83,19 @@
     </div>
     <div class="grp">
       <span class="lab">Aperçu de l'onglet</span>
-      <div class="preview" style:border-bottom-color={color}><span class="sw" style:background={color}></span>{name || 'nouveau-projet'}</div>
+      <div class="preview" style:border-bottom-color={color}>
+        <span class="sw" style:background={color}></span>{name || 'nouveau-projet'}
+      </div>
     </div>
   </div>
   <div class="grp">
     <span class="lab">Couleur</span>
     <div class="colors">
-      {#each PROJECT_COLORS as c (c)}
+      {#each PROJECT_COLORS as c, i (c)}
         <button
           class="swatch"
-          aria-label="Couleur"
+          aria-label="Couleur {i + 1}"
+          aria-pressed={color === c}
           style:background={c}
           style:box-shadow={color === c ? '0 0 0 2px var(--panel), 0 0 0 4px var(--text)' : 'none'}
           onclick={() => (color = c)}
@@ -107,7 +110,14 @@
         <span class="tt">Créer un premier agent</span>
         <span class="ts">Ouvre directement une conversation dans ce projet</span>
       </div>
-      <button class="switch" class:on={firstAgent} aria-label="Créer un premier agent" onclick={() => (firstAgent = !firstAgent)}></button>
+      <button
+        class="switch"
+        role="switch"
+        aria-checked={firstAgent}
+        class:on={firstAgent}
+        aria-label="Créer un premier agent"
+        onclick={() => (firstAgent = !firstAgent)}
+      ></button>
     </div>
     {#if firstAgent}
       <div class="models">
@@ -122,7 +132,14 @@
         <span class="tt">Un worktree git par agent</span>
         <span class="ts">Isole le travail de chaque agent et permet de voir ses fichiers modifiés séparément</span>
       </div>
-      <button class="switch" class:on={worktree} aria-label="Un worktree git par agent" onclick={() => (worktree = !worktree)}></button>
+      <button
+        class="switch"
+        role="switch"
+        aria-checked={worktree}
+        class:on={worktree}
+        aria-label="Un worktree git par agent"
+        onclick={() => (worktree = !worktree)}
+      ></button>
     </div>
   </div>
   {#snippet footer()}

@@ -30,6 +30,41 @@ describe('Composer', () => {
     expect(backend.called('set_agent_options').at(-1)?.args).toMatchObject({ id: a.id, effort: 'xhigh' });
   });
 
+  it('keeps what is being typed when the agent is updated by the backend', async () => {
+    const a = agent({ id: `k${Math.random()}`, status: 'running' });
+    resetApp({ agents: [a] });
+    fakeBackend({ get_conversation: () => [] });
+    const { rerender } = render(Composer, { agent: a });
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await userEvent.type(textarea, 'Pense aussi aux tests');
+    // Every tool call / token update delivers a new agent object to the composer.
+    await rerender({ agent: { ...a, tokens: 1234, status: 'waiting' } });
+    expect(textarea.value).toBe('Pense aussi aux tests');
+  });
+
+  it('restores the draft of an agent after switching away and back', async () => {
+    const a = agent({ id: `d${Math.random()}` });
+    const b = agent({ id: `e${Math.random()}` });
+    resetApp({ agents: [a, b] });
+    fakeBackend({ get_conversation: () => [] });
+    const first = render(Composer, { agent: app.agents[a.id] });
+    await userEvent.type(screen.getByRole('textbox'), 'brouillon de A');
+    first.unmount(); // App re-creates the composer for each agent ({#key})
+    const second = render(Composer, { agent: app.agents[b.id] });
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+    second.unmount();
+    render(Composer, { agent: app.agents[a.id] });
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('brouillon de A');
+  });
+
+  it('ignores Escape while a dialog is open', async () => {
+    const { backend, textarea } = setup({ status: 'running' });
+    app.modal = { kind: 'settings' };
+    textarea.focus();
+    await fireEvent.keyDown(textarea, { key: 'Escape' });
+    expect(backend.called('interrupt')).toHaveLength(0);
+  });
+
   it('sends the typed message on Enter and clears the field', async () => {
     const { a, backend, textarea } = setup();
     await userEvent.type(textarea, 'Ajoute des tests{Enter}');
@@ -59,13 +94,23 @@ describe('Composer', () => {
     const { textarea } = setup();
     await userEvent.type(textarea, '/com');
     const options = await screen.findAllByRole('option');
-    expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['/compact Compacte le contexte', '/commit Crée un commit']);
+    expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      '/compact Compacte le contexte',
+      '/commit Crée un commit',
+    ]);
     await userEvent.keyboard('{ArrowDown}{Tab}');
     expect(textarea.value).toBe('/commit ');
   });
 
   it('answers a pending question with the free text instead of sending a message', async () => {
-    const q = { kind: 'question', id: 'req-1', toolUseId: 't1', questions: [{ question: 'Quelle base ?', options: [] }], answers: null, ts: 1 };
+    const q = {
+      kind: 'question',
+      id: 'req-1',
+      toolUseId: 't1',
+      questions: [{ question: 'Quelle base ?', options: [] }],
+      answers: null,
+      ts: 1,
+    };
     const { a, backend, textarea } = setup({ status: 'waiting', pending: ['req-1'] }, [q]);
     await waitFor(() => expect(conversationOf(a.id).loaded).toBe(true));
     await userEvent.type(textarea, 'PostgreSQL{Enter}');
@@ -74,13 +119,47 @@ describe('Composer', () => {
     expect(backend.called('send_message')).toHaveLength(0);
   });
 
+  it('keeps attached images when the text answers a pending question', async () => {
+    const q = {
+      kind: 'question',
+      id: 'req-1',
+      toolUseId: 't1',
+      questions: [{ question: 'Quelle base ?', options: [] }],
+      answers: null,
+      ts: 1,
+    };
+    const { a, textarea } = setup({ status: 'waiting', pending: ['req-1'] }, [q]);
+    await waitFor(() => expect(conversationOf(a.id).loaded).toBe(true));
+    const png = new File([new Uint8Array([137, 80, 78, 71])], 'capture.png', { type: 'image/png' });
+    await userEvent.upload(screen.getByLabelText('Joindre une image', { selector: 'input' }), png);
+    await screen.findByAltText('capture.png');
+    await userEvent.type(textarea, 'PostgreSQL{Enter}');
+    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/images/));
+    expect(screen.getByAltText('capture.png')).toBeInTheDocument();
+  });
+
   it('denies a pending permission with the typed explanation', async () => {
-    const p = { kind: 'permission', id: 'req-2', toolUseId: 't2', toolName: 'Bash', input: { command: 'rm -rf dist' }, canAlways: false, defaultNo: false, decision: null, ts: 1 };
+    const p = {
+      kind: 'permission',
+      id: 'req-2',
+      toolUseId: 't2',
+      toolName: 'Bash',
+      input: { command: 'rm -rf dist' },
+      canAlways: false,
+      defaultNo: false,
+      decision: null,
+      ts: 1,
+    };
     const { a, backend, textarea } = setup({ status: 'waiting', pending: ['req-2'] }, [p]);
     await waitFor(() => expect(conversationOf(a.id).loaded).toBe(true));
     await userEvent.type(textarea, 'Utilise plutôt npm run clean{Enter}');
     await waitFor(() => expect(backend.called('answer_permission')).toHaveLength(1));
-    expect(backend.called('answer_permission')[0].args).toEqual({ id: a.id, requestId: 'req-2', decision: 'deny', message: 'Utilise plutôt npm run clean' });
+    expect(backend.called('answer_permission')[0].args).toEqual({
+      id: a.id,
+      requestId: 'req-2',
+      decision: 'deny',
+      message: 'Utilise plutôt npm run clean',
+    });
   });
 
   it('interrupts a running agent on Escape', async () => {

@@ -109,3 +109,16 @@ test('Ctrl+N creates another agent and Ctrl+J jumps to the one waiting', async (
   await page.keyboard.press('Control+j');
   await expect(page.getByTestId('question-pending')).toBeVisible();
 });
+
+test('project tabs can be reordered (drag and drop logic)', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await addProject(page, app.repo, { name: 'second', firstAgent: false });
+  const tabs = page.locator('.tabs .tab .name');
+  await expect(tabs).toHaveText(['demo-api', 'second']);
+  await page
+    .locator('.tabs .tab')
+    .nth(1)
+    .dragTo(page.locator('.tabs .tab').nth(0), { targetPosition: { x: 5, y: 10 } });
+  await expect(tabs).toHaveText(['second', 'demo-api']);
+});

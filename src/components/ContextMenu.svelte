@@ -15,10 +15,7 @@
   });
 </script>
 
-<svelte:window
-  onkeydown={(e) => e.key === 'Escape' && menu.open && (menu.close(), e.stopPropagation())}
-  onblur={() => menu.close()}
-/>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && menu.open && (menu.close(), e.stopPropagation())} onblur={() => menu.close()} />
 
 {#if menu.open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

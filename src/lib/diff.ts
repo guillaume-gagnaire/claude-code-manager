@@ -37,20 +37,21 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
       continue;
     }
     if (!file) continue;
-    if (line.startsWith('new file')) {
-      file.status = 'A';
-      continue;
-    }
-    if (line.startsWith('deleted file')) {
-      file.status = 'D';
-      continue;
-    }
-    if (line.startsWith('Binary files')) {
-      file.binary = true;
-      continue;
-    }
-    if (line.startsWith('--- ') || line.startsWith('+++ ') || line.startsWith('index ') || line.startsWith('similarity') || line.startsWith('rename ') || line.startsWith('old mode') || line.startsWith('new mode')) {
-      continue;
+    // File headers only come before the first hunk: inside a hunk, "--- x" is a deleted "-- x".
+    if (!hunk) {
+      if (line.startsWith('new file')) {
+        file.status = 'A';
+        continue;
+      }
+      if (line.startsWith('deleted file')) {
+        file.status = 'D';
+        continue;
+      }
+      if (line.startsWith('Binary files')) {
+        file.binary = true;
+        continue;
+      }
+      if (/^(--- |\+\+\+ |index |similarity|rename |old mode|new mode)/.test(line)) continue;
     }
     const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
     if (h) {
