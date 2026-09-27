@@ -467,8 +467,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px 10px 16px;
+    gap: 6px;
+    padding: 8px 10px 10px 14px;
   }
   .labeled {
     align-items: center;
