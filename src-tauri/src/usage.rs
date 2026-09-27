@@ -1,0 +1,77 @@
+//! Plan rate limits (5-hour session and weekly windows).
+
+use crate::model::{RateWindow, Settings};
+use anyhow::{anyhow, Context, Result};
+use serde_json::Value;
+use std::time::Duration;
+
+pub type Windows = (Option<RateWindow>, Option<RateWindow>);
+
+/// Parses `rate_limits` from a `get_usage` control response, or the body of the OAuth usage
+/// endpoint (same shape: `{five_hour: {utilization 0-100, resets_at ISO}, seven_day: …}`).
+pub fn parse_windows(v: &Value) -> Windows {
+    let parse = |k: &str| {
+        let w = v.get(k).filter(|w| w.is_object())?;
+        Some(RateWindow {
+            pct: w["utilization"].as_f64().unwrap_or(0.0),
+            resets_at: w["resets_at"]
+                .as_str()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|d| d.timestamp_millis()),
+        })
+    };
+    (parse("five_hour"), parse("seven_day"))
+}
+
+pub fn http_client(settings: &Settings) -> Result<reqwest::Client> {
+    let mut b = reqwest::Client::builder().timeout(Duration::from_secs(15));
+    let url = settings.proxy_url.trim();
+    if !url.is_empty() {
+        let proxy = reqwest::Proxy::all(url)?.no_proxy(reqwest::NoProxy::from_string(&settings.no_proxy));
+        b = b.proxy(proxy);
+    }
+    Ok(b.build()?)
+}
+
+/// Fallback when no Claude process is running: the endpoint `/usage` relies on, authenticated
+/// with the OAuth token Claude Code stores locally (read-only use).
+pub async fn fetch_oauth(settings: &Settings) -> Result<Windows> {
+    let path = dirs::home_dir().context("home")?.join(".claude").join(".credentials.json");
+    let creds: Value = serde_json::from_str(&tokio::fs::read_to_string(&path).await?)?;
+    let oauth = &creds["claudeAiOauth"];
+    let token = oauth["accessToken"].as_str().ok_or_else(|| anyhow!("pas de connexion claude.ai"))?;
+    if oauth["expiresAt"].as_i64().is_some_and(|exp| exp < crate::model::now_ms()) {
+        return Err(anyhow!("jeton OAuth expiré"));
+    }
+    let body: Value = http_client(settings)?
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .bearer_auth(token)
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", "claude-code-manager")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(parse_windows(&body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_usage_windows() {
+        let v = json!({
+            "five_hour": {"utilization": 62.0, "resets_at": "2026-09-28T01:20:00.467871+00:00"},
+            "seven_day": {"utilization": 30, "resets_at": null},
+            "seven_day_opus": null
+        });
+        let (five, week) = parse_windows(&v);
+        let five = five.unwrap();
+        assert_eq!(five.pct, 62.0);
+        assert!(five.resets_at.unwrap() > 1_790_000_000_000);
+        assert_eq!(week.unwrap().resets_at, None);
+    }
+}

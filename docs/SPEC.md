@@ -44,7 +44,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 - **Agents** : compteur, « + Nouvel agent ». Carte : statut (Prêt / En cours / Question / Terminé), nom, modèle · durée active, tokens · coût · nb fichiers.
 - Nom créé en `agent-N`, puis renommé automatiquement en slug par Haiku après le premier message. Renommable (double-clic).
 - Clic droit : Renommer, Archiver (historique du projet, réouvrable), Supprimer (arrête le process, supprime le worktree après confirmation si non mergé).
-- **Terminaux** : menu `+` → PowerShell 7, Git Bash, WSL (Ubuntu). Terminal réel (PTY + xterm.js). Les terminaux ne survivent pas à un redémarrage.
+- **Terminaux** : menu `+` → PowerShell 7, Git Bash, WSL (Ubuntu). Vrai terminal (ConPTY via portable-pty + xterm.js WebGL) : autocomplétion native du shell (Tab / PSReadLine / bash-completion), historique, Ctrl+R, couleurs ANSI, programmes plein écran (vim, less, htop), redimensionnement, copier/coller, liens cliquables, recherche. Les terminaux ne survivent pas à un redémarrage.
 - **Pied** : chemin, branche, `~ modifiés / + ajoutés / − supprimés`, sélecteur de couleur.
 
 ## Conversation
@@ -87,7 +87,10 @@ Actifs · en attente · terminés │ Session 5 h (barre, %, reset dans) · Hebd
 
 ## Réglages (⚙ barre de statut → modale)
 
-Chemin de `claude`, modèle / effort / mode par défaut, son, shells, éditeur externe, grille de prix, raccourcis.
+Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Windows, shells, éditeur externe, arrêt des process inactifs, raccourcis.
+
+- **Proxy réseau** : URL HTTP(S) (avec identifiants éventuels) + exclusions `NO_PROXY`. Injecté dans les process `claude` (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`), les appels de quotas et le vérificateur de mises à jour ; option pour l'exporter aussi dans les terminaux intégrés.
+- Les coûts viennent directement de Claude Code (`costUSD` par modèle) : pas de grille de prix à maintenir.
 
 ## Raccourcis (défauts)
 
@@ -97,4 +100,7 @@ Chemin de `claude`, modèle / effort / mode par défaut, son, shells, éditeur e
 
 - UI en français.
 - Installeur Windows (NSIS) + auto-update via GitHub Releases (`guillaume-gagnaire/claude-code-manager`).
+- CI/CD GitHub Actions :
+  - `ci.yml` (push / PR) : lint + typecheck + tests frontend, `cargo fmt --check`, `clippy`, `cargo test`, build de vérification.
+  - `release.yml` (tag `v*`) : `tauri-action` → build Windows, signature des artefacts de mise à jour (secret `TAURI_SIGNING_PRIVATE_KEY`), publication de la release GitHub avec l'installeur et `latest.json` consommé par l'updater.
 - Commits atomiques sur `main`, sans push.

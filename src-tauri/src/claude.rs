@@ -1,0 +1,251 @@
+//! A `claude` process driven over the stream-json protocol (see docs/PROTOCOL.md).
+
+use anyhow::{anyhow, Context, Result};
+use parking_lot::Mutex;
+use serde_json::{json, Value};
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::{mpsc, oneshot};
+
+#[cfg(windows)]
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+type Pending = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>>;
+
+pub struct SpawnOpts {
+    pub program: PathBuf,
+    pub cwd: String,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+pub struct ClaudeProcess {
+    tx: Mutex<Option<mpsc::UnboundedSender<String>>>,
+    pending: Pending,
+    next_id: AtomicU64,
+    kill_tx: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+impl ClaudeProcess {
+    /// Spawns the process. `on_frame` receives every stdout frame except responses to our own
+    /// control requests; `on_exit` runs once with the exit code and the tail of stderr.
+    pub fn spawn<F, E>(opts: SpawnOpts, on_frame: F, on_exit: E) -> Result<Arc<Self>>
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+        E: FnOnce(Option<i32>, String) + Send + 'static,
+    {
+        let mut cmd = Command::new(&opts.program);
+        cmd.args(&opts.args)
+            .current_dir(&opts.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
+        }
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("impossible de lancer {}", opts.program.display()))?;
+        let mut stdin = child.stdin.take().context("stdin")?;
+        let stdout = child.stdout.take().context("stdout")?;
+        let stderr = child.stderr.take().context("stderr")?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        tokio::spawn(async move {
+            while let Some(line) = rx.recv().await {
+                if stdin.write_all(line.as_bytes()).await.is_err()
+                    || stdin.write_all(b"\n").await.is_err()
+                    || stdin.flush().await.is_err()
+                {
+                    break;
+                }
+            }
+            // Dropping stdin closes the input: the CLI exits once the current turn is over.
+        });
+
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::<String>::new()));
+        {
+            let tail = stderr_tail.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!("claude stderr: {line}");
+                    let mut t = tail.lock();
+                    t.push_back(line);
+                    if t.len() > 30 {
+                        t.pop_front();
+                    }
+                }
+            });
+        }
+
+        let pending: Pending = Arc::default();
+        let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
+        let proc = Arc::new(Self {
+            tx: Mutex::new(Some(tx)),
+            pending: pending.clone(),
+            next_id: AtomicU64::new(1),
+            kill_tx: Mutex::new(Some(kill_tx)),
+        });
+
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            loop {
+                tokio::select! {
+                    line = lines.next_line() => match line {
+                        Ok(Some(line)) => {
+                            if line.trim().is_empty() {
+                                continue;
+                            }
+                            match serde_json::from_str::<Value>(&line) {
+                                Ok(frame) => {
+                                    if frame["type"] == "control_response" {
+                                        resolve(&pending, &frame["response"]);
+                                    } else {
+                                        on_frame(frame);
+                                    }
+                                }
+                                Err(e) => log::warn!("unparsable frame ({e}): {}", truncate(&line, 200)),
+                            }
+                        }
+                        _ => break,
+                    },
+                    _ = &mut kill_rx => {
+                        let _ = child.start_kill();
+                        break;
+                    }
+                }
+            }
+            let code = child.wait().await.ok().and_then(|s| s.code());
+            for (_, tx) in pending.lock().drain() {
+                let _ = tx.send(Err("process exited".into()));
+            }
+            let tail = stderr_tail.lock().iter().cloned().collect::<Vec<_>>().join("\n");
+            on_exit(code, tail);
+        });
+
+        Ok(proc)
+    }
+
+    pub fn send(&self, frame: &Value) -> Result<()> {
+        let guard = self.tx.lock();
+        let tx = guard.as_ref().ok_or_else(|| anyhow!("process input closed"))?;
+        tx.send(frame.to_string()).map_err(|_| anyhow!("process input closed"))
+    }
+
+    pub async fn control(&self, request: Value, timeout: Duration) -> Result<Value> {
+        let id = format!("ccm_{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().insert(id.clone(), tx);
+        self.send(&json!({ "type": "control_request", "request_id": id, "request": request }))?;
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(v))) => Ok(v),
+            Ok(Ok(Err(e))) => Err(anyhow!(e)),
+            Ok(Err(_)) => Err(anyhow!("control request dropped")),
+            Err(_) => {
+                self.pending.lock().remove(&id);
+                Err(anyhow!("control request timed out"))
+            }
+        }
+    }
+
+    /// Answers a control_request issued by the CLI.
+    pub fn respond(&self, request_id: &str, response: Value) -> Result<()> {
+        self.send(&json!({
+            "type": "control_response",
+            "response": { "subtype": "success", "request_id": request_id, "response": response }
+        }))
+    }
+
+    pub fn respond_error(&self, request_id: &str, error: &str) -> Result<()> {
+        self.send(&json!({
+            "type": "control_response",
+            "response": { "subtype": "error", "request_id": request_id, "error": error }
+        }))
+    }
+
+    /// Closes stdin: the CLI finishes its current work and exits (session stays resumable).
+    pub fn close_input(&self) {
+        self.tx.lock().take();
+    }
+
+    pub fn kill(&self) {
+        self.tx.lock().take();
+        if let Some(k) = self.kill_tx.lock().take() {
+            let _ = k.send(());
+        }
+    }
+}
+
+fn resolve(pending: &Pending, response: &Value) {
+    let Some(id) = response["request_id"].as_str() else { return };
+    let Some(tx) = pending.lock().remove(id) else { return };
+    let result = if response["subtype"] == "success" {
+        Ok(response.get("response").cloned().unwrap_or_else(|| json!({})))
+    } else {
+        Err(response["error"].as_str().unwrap_or("error").to_string())
+    };
+    let _ = tx.send(result);
+}
+
+pub fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+/// Locates the `claude` executable: explicit setting, PATH, then the native installer location.
+pub fn resolve_binary(configured: &str) -> Option<PathBuf> {
+    if !configured.trim().is_empty() {
+        let p = PathBuf::from(configured.trim());
+        return p.exists().then_some(p);
+    }
+    let exts: &[&str] = if cfg!(windows) { &["exe", "cmd"] } else { &[""] };
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for ext in exts {
+                let mut candidate = dir.join("claude");
+                if !ext.is_empty() {
+                    candidate.set_extension(ext);
+                }
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    let home = dirs::home_dir()?;
+    [
+        home.join(".local").join("bin").join("claude.exe"),
+        home.join(".claude").join("local").join("claude.exe"),
+        home.join("AppData").join("Roaming").join("npm").join("claude.cmd"),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_respects_char_boundaries() {
+        assert_eq!(truncate("héllo", 2), "h…");
+        assert_eq!(truncate("abc", 5), "abc");
+    }
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Claude Code Manager",
+  "mainBinaryName": "claude-code-manager",
+  "version": "0.1.0",
+  "identifier": "dev.gagnaire.claude-code-manager",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Claude Code Manager",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 600,
+        "decorations": false,
+        "shadow": true,
+        "center": true,
+        "visible": false,
+        "backgroundColor": "#191715"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU3NzMxM0UzRTI4MkZDRjYKUldUMi9JTGk0eE56Vi93TCs0dEUyL1hBOXEwOEU0RmYvUFgrbWpHa0tWNVFLR1lLdVltRXNvaHYK",
+      "endpoints": [
+        "https://github.com/guillaume-gagnaire/claude-code-manager/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

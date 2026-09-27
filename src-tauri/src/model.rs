@@ -1,0 +1,246 @@
+//! Types persisted on disk and exchanged with the frontend.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    /// Empty = auto-detect `claude` on PATH.
+    pub claude_path: String,
+    pub default_model: String,
+    pub default_effort: String,
+    pub default_mode: String,
+    pub sound: bool,
+    pub os_notifications: bool,
+    /// Command used to open files, e.g. `code` (VS Code).
+    pub editor_command: String,
+    /// Stop idle Claude processes after N minutes (0 = never). Sessions stay resumable.
+    pub idle_stop_minutes: u32,
+    pub pwsh_path: String,
+    pub bash_path: String,
+    pub wsl_distro: String,
+    /// HTTP(S) proxy URL, e.g. `http://user:pass@proxy:3128`. Empty = direct connection.
+    pub proxy_url: String,
+    /// Comma-separated hosts that bypass the proxy (NO_PROXY).
+    pub no_proxy: String,
+    /// Also export the proxy variables in integrated terminals.
+    pub proxy_terminals: bool,
+}
+
+impl Settings {
+    /// Environment variables to inject into child processes for the configured proxy.
+    pub fn proxy_env(&self) -> Vec<(String, String)> {
+        let url = self.proxy_url.trim();
+        if url.is_empty() {
+            return Vec::new();
+        }
+        let mut env = Vec::new();
+        for k in ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"] {
+            env.push((k.to_string(), url.to_string()));
+        }
+        let no = self.no_proxy.trim();
+        if !no.is_empty() {
+            env.push(("NO_PROXY".into(), no.to_string()));
+            env.push(("no_proxy".into(), no.to_string()));
+        }
+        env
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            claude_path: String::new(),
+            default_model: "sonnet".into(),
+            default_effort: "medium".into(),
+            default_mode: "auto".into(),
+            sound: true,
+            os_notifications: true,
+            editor_command: "code".into(),
+            idle_stop_minutes: 30,
+            pwsh_path: String::new(),
+            bash_path: String::new(),
+            wsl_distro: String::new(),
+            proxy_url: String::new(),
+            no_proxy: "localhost,127.0.0.1".into(),
+            proxy_terminals: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub color: String,
+    #[serde(default)]
+    pub worktree_per_agent: bool,
+    #[serde(default)]
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentStatus {
+    #[default]
+    Idle,
+    Running,
+    Waiting,
+    Done,
+    Error,
+}
+
+impl AgentStatus {
+    pub fn is_active(self) -> bool {
+        matches!(self, AgentStatus::Running | AgentStatus::Waiting)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    pub path: String,
+    pub branch: String,
+    pub base_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentMeta {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    /// True once the name was generated or chosen by the user.
+    pub named: bool,
+    pub model: String,
+    pub effort: String,
+    pub mode: String,
+    pub session_id: Option<String>,
+    pub cwd: String,
+    pub worktree: Option<Worktree>,
+    pub created_at: i64,
+    pub archived: bool,
+    pub status: AgentStatus,
+    pub tokens: u64,
+    pub cost: f64,
+    pub active_ms: u64,
+    /// Files edited by the agent, relative to its cwd with forward slashes.
+    pub touched_files: Vec<String>,
+    pub last_activity: i64,
+    pub prompts: u32,
+}
+
+/// Agent as shown by the UI: persisted metadata plus live runtime fields.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentView {
+    #[serde(flatten)]
+    pub meta: AgentMeta,
+    pub active_since: Option<i64>,
+    pub alive: bool,
+    /// Ids of the question/permission items awaiting an answer.
+    pub pending: Vec<String>,
+    pub context_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UiState {
+    pub active_project: Option<String>,
+    pub view: String,
+    pub selected_agent: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PersistedState {
+    pub projects: Vec<Project>,
+    pub agents: Vec<AgentMeta>,
+    pub ui: UiState,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GitInfo {
+    pub is_repo: bool,
+    pub branch: String,
+    pub modified: u32,
+    pub added: u32,
+    pub deleted: u32,
+    pub total: u32,
+    /// Dirty file count attributed to each agent of the project.
+    pub agents: HashMap<String, u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    pub status: String,
+    pub add: u32,
+    pub del: u32,
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RateWindow {
+    /// 0-100.
+    pub pct: f64,
+    /// Epoch milliseconds.
+    pub resets_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSnapshot {
+    pub five_hour: Option<RateWindow>,
+    pub seven_day: Option<RateWindow>,
+    pub today_cost: f64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum ConvOp {
+    Append { item: Value },
+    Patch { id: String, patch: Value },
+    /// Text appended to the `text` field of an item (streaming).
+    Delta { id: String, text: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum UiEvent {
+    Agent {
+        agent: AgentView,
+    },
+    #[serde(rename_all = "camelCase")]
+    AgentRemoved { id: String, project_id: String },
+    #[serde(rename_all = "camelCase")]
+    Conv { agent_id: String, ops: Vec<ConvOp> },
+    #[serde(rename_all = "camelCase")]
+    Git { project_id: String, git: GitInfo },
+    Usage {
+        usage: UsageSnapshot,
+    },
+    #[serde(rename_all = "camelCase")]
+    Focus {
+        project_id: String,
+        agent_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    TerminalExit { id: String, code: Option<u32> },
+}
+
+pub fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+pub fn new_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
+}
