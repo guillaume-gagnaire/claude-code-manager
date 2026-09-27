@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:var(--bg);}
+*{box-sizing:border-box;}
+:root{--bg:#1b1917;--panel:#211f1c;--elev:#2a2724;--elev2:#34302c;--user:#302c28;--line:rgba(255,236,214,.08);--line2:rgba(255,236,214,.15);--text:#ede7df;--muted:#a8a095;--dim:#6f685f;--accent:oklch(0.72 0.12 48);--accent-soft:oklch(0.72 0.12 48 / .38);--accent-ink:#1b1512;--ok:oklch(0.76 0.12 150);--wait:oklch(0.82 0.13 80);--wait-soft:oklch(0.82 0.13 80 / .08);--wait-ring:oklch(0.82 0.13 80 / .6);--add:oklch(0.76 0.12 150);--del:oklch(0.72 0.14 25);--ui:'Hanken Grotesk',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;--r:10px;--r-sm:6px;}
+@keyframes ccPulse{0%{box-shadow:0 0 0 0 var(--wait-ring)}70%{box-shadow:0 0 0 6px rgba(0,0,0,0)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}}
+@keyframes ccBlink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+a{color:var(--accent);}a:hover{color:var(--text);}
+textarea::placeholder{color:var(--dim);}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--elev2);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+</style>
+</helmet>
+<div style="height:100vh;min-width:{{ minW }};display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;overflow:hidden">
+
+  <div data-screen-label="Barre d'onglets" style="height:46px;flex:none;display:flex;align-items:stretch;padding:0 10px 0 16px;background:var(--panel);border-bottom:1px solid var(--line2);user-select:none">
+    <div style="display:flex;align-items:center;gap:8px;padding-right:20px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:2px;min-width:0;overflow:hidden">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <button onClick="{{ t.select }}" style="height:37px;display:flex;align-items:center;gap:9px;padding:0 14px;border-width:1px 1px 0 1px;border-style:solid;border-color:{{ t.bc }};border-top:2px solid {{ t.top }};border-radius:var(--r) var(--r) 0 0;background:{{ t.bg }};color:{{ t.color }};font:inherit;font-size:13px;cursor:pointer;margin-bottom:-1px;white-space:nowrap">
+          <span style="width:10px;height:10px;border-radius:3px;flex:none;background:{{ t.sw }}"></span>
+          <span style="font-weight:600">{{ t.name }}</span>
+          {{ t.dot }}
+          <sc-if value="{{ t.hasChanges }}" hint-placeholder-val="{{ true }}">
+            <span title="Modifications git non commitées" style="font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:99px;background:var(--elev2);color:var(--muted)">{{ t.changes }}</span>
+          </sc-if>
+          <sc-if value="{{ t.hasWaiting }}">{{ t.waitPill }}</sc-if>
+        </button>
+      </sc-for>
+      <button onClick="{{ openNew }}" title="Ajouter un projet" style="height:28px;width:28px;margin:0 0 5px 6px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-size:18px;line-height:1;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">+</button>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:flex-end">
+      <button onClick="{{ openStats }}" style="height:37px;display:flex;align-items:center;gap:8px;padding:0 16px;border-width:1px 1px 0 1px;border-style:solid;border-color:{{ statsTab.bc }};border-radius:var(--r) var(--r) 0 0;background:{{ statsTab.bg }};color:{{ statsTab.color }};font:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:-1px">
+        <span style="display:flex;align-items:flex-end;gap:2px;height:12px"><span style="width:3px;height:6px;background:currentColor;border-radius:1px"></span><span style="width:3px;height:12px;background:currentColor;border-radius:1px"></span><span style="width:3px;height:9px;background:currentColor;border-radius:1px"></span></span>
+        Stats
+      </button>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <sc-if value="{{ isProject }}" hint-placeholder-val="{{ true }}">
+      <aside data-screen-label="Agents" style="width:300px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:8px;padding:16px 14px 10px 18px">
+          <span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Agents</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ agentCount }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ newAgent }}" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">
+            <span style="font-size:15px;line-height:1;color:var(--accent)">+</span> Nouvel agent
+          </button>
+        </div>
+        <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:4px;padding:4px 10px 12px">
+          <sc-for list="{{ agentRows }}" as="a" hint-placeholder-count="3">
+            <button onClick="{{ a.select }}" style="text-align:left;width:100%;display:flex;flex-direction:column;gap:7px;padding:11px 12px;border-radius:var(--r);border-width:1px;border-style:solid;border-color:{{ a.bc }};background:{{ a.bg }};color:inherit;font:inherit;cursor:pointer">
+              <div style="display:flex;align-items:center;gap:9px;width:100%">
+                {{ a.dot }}
+                <span style="font-weight:600;font-size:13.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</span>
+                <sc-if value="{{ a.isWaiting }}">{{ a.qTag }}</sc-if>
+                <sc-if value="{{ a.notWaiting }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;color:{{ a.statusColor }}">{{ a.statusLabel }}</span></sc-if>
+              </div>
+              <div style="display:flex;gap:10px;padding-left:17px;font-family:var(--mono);font-size:11px;color:var(--muted)">
+                <span>{{ a.model }}</span><span style="color:var(--dim)">·</span><span>{{ a.dur }}</span>
+              </div>
+              <div style="display:flex;gap:10px;padding-left:17px;font-family:var(--mono);font-size:11px;color:var(--dim)">
+                <span>{{ a.tok }} tok</span><span>{{ a.cost }}</span><span>{{ a.files }}</span>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+        <div style="border-top:1px solid var(--line);display:flex;flex-direction:column;padding-bottom:10px;position:relative">
+          <div style="display:flex;align-items:center;gap:8px;padding:12px 14px 8px 18px">
+            <span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Terminaux</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ termCount }}</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ toggleTermMenu }}" title="Nouveau terminal" style="width:26px;height:26px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--accent);font-size:15px;line-height:1;cursor:pointer" style-hover="border-color:var(--accent)">+</button>
+          </div>
+          <sc-if value="{{ termMenu }}">
+            <div style="position:absolute;right:12px;bottom:calc(100% - 40px);z-index:20;width:200px;display:flex;flex-direction:column;padding:5px;border-radius:var(--r);border:1px solid var(--line2);background:var(--elev);box-shadow:0 12px 30px rgba(0,0,0,.4)">
+              <sc-for list="{{ shellOpts }}" as="o" hint-placeholder-count="2">
+                <button onClick="{{ o.onClick }}" style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer" style-hover="background:var(--elev2)">
+                  <span style="font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--bg);color:{{ o.c }}">{{ o.glyph }}</span>{{ o.label }}
+                </button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:2px;padding:0 10px">
+            <sc-if value="{{ noTerms }}"><span style="padding:4px 8px 6px;font-size:12px;color:var(--dim)">Aucun terminal ouvert</span></sc-if>
+            <sc-for list="{{ termRows }}" as="t" hint-placeholder-count="1">
+              <div onClick="{{ t.select }}" style="display:flex;align-items:center;gap:10px;height:34px;padding:0 6px 0 10px;border-radius:var(--r-sm);border-width:1px;border-style:solid;border-color:{{ t.bc }};background:{{ t.bg }};cursor:pointer">
+                <span style="font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--bg);color:{{ t.c }}">{{ t.glyph }}</span>
+                <span style="flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.name }}</span>
+                <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ t.shell }}</span>
+                <button onClick="{{ t.close }}" title="Fermer" style="width:22px;height:22px;border:none;border-radius:3px;background:transparent;color:var(--dim);font-size:13px;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">×</button>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--line);padding:14px 18px 16px;display:flex;flex-direction:column;gap:8px">
+          <div style="font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ projPath }}</div>
+          <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--text)">
+            <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid var(--muted)"></span>{{ projBranch }}
+          </div>
+          <div style="display:flex;gap:12px;font-family:var(--mono);font-size:11px">
+            <span style="color:var(--wait)">~{{ gitM }} modifiés</span>
+            <span style="color:var(--add)">+{{ gitA }} ajoutés</span>
+            <span style="color:var(--del)">−{{ gitD }} supprimés</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:4px">
+            <span style="font-size:11px;color:var(--dim);margin-right:2px;width:100%">Couleur</span>
+            <sc-for list="{{ projColorOpts }}" as="o" hint-placeholder-count="6">
+              <button onClick="{{ o.onClick }}" style="width:16px;height:16px;border-radius:5px;border:none;padding:0;cursor:pointer;background:{{ o.c }};box-shadow:{{ o.ring }}"></button>
+            </sc-for>
+          </div>
+        </div>
+      </aside>
+
+      <sc-if value="{{ showConv }}" hint-placeholder-val="{{ true }}">
+      <main data-screen-label="Conversation" style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <div style="height:60px;flex:none;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1px solid var(--line)">
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0;white-space:nowrap">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:15px;font-weight:700">{{ convName }}</span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:{{ convStatusColor }}">{{ convDot }}{{ convStatus }}</span>
+            </div>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ projName }} / {{ projBranch }}</span>
+          </div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:22px;flex:none;white-space:nowrap">
+            <span style="font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:var(--r-sm);border:1px solid var(--line2);color:var(--text)">{{ convModel }}</span>
+            <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--dim)">Tokens</span><span style="font-family:var(--mono);font-size:12.5px">{{ convTok }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--dim)">Coût</span><span style="font-family:var(--mono);font-size:12.5px">{{ convCost }}</span></div>
+            <button onClick="{{ toggleFiles }}" title="Voir les fichiers non commités" style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:4px 8px;margin:-4px -8px;border:1px solid {{ filesBtnBc }};border-radius:var(--r-sm);background:{{ filesBtnBg }};color:inherit;font:inherit;cursor:pointer" style-hover="border-color:var(--line2)"><span style="font-size:10.5px;color:var(--dim)">Fichiers ▸</span><span style="font-family:var(--mono);font-size:12.5px">{{ convFiles }}</span></button>
+            <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--dim)">Durée</span><span style="font-family:var(--mono);font-size:12.5px">{{ convDur }}</span></div>
+          </div>
+        </div>
+
+        <div ref="{{ scrollRef }}" style="flex:1;overflow:auto">
+          <div style="max-width:780px;margin:0 auto;padding:28px 28px 24px;display:flex;flex-direction:column;gap:18px">
+            <sc-if value="{{ convEmpty }}">
+              <div style="padding:90px 0 0;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center">
+                <span style="font-size:18px;font-weight:600">Agent prêt</span>
+                <span style="color:var(--muted);max-width:360px;text-wrap:pretty;line-height:1.5">Décris la tâche à confier à Claude. L'agent travaille dans {{ projPath }}.</span>
+              </div>
+            </sc-if>
+            <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+              <sc-if value="{{ m.isUser }}">
+                <div style="display:flex;justify-content:flex-end">
+                  <div style="max-width:78%;padding:11px 15px;border-radius:var(--r);background:var(--user);font-size:14px;line-height:1.55;text-wrap:pretty">{{ m.text }}</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ m.isAssistant }}">
+                <div style="display:flex;gap:12px">
+                  <span style="width:22px;height:22px;flex:none;margin-top:1px;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font-family:var(--mono);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">C</span>
+                  <div style="font-size:14px;line-height:1.6;text-wrap:pretty">{{ m.text }}</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ m.isTool }}">
+                <div style="margin-left:34px;display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:12px">
+                  <span style="padding:2px 6px;border-radius:3px;background:var(--elev2);color:var(--text);font-weight:600;font-size:11px">{{ m.tool }}</span>
+                  <span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.arg }}</span>
+                  <sc-if value="{{ m.hasDiff }}"><span style="color:var(--add)">{{ m.add }}</span><span style="color:var(--del)">{{ m.del }}</span></sc-if>
+                  <sc-if value="{{ m.noDiff }}"><span style="color:var(--muted)">{{ m.res }}</span></sc-if>
+                </div>
+              </sc-if>
+              <sc-if value="{{ m.qPending }}">
+                <div style="margin-left:34px;display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:var(--r);border:1px solid var(--wait);background:var(--wait-soft)">
+                  <div style="display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;color:var(--wait);letter-spacing:.02em">{{ m.pulse }}Claude attend ta réponse</div>
+                  <div style="font-size:14px;line-height:1.55;text-wrap:pretty">{{ m.text }}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px">
+                    <sc-for list="{{ m.opts }}" as="o">
+                      <button onClick="{{ o.onClick }}" style="height:32px;padding:0 14px;border-radius:var(--r-sm);border-width:1px;border-style:solid;border-color:{{ o.bc }};background:{{ o.bg }};color:{{ o.color }};font:inherit;font-size:13px;font-weight:600;cursor:pointer" style-hover="filter:brightness(1.08)">{{ o.label }}</button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ m.qDone }}">
+                <div style="margin-left:34px;display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--r);border:1px solid var(--line)">
+                  <div style="font-size:13px;line-height:1.5;color:var(--muted);text-wrap:pretty">{{ m.text }}</div>
+                  <div style="font-family:var(--mono);font-size:11.5px;color:var(--text)">→ {{ m.ans }}</div>
+                </div>
+              </sc-if>
+            </sc-for>
+            <sc-if value="{{ convDone }}">
+              <div style="margin-left:34px;display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:var(--r);border:1px solid var(--line2);background:var(--panel)">
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:var(--ok);letter-spacing:.02em">{{ convDot }}Tâche terminée</div>
+                <div style="display:flex;gap:22px;font-family:var(--mono);font-size:12px;color:var(--muted)">
+                  <span>{{ convDur }}</span><span>{{ convTok }} tokens</span><span>{{ convCost }}</span><span>{{ convFilesLabel }}</span>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button onClick="{{ toggleFiles }}" style="height:30px;padding:0 14px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">Revoir les fichiers</button>
+                  <button style="height:30px;padding:0 14px;border:none;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer">Commit…</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ convRunning }}">
+              <div style="margin-left:34px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)">{{ typing }}Claude travaille…</div>
+            </sc-if>
+          </div>
+        </div>
+
+        <div style="flex:none;padding:0 28px 20px">
+          <div style="max-width:780px;margin:0 auto;display:flex;flex-direction:column;border-radius:var(--r);border:1px solid {{ composerBorder }};background:var(--elev)">
+            <textarea value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ onKey }}" placeholder="{{ placeholder }}" rows="2" style="resize:none;border:none;outline:none;background:transparent;color:var(--text);font:inherit;font-size:14px;line-height:1.5;padding:14px 16px 6px"></textarea>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px 10px 16px">
+              <div style="display:flex;gap:2px;padding:2px;border-radius:var(--r-sm);background:var(--panel);border:1px solid var(--line)">
+                <sc-for list="{{ modelOpts }}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{ o.onClick }}" title="Modèle" style="height:24px;padding:0 10px;border:none;border-radius:3px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer">{{ o.label }}</button>
+                </sc-for>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 2px 2px 8px;border-radius:var(--r-sm);background:var(--panel);border:1px solid var(--line)">
+                <span style="font-size:11px;color:var(--dim)">Effort</span>
+                <sc-for list="{{ effortOpts }}" as="o" hint-placeholder-count="4">
+                  <button onClick="{{ o.onClick }}" title="{{ o.title }}" style="height:24px;padding:0 9px;border:none;border-radius:3px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer">{{ o.label }}</button>
+                </sc-for>
+              </div>
+              <div style="flex:1"></div>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">↵ envoyer</span>
+              <button onClick="{{ send }}" style="height:30px;padding:0 14px;border:none;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font:inherit;font-size:13px;font-weight:700;cursor:pointer">Envoyer</button>
+            </div>
+          </div>
+        </div>
+      </main>
+      </sc-if>
+      <sc-if value="{{ showTerm }}">
+        <main data-screen-label="Terminal" style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="height:60px;flex:none;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1px solid var(--line);white-space:nowrap">
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:15px;font-weight:700">{{ termName }}</span>
+                <span style="font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:3px;background:var(--elev2);color:var(--muted)">{{ termShell }}</span>
+              </div>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ projPath }}</span>
+            </div>
+            <div style="flex:1"></div>
+            <button onClick="{{ clearTerm }}" style="height:28px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="color:var(--text)">Effacer</button>
+            <button onClick="{{ closeTerm }}" style="height:28px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--del);font:inherit;font-size:12px;font-weight:600;cursor:pointer">Fermer le terminal</button>
+          </div>
+          <div ref="{{ termRef }}" onClick="{{ focusTerm }}" style="flex:1;overflow:auto;background:var(--term, #131210);padding:16px 22px 22px;font-family:var(--mono);font-size:12.5px;line-height:1.6;cursor:text">
+            <sc-for list="{{ termLines }}" as="l" hint-placeholder-count="6">
+              <div style="white-space:pre-wrap;word-break:break-all;color:{{ l.c }}">{{ l.t }}</div>
+            </sc-for>
+            <div style="display:flex;gap:8px">
+              <span style="color:{{ termPromptColor }};white-space:nowrap">{{ termPrompt }}</span>
+              <input ref="{{ termInputRef }}" value="{{ termDraft }}" onChange="{{ onTermDraft }}" onKeyDown="{{ onTermKey }}" spellcheck="false" style="flex:1;min-width:0;border:none;outline:none;background:transparent;color:#ede7df;font:inherit;padding:0;caret-color:var(--accent)"></input>
+            </div>
+          </div>
+        </main>
+      </sc-if>
+      <sc-if value="{{ filesOpen }}">
+        <aside data-screen-label="Fichiers modifiés" style="width:330px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid var(--line)">
+          <div style="display:flex;align-items:center;gap:8px;padding:16px 14px 12px 18px">
+            <span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Non commités</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ fileCount }}</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ toggleFiles }}" title="Fermer" style="width:24px;height:24px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-size:14px;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">×</button>
+          </div>
+          <div style="padding:0 14px 12px 18px">
+            <div style="display:flex;gap:2px;padding:2px;border-radius:var(--r-sm);background:var(--bg);border:1px solid var(--line)">
+              <sc-for list="{{ scopeOpts }}" as="o" hint-placeholder-count="2">
+                <button onClick="{{ o.onClick }}" style="flex:1;height:26px;border:none;border-radius:3px;background:{{ o.bg }};color:{{ o.color }};font:inherit;font-size:12px;font-weight:600;cursor:pointer">{{ o.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding:0 18px 10px;font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.5">{{ scopeHint }}</div>
+          <div style="flex:1;overflow:auto;display:flex;flex-direction:column;padding:0 8px 12px">
+            <sc-if value="{{ noFiles }}">
+              <div style="padding:30px 10px;text-align:center;font-size:12.5px;color:var(--muted)">Aucun fichier modifié par cet agent.</div>
+            </sc-if>
+            <sc-for list="{{ fileRows }}" as="f" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);cursor:pointer" style-hover="background:var(--elev)">
+                <span style="width:16px;flex:none;font-family:var(--mono);font-size:11px;font-weight:700;color:{{ f.stColor }}">{{ f.st }}</span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font-family:var(--mono);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.name }}</span>
+                  <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.dir }}</span>
+                </div>
+                <sc-if value="{{ f.showAgent }}"><span style="font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:3px;background:var(--elev2);color:var(--muted);white-space:nowrap">{{ f.agent }}</span></sc-if>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--add)">{{ f.add }}</span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--del)">{{ f.del }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 14px 14px;border-top:1px solid var(--line)">
+            <button style="flex:1;height:30px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">Voir le diff</button>
+            <button style="flex:1;height:30px;border:none;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font:inherit;font-size:12px;font-weight:700;cursor:pointer">{{ commitLabel }}</button>
+          </div>
+        </aside>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ isStats }}">
+      <div data-screen-label="Stats" style="flex:1;overflow:auto">
+        <div style="max-width:1180px;margin:0 auto;padding:30px 36px 40px;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;align-items:flex-end;gap:16px">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font-size:24px;font-weight:700;letter-spacing:-.01em">Statistiques</span>
+              <span style="font-size:12.5px;color:var(--muted)">Tous projets · 4 projets, {{ totalAgents }} agents</span>
+            </div>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:2px;padding:3px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+              <sc-for list="{{ ranges }}" as="r" hint-placeholder-count="3">
+                <button onClick="{{ r.onClick }}" style="height:30px;padding:0 16px;border:none;border-radius:var(--r-sm);background:{{ r.bg }};color:{{ r.color }};font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ r.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+            <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+              <div style="display:flex;flex-direction:column;gap:8px;padding:18px 18px 16px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+                <span style="font-size:12px;color:var(--muted)">{{ k.label }}</span>
+                <span style="font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.02em">{{ k.value }}</span>
+                <span style="font-size:11.5px;color:var(--dim)">{{ k.sub }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:18px;padding:20px 22px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:16px">
+              <span style="font-size:14px;font-weight:700">{{ chartTitle }}</span>
+              <div style="flex:1"></div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-soft)"></span>Entrée</span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent)"></span>Sortie</span>
+            </div>
+            <div style="position:relative;height:240px;display:flex;align-items:flex-end;gap:8px;padding-left:56px">
+              <div style="position:absolute;left:0;right:0;top:0;border-top:1px dashed var(--line2)"><span style="position:absolute;left:0;top:-8px;font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ yMax }}</span></div>
+              <div style="position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--line)"><span style="position:absolute;left:0;top:-8px;font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ yMid }}</span></div>
+              <div style="position:absolute;left:0;right:0;bottom:0;border-top:1px solid var(--line2)"><span style="position:absolute;left:0;top:-16px;font-family:var(--mono);font-size:10.5px;color:var(--dim)">0</span></div>
+              <sc-for list="{{ bars }}" as="b" hint-placeholder-count="12">
+                <div title="{{ b.tip }}" style="flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;position:relative;cursor:default" style-hover="opacity:.8">
+                  <div style="height:{{ b.outH }};background:var(--accent);border-radius:3px 3px 0 0"></div>
+                  <div style="height:{{ b.inH }};background:var(--accent-soft)"></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:8px;padding-left:56px;margin-top:-8px">
+              <sc-for list="{{ bars }}" as="b" hint-placeholder-count="12">
+                <span style="flex:1;text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ b.label }}</span>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
+            <div style="display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+              <span style="font-size:14px;font-weight:700">Par projet</span>
+              <sc-for list="{{ byProject }}" as="p" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:130px minmax(0,1fr) 70px 70px;align-items:center;gap:12px;font-size:12.5px">
+                  <span style="display:flex;align-items:center;gap:8px;font-weight:600"><span style="width:9px;height:9px;border-radius:3px;background:{{ p.c }}"></span>{{ p.name }}</span>
+                  <div style="height:6px;border-radius:3px;background:var(--elev2)"><div style="height:100%;width:{{ p.w }};border-radius:3px;background:{{ p.c }}"></div></div>
+                  <span style="font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:right">{{ p.tok }}</span>
+                  <span style="font-family:var(--mono);font-size:11.5px;text-align:right">{{ p.cost }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+              <span style="font-size:14px;font-weight:700">Par modèle</span>
+              <sc-for list="{{ byModel }}" as="p" hint-placeholder-count="3">
+                <div style="display:grid;grid-template-columns:130px minmax(0,1fr) 70px 70px;align-items:center;gap:12px;font-size:12.5px">
+                  <span style="font-weight:600">{{ p.name }}</span>
+                  <div style="height:6px;border-radius:3px;background:var(--elev2)"><div style="height:100%;width:{{ p.w }};border-radius:3px;background:var(--accent)"></div></div>
+                  <span style="font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:right">{{ p.tok }}</span>
+                  <span style="font-family:var(--mono);font-size:11.5px;text-align:right">{{ p.cost }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ newOpen }}">
+    <div onClick="{{ closeNew }}" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(12,10,8,.6);backdrop-filter:blur(3px)">
+      <div data-screen-label="Modale nouveau projet" onClick="{{ stop }}" style="width:540px;max-width:calc(100vw - 40px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.55)">
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:18px 18px 0 24px">
+          <span style="font-size:17px;font-weight:700">Nouveau projet</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ closeNew }}" style="width:28px;height:28px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-size:16px;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">×</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:20px;padding:20px 24px 22px;overflow:auto;min-height:0">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--muted)">Dossier</span>
+            <div style="display:flex;gap:8px">
+              <input value="{{ npPath }}" onChange="{{ onNpPath }}" style="flex:1;min-width:0;height:36px;padding:0 12px;border-radius:var(--r-sm);border:1px solid var(--line2);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12.5px;outline:none"></input>
+              <button onClick="{{ browse }}" style="height:36px;padding:0 14px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">Parcourir…</button>
+            </div>
+            <span style="display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:{{ npGitColor }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ npGitColor }}"></span>{{ npGit }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:end">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:12px;font-weight:600;color:var(--muted)">Nom</span>
+              <input value="{{ npName }}" onChange="{{ onNpName }}" style="height:36px;padding:0 12px;border-radius:var(--r-sm);border:1px solid var(--line2);background:var(--bg);color:var(--text);font:inherit;font-size:13.5px;font-weight:600;outline:none"></input>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:12px;font-weight:600;color:var(--muted)">Aperçu de l'onglet</span>
+              <div style="height:36px;display:flex;align-items:center;gap:9px;padding:0 14px;border:1px solid var(--line2);border-bottom:2px solid {{ npColor }};border-radius:var(--r-sm);background:var(--bg);font-weight:600;white-space:nowrap"><span style="width:10px;height:10px;border-radius:3px;background:{{ npColor }}"></span>{{ npNameShown }}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <span style="font-size:12px;font-weight:600;color:var(--muted)">Couleur</span>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <sc-for list="{{ npColorOpts }}" as="o" hint-placeholder-count="6">
+                <button onClick="{{ o.onClick }}" style="width:30px;height:30px;border-radius:9px;border:none;padding:0;cursor:pointer;background:{{ o.c }};box-shadow:{{ o.ring }}"></button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="height:1px;background:var(--line)"></div>
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                <span style="font-size:13.5px;font-weight:600">Créer un premier agent</span>
+                <span style="font-size:12px;color:var(--muted)">Ouvre directement une conversation dans ce projet</span>
+              </div>
+              <button onClick="{{ toggleNpAgent }}" style="width:36px;height:20px;flex:none;border:none;border-radius:10px;padding:2px;display:flex;justify-content:{{ npAgentJ }};background:{{ npAgentBg }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+            </div>
+            <sc-if value="{{ npAgent }}">
+              <div style="display:flex;align-items:center;gap:8px;padding-left:2px">
+                <span style="font-size:12px;color:var(--dim)">Modèle</span>
+                <sc-for list="{{ npModelOpts }}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{ o.onClick }}" style="height:26px;padding:0 11px;border-radius:var(--r-sm);border:1px solid var(--line2);background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer">{{ o.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                <span style="font-size:13.5px;font-weight:600">Un worktree git par agent</span>
+                <span style="font-size:12px;color:var(--muted);text-wrap:pretty">Isole le travail de chaque agent et permet de voir ses fichiers modifiés séparément</span>
+              </div>
+              <button onClick="{{ toggleNpWt }}" style="width:36px;height:20px;flex:none;border:none;border-radius:10px;padding:2px;display:flex;justify-content:{{ npWtJ }};background:{{ npWtBg }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+            </div>
+          </div>
+        </div>
+        <div style="flex:none;display:flex;justify-content:flex-end;gap:8px;padding:14px 18px 18px;border-top:1px solid var(--line)">
+          <button onClick="{{ closeNew }}" style="height:34px;padding:0 16px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer">Annuler</button>
+          <button onClick="{{ createProject }}" style="height:34px;padding:0 18px;border:none;border-radius:var(--r-sm);background:{{ npColor }};color:#1b1512;font:inherit;font-size:13px;font-weight:700;cursor:pointer">Créer le projet</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <div data-screen-label="Barre de statut" style="height:30px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px 0 16px;background:var(--panel);border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);user-select:none;white-space:nowrap;overflow:hidden">
+    <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>{{ runCount }} actifs</span>
+    <span style="display:flex;align-items:center;gap:6px;color:{{ waitColor }}">{{ waitDot }}{{ waitCount }} en attente</span>
+    <span style="display:flex;align-items:center;gap:6px"><span style="color:var(--ok)">✓</span>{{ doneCount }} terminés</span>
+    <span style="width:1px;height:14px;background:var(--line2)"></span>
+    <span style="display:flex;align-items:center;gap:8px">Session 5 h
+      <span style="width:48px;height:5px;border-radius:3px;background:var(--elev2);overflow:hidden"><span style="display:block;height:100%;width:{{ sessW }};background:{{ sessColor }}"></span></span>
+      <span style="color:var(--text)">{{ sessPct }}</span><span style="color:var(--dim)">reset {{ sessReset }}</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:8px">Hebdo
+      <span style="width:48px;height:5px;border-radius:3px;background:var(--elev2);overflow:hidden"><span style="display:block;height:100%;width:{{ weekW }};background:var(--accent)"></span></span>
+      <span style="color:var(--text)">{{ weekPct }}</span>
+    </span>
+    <span style="width:1px;height:14px;background:var(--line2)"></span>
+    <span>Aujourd'hui <span style="color:var(--text);font-weight:600">{{ todayCost }}</span></span>
+    <div style="flex:1"></div>
+    <button onClick="{{ toggleSound }}" style="height:22px;padding:0 8px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font:inherit;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">{{ soundLabel }}</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;sound&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;autoQuestions&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  RATES = { Opus: 0.00003, Sonnet: 0.000009, Haiku: 0.000003 };
+  QPOOL = [
+    { t: "J'ai trouvé 3 tests qui dépendent de l'ancien format de date. Je les mets à jour aussi ?", opts: ['Oui, mettre à jour', 'Non, seulement le code'] },
+    { t: "Cette étape lance « npm install » et modifie package-lock.json. J'autorise la commande ?", opts: ['Autoriser', 'Toujours autoriser', 'Refuser'] },
+    { t: "Deux approches possibles : un hook dédié ou étendre le store existant. Laquelle préfères-tu ?", opts: ['Hook dédié', 'Étendre le store'] }
+  ];
+  state = {
+    projects: [
+      { id: 'atlas', color: 'oklch(0.72 0.12 48)', name: 'atlas-api', path: '~/code/atlas-api', branch: 'feat/auth-v2', git: { m: 9, a: 3, d: 2 } },
+      { id: 'studio', color: 'oklch(0.72 0.12 300)', name: 'studio-web', path: '~/code/studio-web', branch: 'main', git: { m: 5, a: 2, d: 0 } },
+      { id: 'infra', color: 'oklch(0.72 0.12 200)', name: 'infra-terraform', path: '~/ops/infra-terraform', branch: 'main', git: { m: 0, a: 0, d: 0 } },
+      { id: 'mobile', color: 'oklch(0.72 0.12 150)', name: 'mobile-app', path: '~/code/mobile-app', branch: 'release/2.4', git: { m: 2, a: 1, d: 0 } }
+    ],
+    agents: [
+      { id: 'a1', pid: 'atlas', name: 'refacto-auth', model: 'Opus', status: 'waiting', tokens: 182400, files: 5, secs: 2531, msgs: [
+        { k: 'u', t: "Migre le middleware d'auth vers des JWT à rotation. Garde la compatibilité avec les sessions existantes pendant 30 jours." },
+        { k: 'a', t: "Je commence par cartographier les points d'entrée d'authentification." },
+        { k: 'tool', tool: 'Grep', arg: 'requireSession  src/', res: '14 occurrences · 6 fichiers' },
+        { k: 'tool', tool: 'Read', arg: 'src/middleware/auth.ts', res: '212 lignes' },
+        { k: 'a', t: "Le middleware mélange validation du token et chargement de l'utilisateur. Je sépare les deux : verifyToken() reste pur, loadUser() gère la base. J'ajoute un adaptateur pour les sessions legacy." },
+        { k: 'tool', tool: 'Edit', arg: 'src/middleware/auth.ts', add: 86, del: 41 },
+        { k: 'tool', tool: 'Write', arg: 'src/auth/legacy-session-adapter.ts', add: 64, del: 0 },
+        { k: 'q', t: "La rotation nécessite une colonne token_family dans la table users. Je génère la migration Prisma et je l'applique en local ?", opts: ['Générer et appliquer', 'Générer seulement', "Non, je m'en occupe"] }
+      ] },
+      { id: 'a2', pid: 'atlas', name: 'tests-e2e', model: 'Sonnet', status: 'running', tokens: 96300, files: 3, secs: 1104, msgs: [
+        { k: 'u', t: 'Écris les tests e2e du parcours de réinitialisation du mot de passe.' },
+        { k: 'tool', tool: 'Write', arg: 'e2e/reset-password.spec.ts', add: 112, del: 0 },
+        { k: 'tool', tool: 'Bash', arg: 'npx playwright test reset-password', res: '3 passed · 1 failed' },
+        { k: 'a', t: "Le test d'expiration échoue : le lien reste valide 1 h au lieu de 15 min. Je corrige le TTL dans la config." },
+        { k: 'tool', tool: 'Edit', arg: 'config/auth.ts', add: 1, del: 1 }
+      ] },
+      { id: 'a3', pid: 'atlas', name: 'docs-env', model: 'Haiku', status: 'done', tokens: 21800, files: 1, secs: 312, msgs: [
+        { k: 'u', t: "Mets à jour le README avec les nouvelles variables d'environnement." },
+        { k: 'tool', tool: 'Edit', arg: 'README.md', add: 22, del: 6 },
+        { k: 'a', t: 'Fait. Nouvelle section « Configuration » avec les 5 variables et leurs valeurs par défaut.' }
+      ] },
+      { id: 's1', pid: 'studio', name: 'landing-hero', model: 'Sonnet', status: 'running', tokens: 143900, files: 4, secs: 3920, msgs: [
+        { k: 'u', t: 'Refais le hero de la landing avec la nouvelle typographie et le visuel produit.' },
+        { k: 'tool', tool: 'Read', arg: 'components/Hero.tsx', res: '148 lignes' },
+        { k: 'tool', tool: 'Edit', arg: 'components/Hero.tsx', add: 48, del: 30 },
+        { k: 'a', t: 'Structure en place. Je vérifie le rendu mobile sous 390 px.' }
+      ] },
+      { id: 's2', pid: 'studio', name: 'fix-a11y', model: 'Opus', status: 'waiting', tokens: 58200, files: 0, secs: 740, msgs: [
+        { k: 'u', t: 'Audit accessibilité de la page pricing.' },
+        { k: 'tool', tool: 'Bash', arg: 'npx axe http://localhost:3000/pricing', res: '7 violations' },
+        { k: 'a', t: '5 violations de contraste et 2 boutons sans libellé accessible.' },
+        { k: 'q', t: 'Les contrastes viennent du token --gray-400. Je modifie le token global (23 composants impactés) ou seulement la page pricing ?', opts: ['Token global', 'Page pricing seulement'] }
+      ] },
+      { id: 'i1', pid: 'infra', name: 'audit-iam', model: 'Sonnet', status: 'done', tokens: 34100, files: 1, secs: 1480, msgs: [
+        { k: 'u', t: 'Liste les rôles IAM qui ont des permissions « * ».' },
+        { k: 'tool', tool: 'Grep', arg: '"Action": "*"  modules/', res: '4 fichiers' },
+        { k: 'a', t: '4 rôles concernés. Rapport détaillé écrit dans AUDIT.md avec une proposition de politique minimale pour chacun.' }
+      ] },
+      { id: 'm1', pid: 'mobile', name: 'push-notifs', model: 'Sonnet', status: 'running', tokens: 71200, files: 2, secs: 960, msgs: [
+        { k: 'u', t: 'Ajoute le deep-linking depuis les notifications push vers l\'écran commande.' },
+        { k: 'tool', tool: 'Edit', arg: 'src/navigation/linking.ts', add: 18, del: 2 }
+      ] }
+    ],
+    terms: [
+      { id: 't1', pid: 'atlas', name: 'dev-server', shell: 'bash', lines: [
+        { k: 'cmd', t: 'npm run dev' }, { k: 'dim', t: '> atlas-api@2.3.0 dev' }, { k: 'dim', t: '> tsx watch src/server.ts' }, { k: 'out', t: '' },
+        { k: 'ok', t: '✓ Serveur prêt sur http://localhost:4000' }, { k: 'out', t: '[watch] src/middleware/auth.ts modifié · redémarrage' }, { k: 'ok', t: '✓ Serveur prêt sur http://localhost:4000' } ] },
+      { id: 't2', pid: 'mobile', name: 'metro', shell: 'PowerShell', lines: [
+        { k: 'cmd', t: 'npx expo start' }, { k: 'out', t: 'Starting Metro Bundler' }, { k: 'ok', t: '› Metro waiting on exp://192.168.1.24:8081' } ] }
+    ],
+    selTerm: {}, termDraft: '', termMenu: false,
+    activeProject: 'atlas', view: 'project',
+    selected: { atlas: 'a1', studio: 's2', infra: 'i1', mobile: 'm1' },
+    draft: '', range: 'day', resetSecs: 6480,
+    mode: null, variant: null, soundOn: null, nextId: 1
+  };
+  scrollRef = React.createRef();
+  timers = [];
+
+  componentDidMount() {
+    this.applyTheme();
+    this.tick = setInterval(() => this.setState(s => ({
+      resetSecs: Math.max(0, s.resetSecs - 1),
+      agents: s.agents.map(a => a.status === 'running' ? { ...a, secs: a.secs + 1, tokens: a.tokens + Math.round(120 + Math.random() * 600) } : a.status === 'waiting' ? { ...a, secs: a.secs + 1 } : a)
+    })), 1000);
+    this.timers.push(setTimeout(() => this.maybeAsk(), 12000));
+    this.qTick = setInterval(() => this.maybeAsk(), 26000);
+    this.scrollBottom();
+  }
+  componentWillUnmount() { clearInterval(this.tick); clearInterval(this.qTick); this.timers.forEach(clearTimeout); }
+  componentDidUpdate() {
+    this.applyTheme();
+    const tt = this.state.terms.find(t => t.id === this.state.selTerm[this.state.activeProject]); const key = this.curAgent()?.id + ':' + (this.curAgent()?.msgs.length) + ':' + this.state.view + ':' + (tt ? tt.id + tt.lines.length : '');
+    if (key !== this._lastKey) { this._lastKey = key; this.scrollBottom(); }
+  }
+  scrollBottom() { requestAnimationFrame(() => { [this.scrollRef.current, this.termRef && this.termRef.current].forEach(el => { if (el) el.scrollTop = el.scrollHeight; }); }); }
+  applyTheme() {
+    const s = this.state, pr = s.projects.find(x => x.id === s.activeProject);
+    const c = s.view === 'project' && pr ? pr.color : 'oklch(0.72 0.12 48)';
+    const tint = s.view === 'project' && pr, key = c + (tint ? ':t' : ':n');
+    if (this._acc === key) return; this._acc = key;
+    const st = document.documentElement.style;
+    const mix = (pct, base) => tint ? 'color-mix(in oklch, ' + c + ' ' + pct + '%, ' + base + ')' : base;
+    st.setProperty('--accent', c); st.setProperty('--accent-soft', 'color-mix(in oklch, ' + c + ' 38%, transparent)');
+    st.setProperty('--bg', mix(7, '#191715')); st.setProperty('--panel', mix(11, '#1e1c1a')); st.setProperty('--elev', mix(14, '#272422'));
+    st.setProperty('--elev2', mix(18, '#302d2a')); st.setProperty('--user', mix(22, '#2c2926'));
+    st.setProperty('--line', mix(22, 'rgba(255,236,214,.08)')); st.setProperty('--line2', mix(35, 'rgba(255,236,214,.15)'));
+    st.setProperty('--term', mix(5, '#121110'));
+  }
+  soundOn() { return this.state.soundOn ?? (this.props.sound ?? true); }
+  chime() {
+    if (!this.soundOn()) return;
+    try {
+      const C = this.ac || (this.ac = new (window.AudioContext || window.webkitAudioContext)());
+      const t = C.currentTime;
+      [880, 1318.5].forEach((f, i) => {
+        const o = C.createOscillator(), g = C.createGain(), st = t + i * 0.13;
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(0.07, st + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, st + 0.6);
+        o.connect(g); g.connect(C.destination); o.start(st); o.stop(st + 0.65);
+      });
+    } catch (e) {}
+  }
+  maybeAsk() {
+    if (this.props.autoQuestions === false) return;
+    const running = this.state.agents.filter(a => a.status === 'running');
+    if (!running.length) return;
+    const ag = running[Math.floor(Math.random() * running.length)];
+    const q = this.QPOOL[Math.floor(Math.random() * this.QPOOL.length)];
+    this.setState(s => ({ agents: s.agents.map(a => a.id === ag.id ? { ...a, status: 'waiting', msgs: [...a.msgs, { k: 'q', t: q.t, opts: q.opts }] } : a) }));
+    this.chime();
+  }
+  curAgent() {
+    const s = this.state;
+    const list = s.agents.filter(a => a.pid === s.activeProject);
+    return list.find(a => a.id === s.selected[s.activeProject]) || list[0];
+  }
+  push(id, m, patch) { this.setState(s => ({ agents: s.agents.map(a => a.id === id ? { ...a, ...(patch || {}), msgs: [...a.msgs, m] } : a) })); }
+  later(id, text) {
+    this.timers.push(setTimeout(() => this.push(id, { k: 'a', t: text }), 1300));
+    this.timers.push(setTimeout(() => this.push(id, { k: 'tool', tool: 'Edit', arg: 'src/index.ts', add: 12, del: 3 }), 2800));
+    this.timers.push(setTimeout(() => { const a = this.state.agents.find(x => x.id === id); if (!a || a.status !== 'running') return; this.push(id, { k: 'a', t: 'Terminé. Les modifications sont prêtes à être relues et commitées.' }, { status: 'done' }); this.chime(); }, 7000));
+  }
+  answer(id, idx, opt) {
+    this.setState(s => ({ agents: s.agents.map(a => a.id !== id ? a : { ...a, status: 'running', msgs: [...a.msgs.map((m, i) => i === idx ? { ...m, ans: opt } : m), { k: 'u', t: opt }] }) }));
+    this.later(id, 'Parfait, je continue avec cette option.');
+  }
+  send() {
+    const text = this.state.draft.trim(); const ag = this.curAgent();
+    if (!text || !ag) return;
+    const pending = ag.msgs.some(m => m.k === 'q' && !m.ans);
+    this.setState(s => ({ draft: '', agents: s.agents.map(a => a.id !== ag.id ? a : { ...a, status: 'running', msgs: [...a.msgs.map(m => m.k === 'q' && !m.ans ? { ...m, ans: text } : m), { k: 'u', t: text }] }) }));
+    this.later(ag.id, pending ? 'Compris, je prends ça en compte.' : "Bien reçu. Je regarde d'abord le code concerné.");
+  }
+  newAgent() {
+    const s = this.state; const id = 'n' + s.nextId;
+    const n = s.agents.filter(a => a.pid === s.activeProject).length + 1;
+    this.setState({ nextId: s.nextId + 1, agents: [...s.agents, { id, pid: s.activeProject, name: 'agent-' + n, model: 'Sonnet', status: 'idle', tokens: 0, files: 0, secs: 0, msgs: [] }], selected: { ...s.selected, [s.activeProject]: id } });
+  }
+  fTok(n) { return n >= 1e6 ? (n / 1e6).toFixed(2).replace('.', ',') + ' M' : n >= 1e3 ? (n / 1e3).toFixed(1).replace('.', ',') + ' k' : String(n); }
+  fUsd(x) { return x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' $'; }
+  fDur(s) { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60; return h ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm ' + String(ss).padStart(2, '0') + 's'; }
+  cost(a) { return a.tokens * (this.RATES[a.model] || 0.00001); }
+  dot(c, sz) { return React.createElement('span', { style: { width: sz, height: sz, borderRadius: '50%', background: c, display: 'inline-block', flex: 'none' } }); }
+  pulse(sz) { return React.createElement('span', { style: { width: sz, height: sz, borderRadius: '50%', background: 'var(--wait)', display: 'inline-block', flex: 'none', animation: 'ccPulse 1.6s ease-out infinite' } }); }
+  pill(txt) { return React.createElement('span', { style: { minWidth: 18, height: 18, padding: '0 6px', borderRadius: 9, background: 'var(--wait)', color: '#2a1f05', fontSize: 10.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--mono)', animation: 'ccPulse 1.6s ease-out infinite', flex: 'none' } }, txt); }
+  statusDot(st, sz) { if (st === 'done') return React.createElement('span', { style: { width: sz + 6, height: sz + 6, borderRadius: '50%', background: 'var(--ok)', color: 'var(--bg)', fontSize: sz, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', margin: '-3px' } }, '✓'); return st === 'waiting' ? this.pulse(sz) : this.dot(st === 'running' ? 'var(--ok)' : 'var(--dim)', sz); }
+  stats() {
+    if (this._stats) return this._stats;
+    const r = i => { const x = Math.sin(i * 12.9898) * 43758.5453; return x - Math.floor(x); };
+    const day = [], now = new Date(2026, 8, 27);
+    for (let i = 13; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); const we = d.getDay() === 0 || d.getDay() === 6; day.push({ label: String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'), t: Math.round((we ? 0.6 : 2.2) * 1e6 + r(i + 1) * 2.4e6) }); }
+    const week = []; for (let i = 0; i < 12; i++) week.push({ label: 'S' + (28 + i), t: Math.round(9e6 + r(i + 40) * 12e6 + i * 0.6e6) });
+    const mNames = ['oct.', 'nov.', 'déc.', 'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.'];
+    const month = mNames.map((l, i) => ({ label: l, t: Math.round(28e6 + i * 5.5e6 + r(i + 90) * 18e6) }));
+    return (this._stats = { day, week, month });
+  }
+  agentFiles(a) {
+    const map = {};
+    a.msgs.forEach(m => {
+      if (m.k !== 'tool' || (m.tool !== 'Edit' && m.tool !== 'Write')) return;
+      const f = map[m.arg] || (map[m.arg] = { path: m.arg, add: 0, del: 0, st: m.tool === 'Write' ? 'A' : 'M', agent: a.name });
+      f.add += m.add || 0; f.del += m.del || 0;
+    });
+    return Object.values(map);
+  }
+  filesVals(ag, list) {
+    const s = this.state, open = !!s.filesOpen, scope = s.filesScope || 'agent';
+    const files = scope === 'agent' ? (ag ? this.agentFiles(ag) : []) : list.flatMap(a => this.agentFiles(a));
+    const SC = { A: 'var(--add)', M: 'var(--wait)', D: 'var(--del)' };
+    return {
+      filesOpen: open, toggleFiles: () => this.setState({ filesOpen: !open }),
+      filesBtnBg: open ? 'var(--elev)' : 'transparent', filesBtnBc: open ? 'var(--line2)' : 'transparent',
+      scopeOpts: [['agent', 'Cet agent'], ['project', 'Tout le projet']].map(([k, l]) => ({ label: l, onClick: () => this.setState({ filesScope: k }), bg: scope === k ? 'var(--elev2)' : 'transparent', color: scope === k ? 'var(--text)' : 'var(--muted)' })),
+      scopeHint: scope === 'agent' ? 'worktree .claude/worktrees/' + (ag ? ag.name : '') + ' · isolé des autres agents' : 'Tous les agents du projet · attribution par worktree',
+      fileCount: files.length, noFiles: files.length === 0,
+      fileRows: files.map(f => { const i = f.path.lastIndexOf('/'); return { name: f.path.slice(i + 1), dir: i > 0 ? f.path.slice(0, i) : '.', st: f.st, stColor: SC[f.st], add: '+' + f.add, del: '−' + f.del, agent: f.agent, showAgent: scope === 'project' }; }),
+      commitLabel: scope === 'agent' ? 'Commit…' : 'Commit tout…'
+    };
+  }
+  PCOLORS = [48, 300, 200, 150, 250, 0, 25, 70, 110, 175, 225, 275, 325].map(h => 'oklch(0.72 0.12 ' + h + ')').concat(['oklch(0.8 0.02 60)']);
+  openNew() { this.setState({ newOpen: true, np: { path: '~/code/billing-service', name: 'billing-service', color: this.PCOLORS[4], agent: true, model: 'Sonnet', wt: true } }); }
+  createProject() {
+    const s = this.state, np = s.np, id = 'p' + s.nextId, name = np.name.trim() || 'nouveau-projet';
+    const agents = np.agent ? [{ id: 'n' + s.nextId, pid: id, name: 'agent-1', model: np.model, status: 'idle', tokens: 0, files: 0, secs: 0, msgs: [] }] : [];
+    this.setState({ newOpen: false, nextId: s.nextId + 1, projects: [...s.projects, { id, color: np.color, name, path: np.path, branch: 'main', git: { m: 0, a: 0, d: 0 } }], agents: [...s.agents, ...agents], selected: { ...s.selected, [id]: agents[0] && agents[0].id }, activeProject: id, view: 'project' });
+  }
+  modalVals() {
+    const s = this.state, np = s.np || {}, set = patch => this.setState(st => ({ np: { ...st.np, ...patch } }));
+    const ring = on => on ? '0 0 0 2px var(--panel), 0 0 0 4px var(--text)' : 'none';
+    const hasGit = (np.path || '').length > 8;
+    const pr = s.projects.find(x => x.id === s.activeProject);
+    return {
+      newOpen: !!s.newOpen, openNew: () => this.openNew(), closeNew: () => this.setState({ newOpen: false }), stop: e => e.stopPropagation(),
+      npPath: np.path || '', onNpPath: e => { const v = e.target.value; set({ path: v, name: v.split('/').filter(Boolean).pop() || '' }); },
+      browse: () => set({ path: '~/code/billing-service', name: 'billing-service' }),
+      npGit: hasGit ? 'Dépôt git détecté · branche main · propre' : 'Aucun dépôt git · un dépôt sera initialisé',
+      npGitColor: hasGit ? 'var(--ok)' : 'var(--muted)',
+      npName: np.name || '', onNpName: e => set({ name: e.target.value }), npNameShown: np.name || 'nouveau-projet',
+      npColor: np.color || this.PCOLORS[0],
+      npColorOpts: this.PCOLORS.map(c => ({ c, ring: ring(np.color === c), onClick: () => set({ color: c }) })),
+      npAgent: !!np.agent, toggleNpAgent: () => set({ agent: !np.agent }), npAgentBg: np.agent ? 'var(--ok)' : 'var(--elev2)', npAgentJ: np.agent ? 'flex-end' : 'flex-start',
+      npWt: !!np.wt, toggleNpWt: () => set({ wt: !np.wt }), npWtBg: np.wt ? 'var(--ok)' : 'var(--elev2)', npWtJ: np.wt ? 'flex-end' : 'flex-start',
+      npModelOpts: ['Opus', 'Sonnet', 'Haiku'].map(m => ({ label: m, onClick: () => set({ model: m }), bg: np.model === m ? 'var(--elev2)' : 'transparent', color: np.model === m ? 'var(--text)' : 'var(--muted)' })),
+      createProject: () => this.createProject(),
+      projColorOpts: this.PCOLORS.map(c => ({ c, ring: ring(pr && pr.color === c).replace('4px', '3px'), onClick: () => this.setState(st => ({ projects: st.projects.map(x => x.id === st.activeProject ? { ...x, color: c } : x) })) }))
+    };
+  }
+  termRef = React.createRef(); termInputRef = React.createRef();
+  SHELLS = { bash: { glyph: '$_', c: 'var(--ok)' }, PowerShell: { glyph: 'PS', c: 'oklch(0.74 0.12 235)' } };
+  openTerm(shell) {
+    const s = this.state, pid = s.activeProject, id = 't' + (100 + s.nextId);
+    const n = s.terms.filter(t => t.pid === pid).length + 1;
+    this.setState({ nextId: s.nextId + 1, termMenu: false, terms: [...s.terms, { id, pid, name: shell === 'bash' ? 'bash-' + n : 'pwsh-' + n, shell, lines: [] }], selTerm: { ...s.selTerm, [pid]: id } });
+    setTimeout(() => this.termInputRef.current && this.termInputRef.current.focus(), 50);
+  }
+  runCmd(term, pr) {
+    const cmd = this.state.termDraft.trim(); const ps = term.shell === 'PowerShell';
+    let out = [];
+    if (cmd === 'clear' || cmd === 'cls' || cmd === 'Clear-Host') { this.setTerm(term.id, () => []); this.setState({ termDraft: '' }); return; }
+    if (!cmd) out = [];
+    else if (cmd === 'git status') out = [{ k: 'out', t: 'Sur la branche ' + pr.branch }, { k: 'out', t: pr.git.m + ' modifiés · ' + pr.git.a + ' non suivis · ' + pr.git.d + ' supprimés' }];
+    else if (/^(ls|dir|Get-ChildItem)/.test(cmd)) out = [{ k: 'out', t: 'README.md   package.json   src/   tests/   tsconfig.json' }];
+    else if (cmd === 'pwd' || cmd === 'Get-Location') out = [{ k: 'out', t: pr.path }];
+    else out = [{ k: 'err', t: ps ? cmd.split(' ')[0] + " : Le terme n'est pas reconnu comme nom d'applet de commande." : 'bash: ' + cmd.split(' ')[0] + ': command not found' }];
+    this.setTerm(term.id, l => [...l, { k: 'cmd', t: cmd }, ...out]);
+    this.setState({ termDraft: '' });
+  }
+  setTerm(id, fn) { this.setState(s => ({ terms: s.terms.map(t => t.id === id ? { ...t, lines: fn(t.lines) } : t) })); }
+  termVals(pr) {
+    const s = this.state, pid = s.activeProject, list = s.terms.filter(t => t.pid === pid);
+    const cur = list.find(t => t.id === s.selTerm[pid]);
+    const ps = cur && cur.shell === 'PowerShell';
+    const prompt = !cur ? '' : ps ? 'PS ' + pr.path + '>' : pr.name + ' (' + pr.branch + ') $';
+    const COL = { cmd: '#ede7df', out: '#b9b1a6', dim: '#7a7268', ok: 'oklch(0.76 0.12 150)', err: 'oklch(0.72 0.14 25)' };
+    return {
+      showTerm: !!cur, showConv: !cur, termCount: list.length, noTerms: list.length === 0,
+      termMenu: !!s.termMenu, toggleTermMenu: () => this.setState({ termMenu: !s.termMenu }),
+      shellOpts: [['bash', 'Bash'], ['PowerShell', 'PowerShell']].map(([k, l]) => ({ label: l, glyph: this.SHELLS[k].glyph, c: this.SHELLS[k].c, onClick: () => this.openTerm(k) })),
+      termRows: list.map(t => ({ name: t.name, shell: t.shell, glyph: this.SHELLS[t.shell].glyph, c: this.SHELLS[t.shell].c, bg: cur && cur.id === t.id ? 'var(--elev)' : 'transparent', bc: cur && cur.id === t.id ? 'var(--line2)' : 'transparent',
+        select: () => this.setState({ selTerm: { ...s.selTerm, [pid]: t.id } }),
+        close: e => { e.stopPropagation(); this.setState(st => ({ terms: st.terms.filter(x => x.id !== t.id), selTerm: { ...st.selTerm, [pid]: st.selTerm[pid] === t.id ? null : st.selTerm[pid] } })); } })),
+      termName: cur ? cur.name : '', termShell: cur ? cur.shell : '', termPrompt: prompt, termPromptColor: ps ? 'oklch(0.74 0.12 235)' : 'var(--accent)',
+      termLines: cur ? cur.lines.map(l => ({ t: l.k === 'cmd' ? prompt + ' ' + l.t : (l.t || ' '), c: COL[l.k] })) : [],
+      termRef: this.termRef, termInputRef: this.termInputRef, termDraft: s.termDraft,
+      onTermDraft: e => this.setState({ termDraft: e.target.value }),
+      onTermKey: e => { if (e.key === 'Enter') { e.preventDefault(); this.runCmd(cur, pr); } },
+      focusTerm: () => this.termInputRef.current && this.termInputRef.current.focus(),
+      clearTerm: () => cur && this.setTerm(cur.id, () => []),
+      closeTerm: () => cur && this.setState(st => ({ terms: st.terms.filter(x => x.id !== cur.id), selTerm: { ...st.selTerm, [pid]: null } }))
+    };
+  }
+  renderVals() {
+    const s = this.state, p = this.props;
+    const mode = s.mode ?? (p.mode === 'Clair' ? 'light' : 'dark');
+    const variant = s.variant ?? ((p.variant || '').startsWith('B') ? 'console' : 'atelier');
+    const isProject = s.view === 'project';
+    const tabs = s.projects.map(pr => {
+      const ag = s.agents.filter(a => a.pid === pr.id);
+      const w = ag.filter(a => a.status === 'waiting').length, run = ag.some(a => a.status === 'running');
+      const active = isProject && s.activeProject === pr.id, n = pr.git.m + pr.git.a + pr.git.d;
+      return { name: pr.name, select: () => this.setState({ activeProject: pr.id, view: 'project', draft: '' }), bg: active ? 'var(--bg)' : 'transparent', bc: active ? 'var(--line2)' : 'transparent', color: active ? 'var(--text)' : 'var(--muted)', sw: pr.color, top: active ? pr.color : 'transparent', dot: !w && run ? this.dot('var(--ok)', 6) : null, hasChanges: n > 0, changes: 'Δ ' + n, hasWaiting: w > 0, waitPill: this.pill(w) };
+    });
+    const pr = s.projects.find(x => x.id === s.activeProject);
+    const ag = this.curAgent();
+    const list = s.agents.filter(a => a.pid === s.activeProject);
+    const SL = { running: 'En cours', waiting: 'Question', idle: 'Prêt', done: 'Terminé' };
+    const SC = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)' };
+    const agentRows = list.map(a => {
+      const sel = ag && a.id === ag.id;
+      return { name: a.name, select: () => this.setState({ selected: { ...s.selected, [s.activeProject]: a.id }, selTerm: { ...s.selTerm, [s.activeProject]: null }, draft: '' }), bg: sel && !s.selTerm[s.activeProject] ? 'var(--elev)' : 'transparent', bc: sel && !s.selTerm[s.activeProject] ? 'var(--line2)' : 'transparent', dot: this.statusDot(a.status, 8), model: a.model, dur: this.fDur(a.secs), tok: this.fTok(a.tokens), cost: this.fUsd(this.cost(a)), files: this.agentFiles(a).length + ' fich.', isWaiting: a.status === 'waiting', notWaiting: a.status !== 'waiting', statusLabel: SL[a.status], statusColor: SC[a.status], qTag: this.pill('Question') };
+    });
+    const pending = ag ? ag.msgs.some(m => m.k === 'q' && !m.ans) : false;
+    const messages = ag ? ag.msgs.map((m, i) => ({
+      isUser: m.k === 'u', isAssistant: m.k === 'a', isTool: m.k === 'tool', qPending: m.k === 'q' && !m.ans, qDone: m.k === 'q' && !!m.ans,
+      text: m.t, tool: m.tool, arg: m.arg, res: m.res, hasDiff: m.add != null, noDiff: m.add == null, add: '+' + m.add, del: '−' + m.del, ans: m.ans,
+      pulse: m.k === 'q' ? this.pulse(8) : null,
+      opts: (m.opts || []).map((o, j) => ({ label: o, onClick: () => this.answer(ag.id, i, o), bg: j === 0 ? 'var(--wait)' : 'transparent', color: j === 0 ? '#2a1f05' : 'var(--text)', bc: j === 0 ? 'var(--wait)' : 'var(--line2)' }))
+    })) : [];
+    const all = s.agents, totTok = all.reduce((x, a) => x + a.tokens, 0);
+    const sess = Math.min(99, 62 + (totTok - 607900) / 40000), week = Math.min(99, 38 + (totTok - 607900) / 200000);
+    const waitN = all.filter(a => a.status === 'waiting').length;
+    const rs = s.resetSecs;
+    const st = this.stats(), series = st[s.range];
+    const max = Math.max(...series.map(b => b.t)), mag = Math.pow(10, Math.floor(Math.log10(max)));
+    const nice = Math.ceil(max / mag) * mag;
+    const RATE = 4.6e-6, PER = 23000;
+    const sum = series.reduce((x, b) => x + b.t, 0), sumCost = sum * RATE, prompts = Math.round(sum / PER);
+    const unit = { day: 'jour', week: 'semaine', month: 'mois' }[s.range];
+    const span = { day: '14 derniers jours', week: '12 dernières semaines', month: '12 derniers mois' }[s.range];
+    const delta = { day: '+8 %', week: '+14 %', month: '+22 %' }[s.range];
+    const share = (arr) => arr.map(([name, pct, rate]) => ({ name, c: (s.projects.find(x => x.name === name) || {}).color || 'var(--accent)', w: pct + '%', tok: this.fTok(Math.round(sum * pct / 100)), cost: this.fUsd(sum * pct / 100 * rate) }));
+    return {
+      tabs, isProject, isStats: !isProject,
+      statsTab: { bg: isProject ? 'transparent' : 'var(--bg)', bc: isProject ? 'transparent' : 'var(--line2)', color: isProject ? 'var(--muted)' : 'var(--text)' },
+      openStats: () => this.setState({ view: 'stats' }),
+      agentCount: list.length, agentRows, newAgent: () => this.newAgent(),
+      projName: pr.name, projPath: pr.path, projBranch: pr.branch, gitM: pr.git.m, gitA: pr.git.a, gitD: pr.git.d,
+      convName: ag ? ag.name : '—', convStatus: ag ? SL[ag.status] : '', convStatusColor: ag ? SC[ag.status] : 'var(--dim)', convDot: ag ? this.statusDot(ag.status, 7) : null,
+      convModel: ag ? ag.model : '', convTok: ag ? this.fTok(ag.tokens) : '0', convCost: ag ? this.fUsd(this.cost(ag)) : '', convFiles: ag ? this.agentFiles(ag).length : 0, convFilesLabel: (() => { const n = ag ? this.agentFiles(ag).length : 0; return n + (n > 1 ? ' fichiers modifiés' : ' fichier modifié'); })(), minW: s.filesOpen && isProject ? '1440px' : '1100px', convDur: ag ? this.fDur(ag.secs) : '',
+      convEmpty: !!ag && ag.msgs.length === 0, convRunning: !!ag && ag.status === 'running', convDone: !!ag && ag.status === 'done',
+      messages, scrollRef: this.scrollRef,
+      typing: React.createElement('span', { style: { display: 'inline-flex', gap: 3 } }, [0, 1, 2].map(i => React.createElement('span', { key: i, style: { width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', animation: 'ccBlink 1.2s ' + (i * 0.15) + 's infinite' } }))),
+      draft: s.draft, onDraft: e => this.setState({ draft: e.target.value }),
+      onKey: e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); } },
+      send: () => this.send(),
+      placeholder: pending ? 'Réponds à la question ou écris une réponse libre…' : (ag && ag.msgs.length ? 'Envoyer un message à ' + ag.name + '…' : 'Décris la tâche à confier à Claude…'),
+      modelOpts: ['Opus', 'Sonnet', 'Haiku'].map(m => ({ label: m, onClick: () => ag && this.setState(st => ({ agents: st.agents.map(a => a.id === ag.id ? { ...a, model: m } : a) })), bg: ag && ag.model === m ? 'var(--elev2)' : 'transparent', color: ag && ag.model === m ? 'var(--text)' : 'var(--muted)' })),
+      effortOpts: [['low', 'Bas', 'Réponses rapides, peu de réflexion'], ['med', 'Moyen', 'Équilibré'], ['high', 'Élevé', 'Réflexion approfondie'], ['max', 'Max', 'Réflexion maximale, plus de tokens']].map(([k, l, t]) => { const cur = (ag && ag.effort) || 'med'; return { label: l, title: t, onClick: () => ag && this.setState(st => ({ agents: st.agents.map(a => a.id === ag.id ? { ...a, effort: k } : a) })), bg: cur === k ? 'var(--accent)' : 'transparent', color: cur === k ? 'var(--accent-ink)' : 'var(--muted)' }; }),
+      ...this.filesVals(ag, list), ...this.modalVals(), ...this.termVals(pr),
+      composerBorder: pending ? 'var(--wait)' : 'var(--line2)',
+      runCount: all.filter(a => a.status === 'running').length, doneCount: all.filter(a => a.status === 'done').length, waitCount: waitN, waitColor: waitN ? 'var(--wait)' : 'var(--muted)', waitDot: waitN ? this.pulse(7) : this.dot('var(--dim)', 7),
+      sessW: sess + '%', sessPct: Math.round(sess) + ' %', sessColor: sess > 80 ? 'var(--wait)' : 'var(--accent)', sessReset: Math.floor(rs / 3600) + 'h' + String(Math.floor(rs % 3600 / 60)).padStart(2, '0'),
+      weekW: week + '%', weekPct: Math.round(week) + ' %',
+      todayCost: this.fUsd(4.12 + all.reduce((x, a) => x + this.cost(a), 0)),
+      soundLabel: this.soundOn() ? '♪ On' : '♪ Off',
+      toggleSound: () => this.setState({ soundOn: !this.soundOn() }),
+      modeLabel: mode === 'dark' ? '◐' : '◑', toggleMode: () => this.setState({ mode: mode === 'dark' ? 'light' : 'dark' }),
+      variantLabel: variant === 'atelier' ? 'A · Atelier' : 'B · Console', toggleVariant: () => this.setState({ variant: variant === 'atelier' ? 'console' : 'atelier' }),
+      totalAgents: all.length,
+      ranges: [['day', 'Jour'], ['week', 'Semaine'], ['month', 'Mois']].map(([k, l]) => ({ label: l, onClick: () => this.setState({ range: k }), bg: s.range === k ? 'var(--elev2)' : 'transparent', color: s.range === k ? 'var(--text)' : 'var(--muted)' })),
+      kpis: [
+        { label: 'Tokens', value: this.fTok(sum), sub: span + ' · ' + delta },
+        { label: 'Coût global', value: this.fUsd(sumCost), sub: '1 284,60 $ depuis juin 2025' },
+        { label: 'Coût moyen / prompt', value: this.fUsd(sumCost / prompts), sub: '≈ ' + this.fTok(PER) + ' tokens / prompt' },
+        { label: 'Prompts', value: prompts.toLocaleString('fr-FR'), sub: Math.round(prompts / series.length).toLocaleString('fr-FR') + ' par ' + unit + ' en moyenne' }
+      ],
+      chartTitle: 'Tokens par ' + unit, yMax: this.fTok(nice), yMid: this.fTok(nice / 2),
+      bars: series.map(b => ({ label: b.label, outH: (b.t * 0.28 / nice * 100) + '%', inH: (b.t * 0.72 / nice * 100) + '%', tip: b.label + ' · ' + this.fTok(b.t) + ' tokens · ' + this.fUsd(b.t * RATE) })),
+      byProject: share([['atlas-api', 46, RATE], ['studio-web', 31, RATE], ['mobile-app', 15, RATE], ['infra-terraform', 8, RATE]]),
+      byModel: share([['Opus', 34, 1.2e-5], ['Sonnet', 58, 2.6e-6], ['Haiku', 8, 0.8e-6]])
+    };
+  }
+}
+</script>
+</body>
+</html>
