@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+// Keeps the app version identical in package.json, tauri.conf.json and Cargo.toml.
+//   node scripts/version.mjs 1.2.0     → sets the version everywhere
+//   node scripts/version.mjs --check v1.2.0 → exits 1 unless every manifest has that version
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const CARGO_VERSION = /^(\[package\][\s\S]*?\nversion\s*=\s*")([^"]+)(")/;
+
+const files = (root) => ({
+  package: path.join(root, 'package.json'),
+  tauri: path.join(root, 'src-tauri', 'tauri.conf.json'),
+  cargo: path.join(root, 'src-tauri', 'Cargo.toml'),
+});
+
+export function readVersions(root) {
+  const f = files(root);
+  return {
+    package: JSON.parse(fs.readFileSync(f.package, 'utf8')).version,
+    tauri: JSON.parse(fs.readFileSync(f.tauri, 'utf8')).version,
+    cargo: fs.readFileSync(f.cargo, 'utf8').match(CARGO_VERSION)?.[2],
+  };
+}
+
+export function setVersion(root, input) {
+  const version = String(input).replace(/^v/, '');
+  if (!SEMVER.test(version)) throw new Error(`"${input}" is not a semver version (e.g. 1.2.0)`);
+  const f = files(root);
+  for (const file of [f.package, f.tauri]) {
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    json.version = version;
+    fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n');
+  }
+  const cargo = fs.readFileSync(f.cargo, 'utf8');
+  fs.writeFileSync(f.cargo, cargo.replace(CARGO_VERSION, `$1${version}$3`));
+  return version;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const [first, second] = process.argv.slice(2);
+  if (first === '--check') {
+    const want = String(second ?? '').replace(/^v/, '');
+    const got = readVersions(root);
+    const bad = Object.entries(got).filter(([, v]) => v !== want);
+    if (bad.length) {
+      console.error(`version mismatch with ${second}: ${JSON.stringify(got)}`);
+      process.exit(1);
+    }
+    console.log(`all manifests at ${want}`);
+  } else if (first) {
+    console.log(`version set to ${setVersion(root, first)}`);
+  } else {
+    console.log(JSON.stringify(readVersions(root)));
+  }
+}

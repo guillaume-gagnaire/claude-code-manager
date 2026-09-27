@@ -10,7 +10,8 @@
     "test": "vitest run",
     "tauri": "tauri",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "version:set": "node scripts/version.mjs"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.2.0",
@@ -44,5 +45,8 @@
     "typescript": "~6.0.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.18"
   }
 }

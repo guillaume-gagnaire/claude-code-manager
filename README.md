@@ -1,2 +1,109 @@
-# claude-code-manager
-GUI for managing multiple Claude Code instances
+# Claude Code Manager
+
+Application Windows pour piloter plusieurs instances de [Claude Code](https://claude.com/claude-code) en local : un onglet par projet, autant d'agents que nécessaire, des terminaux intégrés, des notifications quand Claude attend une réponse, les quotas de ton abonnement et des statistiques de consommation.
+
+## Fonctionnalités
+
+- **Projets en onglets** : compteur de modifications git non commitées, pastille quand un agent attend une réponse, couleur par projet (qui teinte toute l'interface), réordonnables par glisser-déposer.
+- **Agents** : une conversation Claude Code par agent, nommée automatiquement d'après la première demande. Modèle (Fable, Opus, Sonnet, Haiku), effort (jusqu'à `max`) et mode de permission (Auto, Demander, Plan, Édits auto, Bypass) modifiables en cours de conversation. Archivage, suppression, renommage.
+- **Chat natif** : markdown avec coloration syntaxique, réflexion repliable, appels d'outils compacts et dépliables (diffs, sorties de commandes, sous-agents). Questions de Claude et demandes d'autorisation sous forme de cartes cliquables (ou réponse libre). Images (coller/glisser), autocomplétion `@fichier` et `/commande`, messages mis en file pendant que Claude travaille, interruption par `Échap`.
+- **Notifications** : carillon, notification Windows cliquable, clignotement de la barre des tâches et badge dans la zone de notification quand un agent pose une question ou termine.
+- **Git** : panneau des fichiers non commités (par agent ou pour tout le projet), visionneuse de diff (unifié / côte à côte), commit rédigé par l'agent lui-même. Option **un worktree par agent** avec merge (ou squash) dans la branche du projet et nettoyage.
+- **Terminaux** : vrais terminaux (ConPTY + xterm.js) PowerShell 7, Git Bash et WSL, avec l'autocomplétion native du shell.
+- **Barre de statut** : agents actifs, en attente et terminés, quota de session 5 h (avec délai avant réinitialisation), quota hebdomadaire, coût du jour.
+- **Statistiques** : tokens (entrée, cache, sortie) par jour, semaine ou mois, coût global, coût moyen par prompt, répartition par projet et par modèle.
+- **Fermer la fenêtre ne coupe pas les agents** : l'app reste dans la zone de notification. Au redémarrage, chaque agent reprend sa session Claude (`--resume`). Les processus inactifs sont arrêtés après un délai réglable et reprennent automatiquement à la prochaine action.
+- **Proxy réseau** configurable (processus Claude, quotas, mises à jour, et optionnellement terminaux).
+- **Mises à jour automatiques** via les releases GitHub.
+
+## Prérequis
+
+- Windows 10 ou 11 (WebView2, présent par défaut sur Windows 11).
+- [Claude Code](https://docs.claude.com/claude-code) installé et connecté (`claude` dans le `PATH`, ou chemin indiqué dans les réglages).
+- Git for Windows.
+- Optionnel : PowerShell 7, WSL.
+
+## Installation
+
+Télécharge l'installeur `.exe` de la [dernière release](https://github.com/guillaume-gagnaire/claude-code-manager/releases/latest). Les versions suivantes s'installent depuis l'application (barre de statut → « Mise à jour disponible »).
+
+## Données locales
+
+Tout est stocké dans `~/.claude-code-manager/` :
+
+| Fichier | Contenu |
+|---|---|
+| `settings.json` | réglages |
+| `state.json` | projets, agents, état de l'interface |
+| `conversations/<agent>.jsonl` | journal de chaque conversation |
+| `stats.db` | statistiques (SQLite) |
+| `app.log` | journal de l'application |
+
+La variable d'environnement `CCM_DATA_DIR` permet d'utiliser un autre dossier (démonstrations, tests).
+
+## Raccourcis
+
+| Raccourci | Action |
+|---|---|
+| `Ctrl+1` … `Ctrl+9` | aller au projet n |
+| `Ctrl+N` | nouvel agent |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | agent suivant / précédent |
+| `Ctrl+J` | prochain agent en attente de réponse |
+| `Ctrl+T` | nouveau terminal |
+| `Ctrl+Shift+B` | panneau des fichiers non commités |
+| `Ctrl+,` | réglages |
+| `Échap` (dans le champ de saisie) | interrompre Claude |
+| `↑` (champ vide) | reprendre le dernier message |
+
+## Développement
+
+Prérequis : Node.js 20.18+ et Rust stable (MSVC).
+
+```powershell
+npm ci
+npm run tauri dev
+```
+
+Pour travailler sans toucher à tes vraies données :
+
+```powershell
+$env:CCM_DATA_DIR = "$env:TEMP\ccm-sandbox"; npm run tauri dev
+```
+
+### Tests
+
+| Commande | Contenu |
+|---|---|
+| `npm run check` | typage (svelte-check) |
+| `npm test` | Vitest + Testing Library : logique, stores et composants |
+| `cd src-tauri; cargo test` | tests unitaires Rust et tests d'intégration du cœur contre un faux CLI `claude` (`tests/fixtures/fake-claude.mjs`), de vrais dépôts git temporaires et le runtime de test de Tauri |
+| `npx tauri build --debug --no-bundle; npm run test:e2e` | tests de bout en bout : Playwright pilote l'application réelle via le protocole DevTools de WebView2 |
+
+La CI (`.github/workflows/ci.yml`) exécute l'ensemble sur chaque push et pull request.
+
+### Publier une version
+
+1. Une seule fois, ajoute les secrets du dépôt GitHub :
+   - `TAURI_SIGNING_PRIVATE_KEY` : le contenu de la clé privée de signature des mises à jour (générée avec `npx tauri signer generate`, la clé publique correspondante est dans `src-tauri/tauri.conf.json`) ;
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` : son mot de passe (vide s'il n'y en a pas).
+2. Mets à jour la version partout, committe, tague et pousse :
+
+   ```powershell
+   npm run version:set -- 0.2.0
+   git commit -am "chore: release 0.2.0"
+   git tag v0.2.0
+   git push --follow-tags
+   ```
+
+Le workflow `release.yml` vérifie que le tag correspond à la version, lance les tests, construit l'installeur, le signe et publie la release avec le `latest.json` utilisé par la mise à jour automatique.
+
+## Architecture
+
+- `src-tauri/` : backend Rust (Tauri 2).
+  - `claude.rs` : pilotage d'un processus `claude` en mode `stream-json`, avec son protocole de contrôle (voir [docs/PROTOCOL.md](docs/PROTOCOL.md)).
+  - `agent.rs` : normalisation des messages en conversation, statuts, questions et permissions, usage par tour.
+  - `core.rs` : orchestration.
+  - Modules annexes : `git.rs`, `pty.rs`, `stats.rs`, `usage.rs`, `notify.rs`, `job.rs` (arbres de processus).
+- `src/` : interface Svelte 5.
+- `design/` : maquette de référence.
+- `docs/SPEC.md` : spécification.

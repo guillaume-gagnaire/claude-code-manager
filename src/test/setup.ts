@@ -9,8 +9,8 @@ class RO {
   disconnect() {}
 }
 (globalThis as any).ResizeObserver ??= RO;
-Element.prototype.scrollIntoView ??= () => {};
+if (typeof Element !== 'undefined') Element.prototype.scrollIntoView ??= () => {};
 
 afterEach(() => {
-  clearMocks();
+  if (typeof window !== 'undefined') clearMocks();
 });
