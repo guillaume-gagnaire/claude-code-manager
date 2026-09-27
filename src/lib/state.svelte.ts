@@ -90,7 +90,6 @@ class AppState {
     return this.terminals.find((t) => t.id === id) ?? null;
   });
 
-  waitingCount = $derived(Object.values(this.agents).filter((a) => !a.archived && a.status === 'waiting').length);
 
   private uiTimer: ReturnType<typeof setTimeout> | undefined;
   private toastId = 0;

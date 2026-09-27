@@ -128,7 +128,7 @@
         {#if s.waiting > 0}<span class="pill" title="Agents en attente de réponse">{s.waiting}</span>{/if}
       </button>
     {/each}
-    <button class="add" title="Ajouter un projet" onclick={() => (app.modal = { kind: 'newProject' })}>+</button>
+    <button class="add" title="Ajouter un projet" aria-label="Ajouter un projet" onclick={() => (app.modal = { kind: 'newProject' })}>+</button>
   </nav>
   <div class="spacer" data-tauri-drag-region></div>
   <div class="right">

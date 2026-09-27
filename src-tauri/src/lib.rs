@@ -108,10 +108,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // Sandboxed runs (CCM_DATA_DIR: end-to-end tests, demos) must not hand over to an instance
+    // the user already has open.
+    if std::env::var_os("CCM_DATA_DIR").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             notify::show_main(app)
-        }))
+        }));
+    }
+    builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)

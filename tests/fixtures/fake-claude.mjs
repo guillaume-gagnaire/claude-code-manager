@@ -14,7 +14,7 @@ import readline from 'node:readline';
 
 const argv = process.argv.slice(2);
 const logFile = process.env.FAKE_CLAUDE_LOG || path.join(os.tmpdir(), `fake-claude-${process.cwd().replace(/[^a-zA-Z0-9]/g, '_')}.jsonl`);
-fs.appendFileSync(logFile, JSON.stringify({ argv, cwd: process.cwd() }) + '\n');
+fs.appendFileSync(logFile, JSON.stringify({ argv, cwd: process.cwd(), proxy: process.env.HTTPS_PROXY ?? null }) + '\n');
 
 const resume = argv.find((a) => a.startsWith('--resume='))?.slice('--resume='.length);
 if (resume?.startsWith('missing')) {

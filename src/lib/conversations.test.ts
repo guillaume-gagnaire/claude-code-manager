@@ -1,0 +1,69 @@
+import { describe, expect, it } from 'vitest';
+import { fakeBackend } from '../test/ipc';
+import { Conversation } from './conversations.svelte';
+import type { ConvItem } from './types';
+
+const text = (id: string, t: string, streaming = true): ConvItem => ({ kind: 'text', id, text: t, streaming });
+
+describe('Conversation', () => {
+  it('applies append, delta and patch ops', async () => {
+    fakeBackend({ get_conversation: () => [] });
+    const c = new Conversation('a1');
+    await c.load();
+    c.apply({ op: 'append', item: text('m:0', '') });
+    c.apply({ op: 'delta', id: 'm:0', text: 'Bon' });
+    c.apply({ op: 'delta', id: 'm:0', text: 'jour' });
+    expect(c.items[0]).toMatchObject({ text: 'Bonjour', streaming: true });
+    c.apply({ op: 'patch', id: 'm:0', patch: { text: 'Bonjour !', streaming: false } });
+    expect(c.items).toEqual([text('m:0', 'Bonjour !', false)]);
+  });
+
+  it('replaces an item appended twice instead of duplicating it', async () => {
+    fakeBackend({ get_conversation: () => [] });
+    const c = new Conversation('a1');
+    await c.load();
+    c.apply({ op: 'append', item: text('x', 'v1') });
+    c.apply({ op: 'append', item: text('x', 'v2') });
+    expect(c.items).toHaveLength(1);
+    expect(c.items[0]).toMatchObject({ text: 'v2' });
+  });
+
+  it('ignores ops for unknown items', async () => {
+    fakeBackend({ get_conversation: () => [] });
+    const c = new Conversation('a1');
+    await c.load();
+    c.apply({ op: 'delta', id: 'nope', text: 'x' });
+    c.apply({ op: 'patch', id: 'nope', patch: { text: 'y' } });
+    expect(c.items).toEqual([]);
+  });
+
+  it('does not duplicate text streamed while the snapshot was loading', async () => {
+    let release!: (v: ConvItem[]) => void;
+    fakeBackend({ get_conversation: () => new Promise<ConvItem[]>((r) => (release = r)) });
+    const c = new Conversation('a1');
+    const loading = c.load();
+    // Ops emitted while the backend builds the snapshot: already contained in it.
+    c.apply({ op: 'delta', id: 'm:0', text: 'jour' });
+    c.apply({ op: 'append', item: { kind: 'notice', id: 'n1', ts: 1, level: 'info', text: 'Contexte compacté' } });
+    release([text('m:0', 'Bonjour')]);
+    await loading;
+    expect(c.loaded).toBe(true);
+    expect(c.items.map((i) => i.id)).toEqual(['m:0', 'n1']);
+    expect(c.items[0]).toMatchObject({ text: 'Bonjour' });
+    // Later deltas apply normally.
+    c.apply({ op: 'delta', id: 'm:0', text: ' !' });
+    expect(c.items[0]).toMatchObject({ text: 'Bonjour !' });
+  });
+
+  it('records a load failure', async () => {
+    fakeBackend({
+      get_conversation: () => {
+        throw new Error('agent introuvable');
+      },
+    });
+    const c = new Conversation('a1');
+    await c.load();
+    expect(c.error).toMatch(/agent introuvable/);
+    expect(c.loaded).toBe(true);
+  });
+});

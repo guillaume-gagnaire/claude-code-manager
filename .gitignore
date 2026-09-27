@@ -6,3 +6,5 @@ dist
 !.env.example
 vite.config.ts.timestamp-*
 .DS_Store
+test-results/
+playwright-report/
