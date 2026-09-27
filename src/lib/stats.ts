@@ -1,0 +1,39 @@
+// Derived KPIs of the Stats tab.
+
+import type { StatsView } from './types';
+
+export type Range = 'day' | 'week' | 'month';
+
+export const SPANS: Record<Range, string> = {
+  day: '14 derniers jours',
+  week: '12 dernières semaines',
+  month: '12 derniers mois',
+};
+
+export interface Kpis {
+  span: string;
+  /** Token evolution vs the previous period, in percent (null when there is no reference). */
+  delta: number | null;
+  costPerPrompt: number | null;
+  tokensPerPrompt: number | null;
+  promptsPerBucket: number;
+}
+
+export function kpis(v: StatsView): Kpis {
+  return {
+    span: SPANS[(v.range as Range) in SPANS ? (v.range as Range) : 'day'],
+    delta: v.tokensPrev > 0 ? Math.round(((v.tokens - v.tokensPrev) / v.tokensPrev) * 100) : null,
+    costPerPrompt: v.prompts > 0 ? v.cost / v.prompts : null,
+    tokensPerPrompt: v.prompts > 0 ? v.tokens / v.prompts : null,
+    promptsPerBucket: v.buckets.length ? v.prompts / v.buckets.length : 0,
+  };
+}
+
+/** Rounds an axis maximum up to 1, 2, 2.5 or 5 × 10^n. */
+export function niceMax(max: number): number {
+  if (max <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(max)));
+  const n = max / mag;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+  return step * mag;
+}

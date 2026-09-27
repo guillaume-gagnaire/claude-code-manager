@@ -1,0 +1,117 @@
+// Minimal unified-diff parser for the diff viewer.
+
+export interface DiffLine {
+  kind: 'add' | 'del' | 'ctx' | 'meta';
+  text: string;
+  oldNo: number | null;
+  newNo: number | null;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface DiffFile {
+  path: string;
+  status: 'A' | 'M' | 'D';
+  binary: boolean;
+  add: number;
+  del: number;
+  hunks: DiffHunk[];
+}
+
+export function parseUnifiedDiff(text: string): DiffFile[] {
+  const files: DiffFile[] = [];
+  let file: DiffFile | null = null;
+  let hunk: DiffHunk | null = null;
+  let oldNo = 0;
+  let newNo = 0;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (line.startsWith('diff --git ')) {
+      const m = line.match(/ b\/(.*)$/);
+      file = { path: m ? m[1] : line.slice(11), status: 'M', binary: false, add: 0, del: 0, hunks: [] };
+      files.push(file);
+      hunk = null;
+      continue;
+    }
+    if (!file) continue;
+    if (line.startsWith('new file')) {
+      file.status = 'A';
+      continue;
+    }
+    if (line.startsWith('deleted file')) {
+      file.status = 'D';
+      continue;
+    }
+    if (line.startsWith('Binary files')) {
+      file.binary = true;
+      continue;
+    }
+    if (line.startsWith('--- ') || line.startsWith('+++ ') || line.startsWith('index ') || line.startsWith('similarity') || line.startsWith('rename ') || line.startsWith('old mode') || line.startsWith('new mode')) {
+      continue;
+    }
+    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+    if (h) {
+      oldNo = Number(h[1]);
+      newNo = Number(h[2]);
+      hunk = { header: line, lines: [] };
+      file.hunks.push(hunk);
+      continue;
+    }
+    if (!hunk) continue;
+    if (line.startsWith('+')) {
+      hunk.lines.push({ kind: 'add', text: line.slice(1), oldNo: null, newNo: newNo++ });
+      file.add++;
+    } else if (line.startsWith('-')) {
+      hunk.lines.push({ kind: 'del', text: line.slice(1), oldNo: oldNo++, newNo: null });
+      file.del++;
+    } else if (line.startsWith('\\')) {
+      hunk.lines.push({ kind: 'meta', text: line, oldNo: null, newNo: null });
+    } else if (line.length || raw.length) {
+      hunk.lines.push({ kind: 'ctx', text: line.slice(1), oldNo: oldNo++, newNo: newNo++ });
+    }
+  }
+  return files;
+}
+
+/** Converts structuredPatch hunks (from Claude's Edit/Write results) to display lines. */
+export function patchLines(hunks: { oldStart: number; newStart: number; lines: string[] }[]): DiffLine[] {
+  const out: DiffLine[] = [];
+  for (const h of hunks) {
+    let o = h.oldStart;
+    let n = h.newStart;
+    if (out.length) out.push({ kind: 'meta', text: '⋯', oldNo: null, newNo: null });
+    for (const l of h.lines) {
+      const c = l[0];
+      if (c === '+') out.push({ kind: 'add', text: l.slice(1), oldNo: null, newNo: n++ });
+      else if (c === '-') out.push({ kind: 'del', text: l.slice(1), oldNo: o++, newNo: null });
+      else out.push({ kind: 'ctx', text: l.slice(1), oldNo: o++, newNo: n++ });
+    }
+  }
+  return out;
+}
+
+/** Pairs deletions and additions side by side for the split view. */
+export function splitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[] {
+  const rows: { left: DiffLine | null; right: DiffLine | null }[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.kind === 'del') {
+      const dels: DiffLine[] = [];
+      const adds: DiffLine[] = [];
+      while (i < lines.length && lines[i].kind === 'del') dels.push(lines[i++]);
+      while (i < lines.length && lines[i].kind === 'add') adds.push(lines[i++]);
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) rows.push({ left: dels[k] ?? null, right: adds[k] ?? null });
+    } else if (l.kind === 'add') {
+      rows.push({ left: null, right: l });
+      i++;
+    } else {
+      rows.push({ left: l, right: l });
+      i++;
+    }
+  }
+  return rows;
+}

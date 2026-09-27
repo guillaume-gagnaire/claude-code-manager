@@ -1,0 +1,16 @@
+import '@testing-library/jest-dom/vitest';
+import { clearMocks } from '@tauri-apps/api/mocks';
+import { afterEach } from 'vitest';
+
+// jsdom lacks these browser APIs used by the UI.
+class RO {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as any).ResizeObserver ??= RO;
+Element.prototype.scrollIntoView ??= () => {};
+
+afterEach(() => {
+  clearMocks();
+});

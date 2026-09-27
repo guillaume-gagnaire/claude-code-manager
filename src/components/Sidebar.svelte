@@ -1,0 +1,530 @@
+<script lang="ts">
+  import { api } from '../lib/ipc';
+  import { fDur, fTok, fUsd, tildify } from '../lib/format';
+  import { menu } from '../lib/menu.svelte';
+  import { modelLabel } from '../lib/models';
+  import { app } from '../lib/state.svelte';
+  import { closeTerminal, newTerminal, SHELL_GLYPH } from '../lib/term-actions';
+  import { PROJECT_COLORS } from '../lib/theme';
+  import type { Agent, Project } from '../lib/types';
+  import StatusDot from './StatusDot.svelte';
+
+  let { project }: { project: Project } = $props();
+
+  const SL: Record<string, string> = { running: 'En cours', waiting: 'Question', idle: 'Prêt', done: 'Terminé', error: 'Erreur' };
+  const SC: Record<string, string> = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)', error: 'var(--del)' };
+
+  let termMenuBtn = $state<HTMLButtonElement>();
+  let renaming = $state<string | null>(null);
+  let renameValue = $state('');
+
+  const git = $derived(app.git[project.id]);
+  const terms = $derived(app.terminals.filter((t) => t.projectId === project.id));
+  const selectedAgentId = $derived(app.agent?.id);
+  const termSelected = $derived(app.selectedTerm[project.id] ?? null);
+
+  function duration(a: Agent) {
+    return fDur(a.activeMs + (a.activeSince ? app.now - a.activeSince : 0));
+  }
+
+  function startRename(a: Agent) {
+    renaming = a.id;
+    renameValue = a.name;
+  }
+
+  async function commitRename(a: Agent) {
+    const v = renameValue.trim();
+    renaming = null;
+    if (v && v !== a.name) await app.run(api.renameAgent(a.id, v));
+  }
+
+  function agentMenu(e: MouseEvent, a: Agent) {
+    menu.show(e, [
+      { label: 'Renommer', onClick: () => startRename(a) },
+      a.archived
+        ? { label: 'Restaurer', onClick: () => app.run(api.archiveAgent(a.id, false)) }
+        : { label: 'Archiver', hint: 'garde la conversation', onClick: () => app.run(api.archiveAgent(a.id, true)) },
+      ...(a.worktree
+        ? [{ label: 'Ouvrir le worktree dans l’éditeur', onClick: () => app.run(api.openInEditor(a.worktree!.path)) }]
+        : []),
+      { label: '', separator: true },
+      { label: 'Supprimer…', danger: true, onClick: () => confirmDelete(a) },
+    ]);
+  }
+
+  function confirmDelete(a: Agent) {
+    app.modal = {
+      kind: 'confirm',
+      title: `Supprimer l'agent « ${a.name} » ?`,
+      body: 'Le processus Claude est arrêté et la conversation est retirée de l’application (la session Claude Code reste sur le disque).',
+      confirm: 'Supprimer',
+      danger: true,
+      option: a.worktree ? { label: `Supprimer aussi le worktree et la branche ${a.worktree.branch}`, value: true } : undefined,
+      onConfirm: async (removeWorktree) => {
+        const warning = await app.run(api.deleteAgent(a.id, removeWorktree));
+        if (warning) app.toast(warning, 'error');
+      },
+    };
+  }
+
+  function shellMenu() {
+    if (!termMenuBtn) return;
+    if (!app.shells.length) {
+      app.toast('Aucun shell détecté (PowerShell 7, Git Bash, WSL). Vérifie les réglages.', 'error');
+      return;
+    }
+    menu.showAt(
+      termMenuBtn,
+      app.shells.map((s) => ({ label: s.label, hint: SHELL_GLYPH[s.id]?.glyph, onClick: () => newTerminal(project.id, s.id) })),
+    );
+  }
+
+  function setColor(c: string) {
+    const p = { ...project, color: c };
+    const i = app.projects.findIndex((x) => x.id === project.id);
+    app.projects[i] = p;
+    app.run(api.updateProject(p));
+  }
+</script>
+
+<aside class="side">
+  <div class="head">
+    <span class="section-label">Agents</span>
+    <span class="count">{app.projectAgents.length}</span>
+    <div style="flex:1"></div>
+    <button class="new" onclick={() => app.newAgent(project.id)} title="Nouvel agent (Ctrl+N)">
+      <span class="plus">+</span> Nouvel agent
+    </button>
+  </div>
+
+  <div class="list">
+    {#each app.projectAgents as a (a.id)}
+      {@const sel = a.id === selectedAgentId && !termSelected}
+      <div
+        class="card"
+        class:sel
+        role="button"
+        tabindex="0"
+        onclick={() => app.selectAgent(a.id)}
+        onkeydown={(e) => e.key === 'Enter' && app.selectAgent(a.id)}
+        oncontextmenu={(e) => agentMenu(e, a)}
+      >
+        <div class="row1">
+          <StatusDot status={a.status} size={8} />
+          {#if renaming === a.id}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              class="rename"
+              bind:value={renameValue}
+              autofocus
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') commitRename(a);
+                if (e.key === 'Escape') renaming = null;
+              }}
+              onblur={() => commitRename(a)}
+            />
+          {:else}
+            <span class="name" ondblclick={() => startRename(a)} role="presentation">{a.name}</span>
+          {/if}
+          {#if a.status === 'waiting'}
+            <span class="pill">Question</span>
+          {:else}
+            <span class="status" style:color={SC[a.status]}>{SL[a.status]}</span>
+          {/if}
+        </div>
+        <div class="meta">
+          <span>{modelLabel(a.model)}</span><span class="sep">·</span><span>{duration(a)}</span>
+          {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}>⎇ {a.worktree.branch.replace(/^ccm\//, '')}</span>{/if}
+        </div>
+        <div class="meta dim">
+          <span>{fTok(a.tokens)} tok</span><span>{fUsd(a.cost)}</span><span>{git?.agents[a.id] ?? 0} fich.</span>
+        </div>
+      </div>
+    {:else}
+      <div class="empty">
+        Aucun agent.<br />
+        <button class="btn" style="margin-top:10px" onclick={() => app.newAgent(project.id)}>Créer un agent</button>
+      </div>
+    {/each}
+
+    {#if app.archivedAgents.length}
+      <button class="archived-toggle" onclick={() => (app.showArchived = !app.showArchived)}>
+        {app.showArchived ? '▾' : '▸'} Archivés ({app.archivedAgents.length})
+      </button>
+      {#if app.showArchived}
+        {#each app.archivedAgents as a (a.id)}
+          <div
+            class="card archived"
+            class:sel={a.id === selectedAgentId && !termSelected}
+            role="button"
+            tabindex="0"
+            onclick={() => app.selectAgent(a.id)}
+            onkeydown={(e) => e.key === 'Enter' && app.selectAgent(a.id)}
+            oncontextmenu={(e) => agentMenu(e, a)}
+          >
+            <div class="row1">
+              <span class="name">{a.name}</span>
+              <span class="status">{fUsd(a.cost)}</span>
+            </div>
+          </div>
+        {/each}
+      {/if}
+    {/if}
+  </div>
+
+  <div class="terms">
+    <div class="head small">
+      <span class="section-label">Terminaux</span>
+      <span class="count">{terms.length}</span>
+      <div style="flex:1"></div>
+      <button class="plus-btn" bind:this={termMenuBtn} title="Nouveau terminal" onclick={shellMenu}>+</button>
+    </div>
+    <div class="term-list">
+      {#each terms as t (t.id)}
+        {@const g = SHELL_GLYPH[t.shell] ?? { glyph: '>_', c: 'var(--muted)' }}
+        <div
+          class="term"
+          class:sel={termSelected === t.id}
+          role="button"
+          tabindex="0"
+          onclick={() => app.selectTerm(t.id)}
+          onkeydown={(e) => e.key === 'Enter' && app.selectTerm(t.id)}
+        >
+          <span class="glyph" style:color={g.c}>{g.glyph}</span>
+          <span class="tname">{t.name}</span>
+          {#if app.exitedTerms[t.id] !== undefined}<span class="shell">terminé</span>{/if}
+          <button
+            class="x"
+            title="Fermer"
+            onclick={(e) => {
+              e.stopPropagation();
+              closeTerminal(t.id);
+            }}>×</button
+          >
+        </div>
+      {:else}
+        <span class="none">Aucun terminal ouvert</span>
+      {/each}
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="path mono" title={project.path}>{tildify(project.path)}</div>
+    {#if git?.isRepo}
+      <div class="branch mono"><span class="ring"></span>{git.branch || '—'}</div>
+      <div class="gitc mono">
+        <span style="color:var(--wait)">~{git.modified} modifiés</span>
+        <span style="color:var(--add)">+{git.added} ajoutés</span>
+        <span style="color:var(--del)">−{git.deleted} supprimés</span>
+      </div>
+    {:else if git}
+      <div class="branch mono" style="color:var(--dim)">Pas de dépôt git</div>
+    {/if}
+    <div class="colors">
+      <span class="clabel">Couleur</span>
+      {#each PROJECT_COLORS as c (c)}
+        <button
+          class="swatch"
+          aria-label="Couleur du projet"
+          style:background={c}
+          style:box-shadow={project.color === c ? '0 0 0 2px var(--panel), 0 0 0 3px var(--text)' : 'none'}
+          onclick={() => setColor(c)}
+        ></button>
+      {/each}
+    </div>
+  </div>
+</aside>
+
+<style>
+  .side {
+    width: 300px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    min-height: 0;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 14px 10px 18px;
+  }
+  .head.small {
+    padding: 12px 14px 8px 18px;
+  }
+  .count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .new {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r-sm);
+    background: var(--elev);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .new:hover,
+  .plus-btn:hover {
+    border-color: var(--accent);
+  }
+  .plus {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .list {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 10px 12px;
+    min-height: 80px;
+  }
+  .card {
+    text-align: left;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 11px 12px;
+    border-radius: var(--r);
+    border: 1px solid transparent;
+    cursor: pointer;
+    outline: none;
+  }
+  .card:hover:not(.sel) {
+    background: color-mix(in oklch, var(--elev) 55%, transparent);
+  }
+  .card.sel {
+    background: var(--elev);
+    border-color: var(--line2);
+  }
+  .card:focus-visible {
+    border-color: var(--accent);
+  }
+  .card.archived {
+    padding: 8px 12px;
+    opacity: 0.7;
+  }
+  .row1 {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+  }
+  .name {
+    font-weight: 600;
+    font-size: 13.5px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rename {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--bg);
+    font-size: 13px;
+    font-weight: 600;
+    outline: none;
+  }
+  .status {
+    font-size: 11px;
+    color: var(--muted);
+    flex: none;
+  }
+  .meta {
+    display: flex;
+    gap: 10px;
+    padding-left: 17px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .meta.dim {
+    color: var(--dim);
+  }
+  .sep {
+    color: var(--dim);
+  }
+  .wt {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .empty {
+    padding: 24px 8px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 12.5px;
+  }
+  .archived-toggle {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    color: var(--dim);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .archived-toggle:hover {
+    color: var(--text);
+  }
+  .terms {
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 10px;
+    max-height: 40%;
+    min-height: 0;
+  }
+  .plus-btn {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r-sm);
+    background: var(--elev);
+    color: var(--accent);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .term-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 10px;
+    overflow: auto;
+  }
+  .term {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 6px 0 10px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    flex: none;
+  }
+  .term:hover:not(.sel) {
+    background: color-mix(in oklch, var(--elev) 55%, transparent);
+  }
+  .term.sel {
+    background: var(--elev);
+    border-color: var(--line2);
+  }
+  .glyph {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: var(--bg);
+    min-width: 24px;
+    text-align: center;
+  }
+  .tname {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .shell {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--dim);
+  }
+  .x {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--dim);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .x:hover {
+    background: var(--elev2);
+    color: var(--text);
+  }
+  .none {
+    padding: 4px 8px 6px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .foot {
+    border-top: 1px solid var(--line);
+    padding: 14px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .path {
+    font-size: 11.5px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .branch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+  }
+  .ring {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--muted);
+  }
+  .gitc {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+  }
+  .colors {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-top: 4px;
+  }
+  .clabel {
+    font-size: 11px;
+    color: var(--dim);
+    width: 100%;
+  }
+  .swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+</style>

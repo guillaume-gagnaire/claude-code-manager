@@ -1,0 +1,379 @@
+<script lang="ts">
+  import { api } from '../lib/ipc';
+  import { conversationOf } from '../lib/conversations.svelte';
+  import { fDur, fTok, fUsd } from '../lib/format';
+  import { modelLabel } from '../lib/models';
+  import { app } from '../lib/state.svelte';
+  import type { Agent, ConvItem, Project } from '../lib/types';
+  import Composer from './Composer.svelte';
+  import Markdown from './conv/Markdown.svelte';
+  import Notice from './conv/Notice.svelte';
+  import PermissionCard from './conv/PermissionCard.svelte';
+  import QuestionCard from './conv/QuestionCard.svelte';
+  import Thinking from './conv/Thinking.svelte';
+  import ToolRow from './conv/ToolRow.svelte';
+  import TurnCard from './conv/TurnCard.svelte';
+  import UserMessage from './conv/UserMessage.svelte';
+  import StatusDot from './StatusDot.svelte';
+
+  let { agent, project }: { agent: Agent; project: Project } = $props();
+
+  const SL: Record<string, string> = { running: 'En cours', waiting: 'Question', idle: 'Prêt', done: 'Terminé', error: 'Erreur' };
+  const SC: Record<string, string> = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)', error: 'var(--del)' };
+
+  const conv = $derived(conversationOf(agent.id));
+  const top = $derived(conv.items.filter((i) => !i.parent));
+  const children = $derived.by(() => {
+    const m = new Map<string, ConvItem[]>();
+    for (const i of conv.items) {
+      if (!i.parent) continue;
+      let list = m.get(i.parent);
+      if (!list) m.set(i.parent, (list = []));
+      list.push(i);
+    }
+    return m;
+  });
+  const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
+  const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
+  const duration = $derived(fDur(agent.activeMs + (agent.activeSince ? app.now - agent.activeSince : 0)));
+  const running = $derived(agent.status === 'running');
+
+  let scroller = $state<HTMLDivElement>();
+  let content = $state<HTMLDivElement>();
+  let stick = true;
+  let showJump = $state(false);
+
+  function atBottom() {
+    return !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  }
+
+  function toBottom() {
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    stick = true;
+    showJump = false;
+  }
+
+  $effect(() => {
+    void agent.id;
+    stick = true;
+    requestAnimationFrame(toBottom);
+  });
+
+  $effect(() => {
+    if (!content) return;
+    const ro = new ResizeObserver(() => {
+      if (stick) toBottom();
+      else showJump = true;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  });
+
+  function rename() {
+    app.modal = {
+      kind: 'rename',
+      title: "Renommer l'agent",
+      value: agent.name,
+      onSubmit: (name) => app.run(api.renameAgent(agent.id, name)),
+    };
+  }
+
+  function prevIsText(i: number) {
+    return i > 0 && top[i - 1].kind === 'text';
+  }
+</script>
+
+<main class="conv">
+  <header class="head">
+    <div class="who">
+      <div class="line1">
+        <span class="name" ondblclick={rename} role="presentation" title="Double-clic pour renommer">{agent.name}</span>
+        <span class="st" style:color={SC[agent.status]}><StatusDot status={agent.status} size={7} />{SL[agent.status]}</span>
+      </div>
+      <span class="sub mono">{project.name} / {branch || '—'}</span>
+    </div>
+    <div style="flex:1"></div>
+    <div class="metrics">
+      <span class="model mono" title="Contexte actuel : {fTok(agent.contextTokens)} tokens">{modelLabel(agent.model)}</span>
+      <div class="m"><span class="k">Tokens</span><span class="v mono">{fTok(agent.tokens)}</span></div>
+      <div class="m"><span class="k">Coût</span><span class="v mono">{fUsd(agent.cost)}</span></div>
+      <button class="m files" class:open={app.filesOpen} title="Voir les fichiers non commités" onclick={() => (app.filesOpen = !app.filesOpen)}>
+        <span class="k">Fichiers ▸</span><span class="v mono">{files}</span>
+      </button>
+      <div class="m"><span class="k">Durée</span><span class="v mono">{duration}</span></div>
+    </div>
+  </header>
+
+  <div class="scroll" bind:this={scroller} onscroll={() => ((stick = atBottom()), stick && (showJump = false))}>
+    <div class="msgs" bind:this={content}>
+      {#if conv.loaded && top.length === 0}
+        <div class="empty">
+          <span class="t">Agent prêt</span>
+          <span class="s">Décris la tâche à confier à Claude. L'agent travaille dans <span class="mono">{agent.cwd}</span>.</span>
+          {#if !app.claudeFound}
+            <span class="warn">Claude Code est introuvable sur ce poste : installe-le ou indique son chemin dans les réglages (⚙).</span>
+          {/if}
+        </div>
+      {/if}
+      {#each top as item, i (item.id)}
+        {#if item.kind === 'user'}
+          <UserMessage {item} />
+        {:else if item.kind === 'text'}
+          {#if item.text.trim() || item.streaming}
+            <div class="assistant">
+              {#if !prevIsText(i)}<span class="avatar">C</span>{:else}<span class="avatar ghost"></span>{/if}
+              <Markdown text={item.text} streaming={item.streaming} />
+            </div>
+          {/if}
+        {:else if item.kind === 'thinking'}
+          <Thinking {item} />
+        {:else if item.kind === 'tool'}
+          {#if item.name !== 'AskUserQuestion' && item.name !== 'ExitPlanMode'}
+            <ToolRow {item} cwd={agent.cwd} children={children.get(item.id) ?? []} />
+          {/if}
+        {:else if item.kind === 'question'}
+          <QuestionCard {item} agentId={agent.id} pending={agent.pending.includes(item.id)} />
+        {:else if item.kind === 'permission'}
+          <PermissionCard {item} agentId={agent.id} cwd={agent.cwd} pending={agent.pending.includes(item.id)} />
+        {:else if item.kind === 'turn'}
+          <TurnCard {item} {agent} last={i === top.length - 1} />
+        {:else if item.kind === 'notice'}
+          <Notice {item} />
+        {/if}
+      {/each}
+      {#if running}
+        <div class="working">
+          <span class="dots"><span></span><span></span><span></span></span>Claude travaille…
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  {#if showJump}
+    <button class="jump" onclick={toBottom}>↓ Nouveaux messages</button>
+  {/if}
+
+  {#if agent.archived}
+    <div class="banner">
+      Agent archivé.
+      <button class="btn" onclick={() => app.run(api.archiveAgent(agent.id, false))}>Restaurer</button>
+    </div>
+  {:else}
+    {#if agent.status === 'error'}
+      <div class="banner err">L'agent s'est arrêté. Envoie un message pour relancer Claude sur la même session.</div>
+    {/if}
+    <Composer {agent} />
+  {/if}
+</main>
+
+<style>
+  .conv {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .head {
+    height: 60px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .line1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .name {
+    font-size: 15px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .st {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .sub {
+    font-size: 11px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .metrics {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    flex: none;
+    white-space: nowrap;
+  }
+  .model {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line2);
+  }
+  .m {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .k {
+    font-size: 10.5px;
+    color: var(--dim);
+  }
+  .v {
+    font-size: 12.5px;
+  }
+  .files {
+    align-items: flex-start;
+    padding: 4px 8px;
+    margin: -4px -8px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+  }
+  .files:hover {
+    border-color: var(--line2);
+  }
+  .files.open {
+    background: var(--elev);
+    border-color: var(--line2);
+  }
+  .scroll {
+    flex: 1;
+    overflow: auto;
+  }
+  .msgs {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .msgs > :global(*) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 60px;
+  }
+  .empty {
+    padding: 90px 0 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .empty .t {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .empty .s {
+    color: var(--muted);
+    max-width: 420px;
+    text-wrap: pretty;
+    line-height: 1.5;
+  }
+  .empty .warn {
+    margin-top: 10px;
+    max-width: 420px;
+    color: var(--wait);
+    font-size: 12.5px;
+  }
+  .assistant {
+    display: flex;
+    gap: 12px;
+    min-width: 0;
+  }
+  .avatar {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    margin-top: 1px;
+    border-radius: var(--r-sm);
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .avatar.ghost {
+    background: transparent;
+  }
+  .working {
+    margin-left: 34px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .dots {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: ccBlink 1.2s infinite;
+  }
+  .dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  .jump {
+    position: absolute;
+    left: 50%;
+    bottom: 150px;
+    transform: translateX(-50%);
+    height: 30px;
+    padding: 0 14px;
+    border-radius: 99px;
+    border: 1px solid var(--line2);
+    background: var(--elev);
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    z-index: 5;
+  }
+  .banner {
+    max-width: 780px;
+    width: calc(100% - 56px);
+    margin: 0 auto 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--r);
+    border: 1px solid var(--line2);
+    background: var(--panel);
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .banner.err {
+    border-color: color-mix(in oklch, var(--del) 50%, transparent);
+  }
+</style>

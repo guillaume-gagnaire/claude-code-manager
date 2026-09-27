@@ -1,0 +1,69 @@
+<script lang="ts">
+  import type { DiffLine } from '../../lib/diff';
+
+  let { lines, max = 400 }: { lines: DiffLine[]; max?: number } = $props();
+  const shown = $derived(lines.slice(0, max));
+</script>
+
+<div class="patch">
+  {#each shown as l, i (i)}
+    <div class="l {l.kind}">
+      <span class="no">{l.kind === 'meta' ? '' : (l.newNo ?? l.oldNo ?? '')}</span>
+      <span class="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}</span>
+      <span class="t">{l.text}</span>
+    </div>
+  {/each}
+  {#if lines.length > max}
+    <div class="more">… {lines.length - max} lignes de plus</div>
+  {/if}
+</div>
+
+<style>
+  .patch {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow: auto;
+    max-height: 420px;
+    background: var(--term);
+  }
+  .l {
+    display: flex;
+    white-space: pre;
+    min-width: max-content;
+  }
+  .no {
+    width: 44px;
+    flex: none;
+    padding-right: 8px;
+    text-align: right;
+    color: var(--dim);
+    user-select: none;
+  }
+  .sign {
+    width: 16px;
+    flex: none;
+    color: var(--dim);
+    user-select: none;
+  }
+  .add {
+    background: color-mix(in oklch, var(--add) 14%, transparent);
+  }
+  .add .sign {
+    color: var(--add);
+  }
+  .del {
+    background: color-mix(in oklch, var(--del) 14%, transparent);
+  }
+  .del .sign {
+    color: var(--del);
+  }
+  .meta {
+    color: var(--dim);
+  }
+  .more {
+    padding: 6px 12px;
+    color: var(--dim);
+    font-size: 11px;
+  }
+</style>

@@ -1,0 +1,155 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { api } from './lib/ipc';
+  import { app } from './lib/state.svelte';
+  import { newTerminal } from './lib/term-actions';
+  import { checkForUpdate } from './lib/updater';
+  import { createWarmer } from './lib/warm';
+  import ContextMenu from './components/ContextMenu.svelte';
+  import Conversation from './components/Conversation.svelte';
+  import DiffModal from './components/DiffModal.svelte';
+  import FilesPanel from './components/FilesPanel.svelte';
+  import ConfirmModal from './components/modals/ConfirmModal.svelte';
+  import NewProjectModal from './components/modals/NewProjectModal.svelte';
+  import RenameModal from './components/modals/RenameModal.svelte';
+  import SettingsModal from './components/modals/SettingsModal.svelte';
+  import Sidebar from './components/Sidebar.svelte';
+  import Stats from './components/Stats.svelte';
+  import StatusBar from './components/StatusBar.svelte';
+  import TerminalView from './components/TerminalView.svelte';
+  import TitleBar from './components/TitleBar.svelte';
+  import Toasts from './components/Toasts.svelte';
+  import Welcome from './components/Welcome.svelte';
+
+  let initError = $state<string | null>(null);
+
+  onMount(() => {
+    app.init().catch((e) => (initError = String(e)));
+    if (import.meta.env.PROD) setTimeout(() => checkForUpdate(), 8000);
+  });
+
+  $effect(() => {
+    void app.ui.view;
+    void app.project?.color;
+    app.applyTheme();
+  });
+
+  const warmSelected = createWarmer((id) => api.warmAgent(id).catch(() => {}));
+  $effect(() => warmSelected(app.agent));
+
+  function onKeydown(e: KeyboardEvent) {
+    if (!e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (/^[1-9]$/.test(e.key) && !e.shiftKey) {
+      const p = app.projects[Number(e.key) - 1];
+      if (p) {
+        app.selectProject(p.id);
+        e.preventDefault();
+      }
+    } else if (k === 'n' && !e.shiftKey && app.project) {
+      e.preventDefault();
+      app.newAgent();
+    } else if (k === 'j') {
+      e.preventDefault();
+      app.nextWaiting();
+    } else if (k === ',') {
+      e.preventDefault();
+      app.modal = { kind: 'settings' };
+    } else if (k === 't' && !e.shiftKey && app.project) {
+      e.preventDefault();
+      newTerminal(app.project.id);
+    } else if (k === 'b' && e.shiftKey) {
+      e.preventDefault();
+      app.filesOpen = !app.filesOpen;
+    } else if (k === 'tab' && app.project) {
+      e.preventDefault();
+      const list = app.projectAgents;
+      if (!list.length) return;
+      const i = list.findIndex((a) => a.id === app.agent?.id);
+      app.selectAgent(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].id);
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+<div class="root">
+  <TitleBar />
+  <div class="body">
+    {#if initError}
+      <div class="fatal">Impossible de démarrer : {initError}</div>
+    {:else if !app.ready}
+      <div class="fatal"></div>
+    {:else if app.ui.view === 'stats'}
+      <Stats />
+    {:else if app.project}
+      {@const project = app.project}
+      <Sidebar {project} />
+      {#if app.term}
+        <TerminalView term={app.term} {project} />
+      {:else if app.agent}
+        {#key app.agent.id}
+          <Conversation agent={app.agent} {project} />
+        {/key}
+        {#if app.filesOpen}
+          <FilesPanel {project} agent={app.agent} />
+        {/if}
+      {:else}
+        <div class="noagent">
+          <span>Aucun agent dans ce projet.</span>
+          <button class="btn primary" onclick={() => app.newAgent()}>+ Nouvel agent</button>
+        </div>
+      {/if}
+    {:else}
+      <Welcome />
+    {/if}
+  </div>
+  <StatusBar />
+</div>
+
+{#if app.modal?.kind === 'newProject'}
+  <NewProjectModal />
+{:else if app.modal?.kind === 'settings'}
+  <SettingsModal />
+{:else if app.modal?.kind === 'diff'}
+  <DiffModal projectId={app.modal.projectId} agentId={app.modal.agentId} paths={app.modal.paths} title={app.modal.title} />
+{:else if app.modal?.kind === 'confirm'}
+  <ConfirmModal {...app.modal} />
+{:else if app.modal?.kind === 'rename'}
+  <RenameModal title={app.modal.title} value={app.modal.value} onSubmit={app.modal.onSubmit} />
+{/if}
+
+<ContextMenu />
+<Toasts />
+
+<style>
+  .root {
+    height: 100vh;
+    min-width: 1000px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  .fatal {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--del);
+  }
+  .noagent {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+  }
+</style>
