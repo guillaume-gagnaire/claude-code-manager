@@ -10,6 +10,8 @@ test('a new project opens an agent that streams Claude’s reply', async ({ app 
   await expect(page.getByText('Bonjour, tu as dit : Bonjour')).toBeVisible();
   await expect(page.getByText('Tâche terminée')).toBeVisible();
   await expect(page.locator('footer')).toContainText('1 terminé');
+  // Named from the first request (the fake CLI answers the naming call).
+  await expect(page.locator('.card .name').first()).toHaveText('bonjour-fake');
   await expect(page.locator('footer')).toContainText('Session 5 h');
   await expect(page.locator('footer')).toContainText('12 %');
 });

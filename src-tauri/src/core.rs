@@ -142,6 +142,39 @@ pub fn slugify(s: &str) -> String {
     out
 }
 
+/// Instructions + the task framed as text to name (so that the model does not try to do it).
+pub(crate) fn naming_prompt(task: &str) -> String {
+    format!(
+        "Donne un nom court à la tâche de développement ci-dessous. Ne la réalise pas.\n\
+         Réponds uniquement par un slug kebab-case de 2 ou 3 mots (minuscules ASCII, sans accents), \
+         par exemple refacto-auth ou tests-e2e.\n\n<tache>\n{}\n</tache>",
+        claude::truncate(task.trim(), 2000)
+    )
+}
+
+/// The model's answer as an agent name, if it looks like one: a sentence (an attempt at the
+/// task, a refusal, "Voici le slug : …") is never a name.
+pub(crate) fn name_from_answer(raw: &str) -> Option<String> {
+    let line = raw
+        .trim()
+        .lines()
+        .next()?
+        .trim()
+        .trim_matches(|c| matches!(c, '`' | '"' | '\'' | '*'));
+    if line.is_empty() || line.contains(':') || line.ends_with(['.', '!', '?']) {
+        return None;
+    }
+    let words = line
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '_')
+        .filter(|w| !w.is_empty())
+        .count();
+    if words > 4 {
+        return None;
+    }
+    let slug = slugify(line);
+    (!slug.is_empty()).then_some(slug)
+}
+
 fn sub_prefix(root: &str, sub: &str) -> String {
     let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
     if norm(root) == norm(sub) {
@@ -454,6 +487,11 @@ impl<R: Runtime> Core<R> {
         let mut fx = Effects::default();
         let (id, pid, name, view) = {
             let mut rt = h.lock();
+            let current = rt.gen == gen;
+            log::info!(
+                "agent {}: claude exited (code {code:?}, current process: {current})",
+                rt.meta.id
+            );
             rt.on_exit(gen, code, &stderr, &mut fx);
             (
                 rt.meta.id.clone(),
@@ -580,6 +618,13 @@ impl<R: Runtime> Core<R> {
         if !Path::new(&opts.cwd).is_dir() {
             bail!("Le dossier {} n'existe plus", opts.cwd);
         }
+        log::info!(
+            "agent {id}: starting {} {} in {}",
+            opts.program.display(),
+            opts.args.join(" "),
+            opts.cwd
+        );
+        let started = std::time::Instant::now();
         let (w1, w2) = (Arc::downgrade(self), Arc::downgrade(self));
         let (h1, h2) = (h.clone(), h.clone());
         let proc = ClaudeProcess::spawn(
@@ -602,10 +647,17 @@ impl<R: Runtime> Core<R> {
             .await
         {
             Ok(resp) => {
+                log::info!("agent {id}: ready in {} ms", started.elapsed().as_millis());
                 h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default()
             }
-            Err(_) if !proc.is_alive() => return Err(StartupFailure.into()),
-            Err(e) => log::warn!("initialize failed: {e}"),
+            Err(_) if !proc.is_alive() => {
+                log::warn!("agent {id}: claude exited while starting");
+                return Err(StartupFailure.into());
+            }
+            Err(e) => log::warn!(
+                "agent {id}: initialize failed after {} ms: {e}",
+                started.elapsed().as_millis()
+            ),
         }
         Ok(proc)
     }
@@ -914,17 +966,20 @@ impl<R: Runtime> Core<R> {
 
     async fn auto_name(self: &Arc<Self>, id: &str, prompt: &str) {
         match self.generate_name(prompt).await {
-            Ok(slug) if !slug.is_empty() => {
+            Ok(Some(slug)) => {
                 if let Err(e) = self.apply_generated_name(id, &slug).await {
                     log::warn!("auto-naming failed: {e:#}");
                 }
             }
-            Ok(_) => {}
+            Ok(None) => {
+                log::info!("agent {id}: no usable name from the model, keeping the default one")
+            }
             Err(e) => log::warn!("auto-naming failed: {e:#}"),
         }
     }
 
-    async fn generate_name(&self, prompt: &str) -> Result<String> {
+    /// A short name for the task, or None when the model did not answer with one.
+    async fn generate_name(&self, prompt: &str) -> Result<Option<String>> {
         use tokio::io::AsyncWriteExt;
         let settings = self.settings.read().clone();
         let program =
@@ -941,9 +996,10 @@ impl<R: Runtime> Core<R> {
             "",
             "--setting-sources",
             "",
+            // No MCP servers (account connectors included): nothing that invites the model to act.
+            "--strict-mcp-config",
             "--system-prompt",
-            "Tu nommes des tâches de développement. Réponds UNIQUEMENT par un slug kebab-case de 2 ou 3 mots \
-             (minuscules ASCII, sans accents) qui résume la tâche, par exemple refacto-auth ou tests-e2e. Aucun autre texte.",
+            "Tu nommes des tâches de développement sans jamais les réaliser. Tu réponds uniquement par un slug.",
         ])
         .current_dir(std::env::temp_dir())
         .envs(settings.proxy_env())
@@ -955,21 +1011,11 @@ impl<R: Runtime> Core<R> {
         cmd.creation_flags(claude::CREATE_NO_WINDOW);
         let mut child = cmd.spawn()?;
         if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(claude::truncate(prompt, 2000).as_bytes())
-                .await?;
+            stdin.write_all(naming_prompt(prompt).as_bytes()).await?;
         }
         let out = tokio::time::timeout(Duration::from_secs(90), child.wait_with_output()).await??;
         let v: Value = serde_json::from_slice(&out.stdout)?;
-        let raw = v["result"]
-            .as_str()
-            .unwrap_or("")
-            .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        Ok(slugify(&raw))
+        Ok(name_from_answer(v["result"].as_str().unwrap_or("")))
     }
 
     async fn apply_generated_name(self: &Arc<Self>, id: &str, slug: &str) -> Result<()> {
@@ -1528,6 +1574,36 @@ impl<R: Runtime> Core<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_are_taken_only_from_slug_like_answers() {
+        assert_eq!(
+            name_from_answer("refacto-auth"),
+            Some("refacto-auth".into())
+        );
+        assert_eq!(
+            name_from_answer("  `tests-e2e`\n"),
+            Some("tests-e2e".into())
+        );
+        assert_eq!(
+            name_from_answer("Migration JWT"),
+            Some("migration-jwt".into())
+        );
+        // The model sometimes answers the task instead of naming it: never a name.
+        assert_eq!(
+            name_from_answer("Je n'ai accès qu'aux outils Claude Docs."),
+            None
+        );
+        assert_eq!(name_from_answer("Voici le slug : creation-fichier"), None);
+        assert_eq!(name_from_answer(""), None);
+    }
+
+    #[test]
+    fn the_task_is_framed_as_text_to_name() {
+        let p = naming_prompt("Crée un fichier hello.txt");
+        assert!(p.contains("<tache>\nCrée un fichier hello.txt\n</tache>"));
+        assert!(p.contains("slug"));
+    }
 
     #[test]
     fn slugs() {
