@@ -27,22 +27,37 @@ pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
     let out = cmd.output().await?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let msg = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err };
-        bail!(if msg.is_empty() { format!("git {} a échoué", args.join(" ")) } else { msg });
+        let msg = if err.is_empty() {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        } else {
+            err
+        };
+        bail!(if msg.is_empty() {
+            format!("git {} a échoué", args.join(" "))
+        } else {
+            msg
+        });
     }
     Ok(out.stdout)
 }
 
 pub async fn text(cwd: &str, args: &[&str]) -> Result<String> {
-    Ok(String::from_utf8_lossy(&run(cwd, args).await?).trim().to_string())
+    Ok(String::from_utf8_lossy(&run(cwd, args).await?)
+        .trim()
+        .to_string())
 }
 
 pub async fn toplevel(path: &str) -> Option<String> {
-    text(path, &["rev-parse", "--show-toplevel"]).await.ok().filter(|s| !s.is_empty())
+    text(path, &["rev-parse", "--show-toplevel"])
+        .await
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 pub async fn current_branch(path: &str) -> String {
-    text(path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.unwrap_or_default()
+    text(path, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .await
+        .unwrap_or_default()
 }
 
 pub async fn init_repo(path: &str) -> Result<()> {
@@ -63,7 +78,17 @@ pub struct Status {
 }
 
 pub async fn status(cwd: &str) -> Result<Status> {
-    let out = run(cwd, &["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]).await?;
+    let out = run(
+        cwd,
+        &[
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all",
+        ],
+    )
+    .await?;
     Ok(parse_status(&out))
 }
 
@@ -96,7 +121,9 @@ pub fn parse_status(out: &[u8]) -> Status {
             Some('?') => ("??", t.get(2..)),
             _ => continue,
         };
-        let Some(path) = path.filter(|p| !p.is_empty()) else { continue };
+        let Some(path) = path.filter(|p| !p.is_empty()) else {
+            continue;
+        };
         let mut c = xy.chars();
         let (x, y) = (c.next().unwrap_or('.'), c.next().unwrap_or('.'));
         let status = if x == 'D' || y == 'D' {
@@ -106,7 +133,10 @@ pub fn parse_status(out: &[u8]) -> Status {
         } else {
             'M'
         };
-        st.entries.push(Entry { path: path.to_string(), status });
+        st.entries.push(Entry {
+            path: path.to_string(),
+            status,
+        });
     }
     st
 }
@@ -115,7 +145,9 @@ pub fn parse_status(out: &[u8]) -> Status {
 pub async fn numstat(root: &str) -> HashMap<String, (u32, u32)> {
     let out = match run(root, &["diff", "HEAD", "--numstat", "-z"]).await {
         Ok(o) => o,
-        Err(_) => run(root, &["diff", "--cached", "--numstat", "-z"]).await.unwrap_or_default(),
+        Err(_) => run(root, &["diff", "--cached", "--numstat", "-z"])
+            .await
+            .unwrap_or_default(),
     };
     parse_numstat(&out)
 }
@@ -148,7 +180,9 @@ pub fn parse_numstat(out: &[u8]) -> HashMap<String, (u32, u32)> {
 }
 
 fn count_lines(path: &Path) -> u32 {
-    let Ok(meta) = std::fs::metadata(path) else { return 0 };
+    let Ok(meta) = std::fs::metadata(path) else {
+        return 0;
+    };
     if meta.len() > 2_000_000 {
         return 0;
     }
@@ -176,7 +210,13 @@ pub async fn file_changes(root: &str) -> Result<Vec<FileChange>> {
                     (0, 0)
                 }
             });
-            FileChange { path: e.path, status: e.status.to_string(), add, del, agent_id: None }
+            FileChange {
+                path: e.path,
+                status: e.status.to_string(),
+                add,
+                del,
+                agent_id: None,
+            }
         })
         .collect())
 }
@@ -185,7 +225,12 @@ pub async fn file_changes(root: &str) -> Result<Vec<FileChange>> {
 pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
     let st = status(root).await?;
     let wanted = |p: &str| paths.is_empty() || paths.iter().any(|x| x == p);
-    let untracked: Vec<String> = st.entries.iter().filter(|e| e.status == 'A' && wanted(&e.path)).map(|e| e.path.clone()).collect();
+    let untracked: Vec<String> = st
+        .entries
+        .iter()
+        .filter(|e| e.status == 'A' && wanted(&e.path))
+        .map(|e| e.path.clone())
+        .collect();
     let mut args: Vec<&str> = vec!["diff", "HEAD", "--no-color", "--no-ext-diff", "--"];
     for p in paths {
         args.push(p);
@@ -199,7 +244,9 @@ pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
             continue;
         }
         let full = Path::new(root).join(&path);
-        let Ok(bytes) = std::fs::read(&full) else { continue };
+        let Ok(bytes) = std::fs::read(&full) else {
+            continue;
+        };
         if bytes.len() > 1_000_000 || bytes.contains(&0) {
             out.push_str(&format!("diff --git a/{path} b/{path}\nnew file\nBinary files /dev/null and b/{path} differ\n"));
             continue;
@@ -221,8 +268,22 @@ pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
 
 /// Tracked + untracked (non-ignored) files, for @-mention completion.
 pub async fn list_files(cwd: &str) -> Result<Vec<String>> {
-    let out = run(cwd, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"]).await?;
-    let mut files: Vec<String> = String::from_utf8_lossy(&out).split('\0').filter(|s| !s.is_empty()).map(str::to_string).collect();
+    let out = run(
+        cwd,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
+    )
+    .await?;
+    let mut files: Vec<String> = String::from_utf8_lossy(&out)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
     files.sort();
     files.dedup();
     Ok(files)
@@ -230,11 +291,22 @@ pub async fn list_files(cwd: &str) -> Result<Vec<String>> {
 
 /// Fallback file listing for folders that are not git repositories.
 pub fn walk_files(root: &str, limit: usize) -> Vec<String> {
-    const SKIP: &[&str] = &[".git", "node_modules", "target", "dist", "build", ".venv", "__pycache__", ".next"];
+    const SKIP: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        "build",
+        ".venv",
+        "__pycache__",
+        ".next",
+    ];
     let mut out = Vec::new();
     let mut stack = vec![std::path::PathBuf::from(root)];
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             let Ok(ft) = e.file_type() else { continue };
@@ -255,19 +327,37 @@ pub fn walk_files(root: &str, limit: usize) -> Vec<String> {
 
 pub async fn ensure_excluded(repo: &str, pattern: &str) -> Result<()> {
     let common = text(repo, &["rev-parse", "--git-common-dir"]).await?;
-    let common = if Path::new(&common).is_absolute() { common } else { Path::new(repo).join(common).to_string_lossy().to_string() };
+    let common = if Path::new(&common).is_absolute() {
+        common
+    } else {
+        Path::new(repo).join(common).to_string_lossy().to_string()
+    };
     let file = Path::new(&common).join("info").join("exclude");
     let current = std::fs::read_to_string(&file).unwrap_or_default();
     if !current.lines().any(|l| l.trim() == pattern) {
         std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
-        let sep = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
+        let sep = if current.is_empty() || current.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
         std::fs::write(&file, format!("{current}{sep}{pattern}\n"))?;
     }
     Ok(())
 }
 
 pub async fn branch_exists(repo: &str, branch: &str) -> bool {
-    run(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_ok()
+    run(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .await
+    .is_ok()
 }
 
 /// Creates `<repo>/.claude/worktrees/<name>` on a new branch. Returns (path, branch, base branch).
@@ -284,14 +374,24 @@ pub async fn worktree_add(repo: &str, name: &str) -> Result<(String, String, Str
         n += 1;
     }
     let dir_name = branch.trim_start_matches("ccm/").to_string();
-    let path = Path::new(repo).join(".claude").join("worktrees").join(&dir_name);
+    let path = Path::new(repo)
+        .join(".claude")
+        .join("worktrees")
+        .join(&dir_name);
     let path_s = path.to_string_lossy().to_string();
     run(repo, &["worktree", "add", "-b", &branch, &path_s, "HEAD"]).await?;
     Ok((path_s, branch, base))
 }
 
+/// Removes a worktree and its branch, tolerating a worktree folder that is already gone.
 pub async fn worktree_remove(repo: &str, path: &str, branch: &str) -> Result<()> {
-    let _ = run(repo, &["worktree", "remove", "--force", path]).await;
+    if run(repo, &["worktree", "remove", "--force", path])
+        .await
+        .is_err()
+        && Path::new(path).exists()
+    {
+        std::fs::remove_dir_all(path).map_err(|e| anyhow::anyhow!("{path} : {e}"))?;
+    }
     let _ = run(repo, &["worktree", "prune"]).await;
     if branch_exists(repo, branch).await {
         run(repo, &["branch", "-D", branch]).await?;
@@ -301,12 +401,29 @@ pub async fn worktree_remove(repo: &str, path: &str, branch: &str) -> Result<()>
 
 /// Commits of `branch` not yet in the current branch of `repo`.
 pub async fn ahead_count(repo: &str, branch: &str) -> u32 {
-    text(repo, &["rev-list", "--count", &format!("HEAD..{branch}")]).await.ok().and_then(|s| s.parse().ok()).unwrap_or(0)
+    text(repo, &["rev-list", "--count", &format!("HEAD..{branch}")])
+        .await
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+/// True when tracked files have uncommitted changes (staged or not).
+pub async fn has_tracked_changes(repo: &str) -> Result<bool> {
+    Ok(
+        !run(repo, &["status", "--porcelain", "--untracked-files=no"])
+            .await?
+            .is_empty(),
+    )
 }
 
 pub async fn merge(repo: &str, branch: &str, squash: bool, message: &str) -> Result<String> {
     if squash {
-        run(repo, &["merge", "--squash", branch]).await?;
+        if let Err(e) = run(repo, &["merge", "--squash", branch]).await {
+            // A conflicting squash leaves markers and unmerged entries behind: undo them.
+            let _ = run(repo, &["reset", "--merge"]).await;
+            return Err(e);
+        }
         match run(repo, &["commit", "-m", message]).await {
             Ok(o) => Ok(String::from_utf8_lossy(&o).trim().to_string()),
             Err(e) => {
@@ -329,17 +446,27 @@ pub async fn rename_current_branch(worktree: &str, new_name: &str) -> Result<()>
     run(worktree, &["branch", "-m", new_name]).await.map(|_| ())
 }
 
+/// File list of a folder and when it was read.
+type CachedFiles = (Instant, Arc<Vec<String>>);
+
 /// Watches project folders and coalesces change notifications per project.
 pub struct GitService {
     tx: mpsc::UnboundedSender<String>,
     watchers: Mutex<HashMap<String, (RecommendedWatcher, Arc<AtomicBool>)>>,
-    files: Mutex<HashMap<String, (Instant, Arc<Vec<String>>)>>,
+    files: Mutex<HashMap<String, CachedFiles>>,
 }
 
 impl GitService {
     pub fn new() -> (Self, mpsc::UnboundedReceiver<String>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (Self { tx, watchers: Mutex::default(), files: Mutex::default() }, rx)
+        (
+            Self {
+                tx,
+                watchers: Mutex::default(),
+                files: Mutex::default(),
+            },
+            rx,
+        )
     }
 
     pub fn watch(&self, project_id: &str, path: &str) {
@@ -360,7 +487,9 @@ impl GitService {
                     log::warn!("cannot watch {path}: {e}");
                     return;
                 }
-                self.watchers.lock().insert(project_id.to_string(), (w, flag));
+                self.watchers
+                    .lock()
+                    .insert(project_id.to_string(), (w, flag));
             }
             Err(e) => log::warn!("watcher error: {e}"),
         }
@@ -396,11 +525,15 @@ impl GitService {
             Ok(f) => f,
             Err(_) => {
                 let root = cwd.to_string();
-                tokio::task::spawn_blocking(move || walk_files(&root, 50_000)).await.unwrap_or_default()
+                tokio::task::spawn_blocking(move || walk_files(&root, 50_000))
+                    .await
+                    .unwrap_or_default()
             }
         };
         let files = Arc::new(files);
-        self.files.lock().insert(cwd.to_string(), (Instant::now(), files.clone()));
+        self.files
+            .lock()
+            .insert(cwd.to_string(), (Instant::now(), files.clone()));
         files
     }
 }
@@ -412,7 +545,12 @@ fn is_relevant(p: &Path) -> bool {
         None => !s.ends_with(".git"),
         Some(i) => {
             let inner = &s[i + 6..];
-            inner == "index" || inner == "HEAD" || inner.starts_with("refs") || inner.ends_with("\\index") || inner.ends_with("/index") || inner.ends_with("HEAD")
+            inner == "index"
+                || inner == "HEAD"
+                || inner.starts_with("refs")
+                || inner.ends_with("\\index")
+                || inner.ends_with("/index")
+                || inner.ends_with("HEAD")
         }
     }
 }
@@ -446,7 +584,11 @@ pub fn fuzzy_files(files: &[String], query: &str, limit: usize) -> Vec<String> {
         })
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0));
-    scored.into_iter().take(limit).map(|(_, f)| f.clone()).collect()
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, f)| f.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -455,10 +597,14 @@ mod tests {
 
     #[test]
     fn parses_porcelain_v2() {
-        let raw = b"# branch.oid abc\0# branch.head feat/x\01 .M N... 100644 100644 100644 a b src/app.ts\01 A. N... 0 100644 100644 0 b new file.ts\02 R. N... 100644 100644 100644 a b R100 renamed.ts\0old.ts\0? notes.txt\01 .D N... 100644 100644 0 a 0 gone.ts\0";
+        let raw = b"# branch.oid abc\0# branch.head feat/x\x001 .M N... 100644 100644 100644 a b src/app.ts\x001 A. N... 0 100644 100644 0 b new file.ts\x002 R. N... 100644 100644 100644 a b R100 renamed.ts\0old.ts\0? notes.txt\x001 .D N... 100644 100644 0 a 0 gone.ts\0";
         let st = parse_status(raw);
         assert_eq!(st.branch, "feat/x");
-        let got: Vec<(String, char)> = st.entries.iter().map(|e| (e.path.clone(), e.status)).collect();
+        let got: Vec<(String, char)> = st
+            .entries
+            .iter()
+            .map(|e| (e.path.clone(), e.status))
+            .collect();
         assert_eq!(
             got,
             vec![
@@ -473,7 +619,7 @@ mod tests {
 
     #[test]
     fn parses_numstat_with_renames() {
-        let raw = b"3\t1\tsrc/a.ts\0-\t-\timg.png\05\t0\t\0old.ts\0new.ts\0";
+        let raw = b"3\t1\tsrc/a.ts\0-\t-\timg.png\x005\t0\t\0old.ts\0new.ts\0";
         let m = parse_numstat(raw);
         assert_eq!(m["src/a.ts"], (3, 1));
         assert_eq!(m["img.png"], (0, 0));
@@ -482,7 +628,11 @@ mod tests {
 
     #[test]
     fn fuzzy_prefers_basename() {
-        let files = vec!["docs/SPEC.md".to_string(), "src/spec/helpers.ts".to_string(), "README.md".to_string()];
+        let files = vec![
+            "docs/SPEC.md".to_string(),
+            "src/spec/helpers.ts".to_string(),
+            "README.md".to_string(),
+        ];
         let r = fuzzy_files(&files, "spec", 10);
         assert_eq!(r[0], "docs/SPEC.md");
         assert!(!r.contains(&"README.md".to_string()));

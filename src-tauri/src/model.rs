@@ -207,12 +207,22 @@ pub struct UsageSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
 pub enum ConvOp {
-    Append { item: Value },
-    Patch { id: String, patch: Value },
+    Append {
+        item: Value,
+    },
+    Patch {
+        id: String,
+        patch: Value,
+    },
     /// Text appended to the `text` field of an item (streaming).
-    Delta { id: String, text: String },
+    Delta {
+        id: String,
+        text: String,
+    },
 }
 
+// Serialized and sent right away: the size gap between variants does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum UiEvent {
@@ -220,11 +230,20 @@ pub enum UiEvent {
         agent: AgentView,
     },
     #[serde(rename_all = "camelCase")]
-    AgentRemoved { id: String, project_id: String },
+    AgentRemoved {
+        id: String,
+        project_id: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Conv { agent_id: String, ops: Vec<ConvOp> },
+    Conv {
+        agent_id: String,
+        ops: Vec<ConvOp>,
+    },
     #[serde(rename_all = "camelCase")]
-    Git { project_id: String, git: GitInfo },
+    Git {
+        project_id: String,
+        git: GitInfo,
+    },
     Usage {
         usage: UsageSnapshot,
     },
@@ -234,7 +253,10 @@ pub enum UiEvent {
         agent_id: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
-    TerminalExit { id: String, code: Option<u32> },
+    TerminalExit {
+        id: String,
+        code: Option<u32>,
+    },
 }
 
 pub fn now_ms() -> i64 {
@@ -243,4 +265,65 @@ pub fn now_ms() -> i64 {
 
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
+}
+
+/// Merges consecutive text deltas of the same item, keeping every other op in order.
+pub fn coalesce_ops(ops: Vec<ConvOp>) -> Vec<ConvOp> {
+    let mut out: Vec<ConvOp> = Vec::with_capacity(ops.len());
+    for op in ops {
+        if let (
+            ConvOp::Delta { id, text },
+            Some(ConvOp::Delta {
+                id: last_id,
+                text: last,
+            }),
+        ) = (&op, out.last_mut())
+        {
+            if id == last_id {
+                last.push_str(text);
+                continue;
+            }
+        }
+        out.push(op);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn delta(id: &str, t: &str) -> ConvOp {
+        ConvOp::Delta {
+            id: id.into(),
+            text: t.into(),
+        }
+    }
+
+    #[test]
+    fn consecutive_deltas_of_one_item_are_merged_in_order() {
+        let ops = vec![
+            delta("a", "Bon"),
+            delta("a", "jour"),
+            delta("b", "x"),
+            delta("a", " !"),
+            ConvOp::Patch {
+                id: "a".into(),
+                patch: json!({ "streaming": false }),
+            },
+            delta("a", "?"),
+        ];
+        let out = serde_json::to_value(coalesce_ops(ops)).unwrap();
+        assert_eq!(
+            out,
+            json!([
+                { "op": "delta", "id": "a", "text": "Bonjour" },
+                { "op": "delta", "id": "b", "text": "x" },
+                { "op": "delta", "id": "a", "text": " !" },
+                { "op": "patch", "id": "a", "patch": { "streaming": false } },
+                { "op": "delta", "id": "a", "text": "?" },
+            ])
+        );
+    }
 }

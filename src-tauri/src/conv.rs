@@ -6,9 +6,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Conv {
+    dir: PathBuf,
     agent_id: String,
     loaded: bool,
     items: Vec<Value>,
@@ -17,12 +18,19 @@ pub struct Conv {
 }
 
 impl Conv {
-    pub fn new(agent_id: &str) -> Self {
-        Self { agent_id: agent_id.to_string(), loaded: false, items: Vec::new(), index: HashMap::new(), writer: None }
+    pub fn new(dir: &Path, agent_id: &str) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            agent_id: agent_id.to_string(),
+            loaded: false,
+            items: Vec::new(),
+            index: HashMap::new(),
+            writer: None,
+        }
     }
 
     fn path(&self) -> PathBuf {
-        paths::conversations_dir().join(format!("{}.jsonl", self.agent_id))
+        self.dir.join(format!("{}.jsonl", self.agent_id))
     }
 
     pub fn ensure_loaded(&mut self) {
@@ -30,10 +38,14 @@ impl Conv {
             return;
         }
         self.loaded = true;
-        let Ok(file) = File::open(self.path()) else { return };
+        let Ok(file) = File::open(self.path()) else {
+            return;
+        };
         let mut ops = 0usize;
         for line in BufReader::new(file).lines().map_while(Result::ok) {
-            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             ops += 1;
             match v["op"].as_str() {
                 Some("append") => self.apply_append(v["item"].clone()),
@@ -64,7 +76,9 @@ impl Conv {
     }
 
     fn apply_append(&mut self, item: Value) {
-        let Some(id) = item["id"].as_str().map(str::to_string) else { return };
+        let Some(id) = item["id"].as_str().map(str::to_string) else {
+            return;
+        };
         if let Some(&i) = self.index.get(&id) {
             self.items[i] = item;
         } else {
@@ -102,8 +116,12 @@ impl Conv {
 
     fn persist(&mut self, op: &ConvOp) {
         if self.writer.is_none() {
-            let _ = paths::ensure_dirs();
-            match OpenOptions::new().create(true).append(true).open(self.path()) {
+            let _ = std::fs::create_dir_all(&self.dir);
+            match OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.path())
+            {
                 Ok(f) => self.writer = Some(BufWriter::new(f)),
                 Err(e) => {
                     log::warn!("cannot open conversation log: {e}");
@@ -129,9 +147,32 @@ impl Conv {
         self.index.get(id).map(|&i| &self.items[i])
     }
 
+    /// Items a turn left open: streaming text blocks (with their text so far, `Some`) and tools
+    /// still running (`None`).
+    pub fn open_items(&mut self) -> Vec<(String, Option<String>)> {
+        self.ensure_loaded();
+        self.items
+            .iter()
+            .filter_map(|v| {
+                let id = v["id"].as_str()?.to_string();
+                if v["streaming"] == true {
+                    Some((id, Some(v["text"].as_str().unwrap_or("").to_string())))
+                } else if v["kind"] == "tool" && v["status"] == "running" {
+                    Some((id, None))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn ids_where(&mut self, pred: impl Fn(&Value) -> bool) -> Vec<String> {
         self.ensure_loaded();
-        self.items.iter().filter(|v| pred(v)).filter_map(|v| v["id"].as_str().map(str::to_string)).collect()
+        self.items
+            .iter()
+            .filter(|v| pred(v))
+            .filter_map(|v| v["id"].as_str().map(str::to_string))
+            .collect()
     }
 
     pub fn delete_file(&mut self) {

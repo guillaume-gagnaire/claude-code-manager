@@ -57,7 +57,7 @@ pub fn set_ui(core: CoreState, ui: UiState) {
     core.request_save();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_settings(core: CoreState, settings: Settings) -> Res<Vec<ShellInfo>> {
     core.save_settings(settings.clone()).map_err(err)?;
     Ok(pty::detect_shells(&settings))
@@ -76,17 +76,38 @@ pub struct FolderInfo {
 #[tauri::command]
 pub async fn inspect_folder(path: String) -> FolderInfo {
     let p = std::path::Path::new(path.trim());
-    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     if !p.is_dir() {
-        return FolderInfo { exists: false, is_repo: false, branch: String::new(), dirty: 0, name };
+        return FolderInfo {
+            exists: false,
+            is_repo: false,
+            branch: String::new(),
+            dirty: 0,
+            name,
+        };
     }
     let path = path.trim().to_string();
     match crate::git::toplevel(&path).await {
         Some(_) => {
             let st = crate::git::status(&path).await.unwrap_or_default();
-            FolderInfo { exists: true, is_repo: true, branch: st.branch, dirty: st.entries.len() as u32, name }
+            FolderInfo {
+                exists: true,
+                is_repo: true,
+                branch: st.branch,
+                dirty: st.entries.len() as u32,
+                name,
+            }
         }
-        None => FolderInfo { exists: true, is_repo: false, branch: String::new(), dirty: 0, name },
+        None => FolderInfo {
+            exists: true,
+            is_repo: false,
+            branch: String::new(),
+            dirty: 0,
+            name,
+        },
     }
 }
 
@@ -99,26 +120,32 @@ pub async fn create_project(
     worktree_per_agent: bool,
     first_agent: Option<String>,
 ) -> Res<Project> {
-    core.create_project(&path, &name, &color, worktree_per_agent, first_agent).await.map_err(err)
+    core.create_project(&path, &name, &color, worktree_per_agent, first_agent)
+        .await
+        .map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_project(core: CoreState, project: Project) -> Res<()> {
     core.update_project(project).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reorder_projects(core: CoreState, ids: Vec<String>) {
     core.reorder_projects(&ids);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remove_project(core: CoreState, id: String) -> Res<()> {
     core.remove_project(&id).map_err(err)
 }
 
 #[tauri::command]
-pub async fn create_agent(core: CoreState<'_>, project_id: String, model: Option<String>) -> Res<AgentView> {
+pub async fn create_agent(
+    core: CoreState<'_>,
+    project_id: String,
+    model: Option<String>,
+) -> Res<AgentView> {
     core.create_agent(&project_id, model).await.map_err(err)
 }
 
@@ -127,15 +154,22 @@ pub fn warm_agent(core: CoreState, id: String) {
     core.warm(&id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_conversation(core: CoreState, id: String) -> Res<Vec<Value>> {
+    // Buffered deltas are already in the snapshot: send them before it, not after.
+    core.flush_conv();
     let h = core.agent(&id).map_err(err)?;
     let items = h.lock().conv.items();
     Ok(items)
 }
 
 #[tauri::command]
-pub async fn send_message(core: CoreState<'_>, id: String, text: String, images: Vec<ImageInput>) -> Res<()> {
+pub async fn send_message(
+    core: CoreState<'_>,
+    id: String,
+    text: String,
+    images: Vec<ImageInput>,
+) -> Res<()> {
     core.send_message(&id, text, images).await.map_err(err)
 }
 
@@ -144,14 +178,21 @@ pub async fn interrupt(core: CoreState<'_>, id: String) -> Res<()> {
     core.interrupt(&id).await.map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn answer_question(core: CoreState, id: String, request_id: String, answers: Value) -> Res<()> {
     core.answer_question(&id, &request_id, answers).map_err(err)
 }
 
-#[tauri::command]
-pub fn answer_permission(core: CoreState, id: String, request_id: String, decision: String, message: Option<String>) -> Res<()> {
-    core.answer_permission(&id, &request_id, &decision, message).map_err(err)
+#[tauri::command(async)]
+pub fn answer_permission(
+    core: CoreState,
+    id: String,
+    request_id: String,
+    decision: String,
+    message: Option<String>,
+) -> Res<()> {
+    core.answer_permission(&id, &request_id, &decision, message)
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -162,7 +203,9 @@ pub async fn set_agent_options(
     effort: Option<String>,
     mode: Option<String>,
 ) -> Res<()> {
-    core.set_agent_options(&id, model, effort, mode).await.map_err(err)
+    core.set_agent_options(&id, model, effort, mode)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -171,12 +214,16 @@ pub async fn rename_agent(core: CoreState<'_>, id: String, name: String) -> Res<
 }
 
 #[tauri::command]
-pub fn archive_agent(core: CoreState, id: String, archived: bool) -> Res<()> {
-    core.archive_agent(&id, archived).map_err(err)
+pub async fn archive_agent(core: CoreState<'_>, id: String, archived: bool) -> Res<()> {
+    core.archive_agent(&id, archived).await.map_err(err)
 }
 
 #[tauri::command]
-pub async fn delete_agent(core: CoreState<'_>, id: String, remove_worktree: bool) -> Res<()> {
+pub async fn delete_agent(
+    core: CoreState<'_>,
+    id: String,
+    remove_worktree: bool,
+) -> Res<Option<String>> {
     core.delete_agent(&id, remove_worktree).await.map_err(err)
 }
 
@@ -203,16 +250,27 @@ pub async fn file_suggestions(core: CoreState<'_>, id: String, query: String) ->
 }
 
 #[tauri::command]
-pub async fn git_files(core: CoreState<'_>, project_id: String, agent_id: Option<String>) -> Res<Vec<FileChange>> {
+pub async fn git_files(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+) -> Res<Vec<FileChange>> {
     core.git_files(&project_id, agent_id).await.map_err(err)
 }
 
 #[tauri::command]
-pub async fn git_diff(core: CoreState<'_>, project_id: String, agent_id: Option<String>, paths: Vec<String>) -> Res<String> {
-    core.git_diff(&project_id, agent_id, paths).await.map_err(err)
+pub async fn git_diff(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+    paths: Vec<String>,
+) -> Res<String> {
+    core.git_diff(&project_id, agent_id, paths)
+        .await
+        .map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stats(core: CoreState, range: String) -> StatsView {
     core.stats.query(&range)
 }
@@ -223,23 +281,20 @@ pub async fn refresh_usage(core: CoreState<'_>) -> Res<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_in_editor(core: CoreState, path: String) -> Res<()> {
     let editor = core.settings.read().editor_command.clone();
-    let editor = if editor.trim().is_empty() { "code".to_string() } else { editor };
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", &editor, &path]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(crate::claude::CREATE_NO_WINDOW);
-    }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("impossible d'ouvrir l'éditeur « {editor} » : {e}"))
+    let editor = if editor.trim().is_empty() {
+        "code".to_string()
+    } else {
+        editor
+    };
+    crate::editor::open(&editor, &path).map_err(err)
 }
 
 // ---------- terminals ----------
 
-#[tauri::command]
+#[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 pub fn term_spawn(
     core: CoreState,
@@ -253,9 +308,21 @@ pub fn term_spawn(
     let project = core.project(&project_id).map_err(err)?;
     let settings = core.settings.read().clone();
     let shells = pty::detect_shells(&settings);
-    let sh = shells.iter().find(|s| s.id == shell).ok_or_else(|| format!("shell « {shell} » introuvable"))?;
-    let info = TermInfo { id: new_id(), project_id, name, shell: sh.id.clone() };
-    let env = if settings.proxy_terminals { settings.proxy_env() } else { Vec::new() };
+    let sh = shells
+        .iter()
+        .find(|s| s.id == shell)
+        .ok_or_else(|| format!("shell « {shell} » introuvable"))?;
+    let info = TermInfo {
+        id: new_id(),
+        project_id,
+        name,
+        shell: sh.id.clone(),
+    };
+    let env = if settings.proxy_terminals {
+        settings.proxy_env()
+    } else {
+        Vec::new()
+    };
     let hub_core = Arc::downgrade(core.inner());
     let id = info.id.clone();
     core.pty

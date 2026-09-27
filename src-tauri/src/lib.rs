@@ -3,11 +3,17 @@ mod claude;
 mod commands;
 mod conv;
 mod core;
+#[cfg(test)]
+mod core_tests;
+mod editor;
 mod git;
 mod hub;
+mod job;
 mod model;
 mod notify;
 mod paths;
+#[cfg(test)]
+mod process_tests;
 mod pty;
 mod stats;
 mod usage;
@@ -32,7 +38,12 @@ impl log::Log for FileLogger {
 
     fn log(&self, r: &log::Record) {
         if self.enabled(r.metadata()) {
-            let line = format!("{} {:<5} {}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), r.level(), r.args());
+            let line = format!(
+                "{} {:<5} {}\n",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                r.level(),
+                r.args()
+            );
             let _ = self.file.lock().write_all(line.as_bytes());
             #[cfg(debug_assertions)]
             eprint!("{line}");
@@ -43,13 +54,20 @@ impl log::Log for FileLogger {
 }
 
 fn init_logging() {
-    let _ = paths::ensure_dirs();
-    let path = paths::data_dir().join("app.log");
+    let data = paths::DataDir::new(paths::default_data_dir());
+    let _ = data.ensure();
+    let path = data.log_file();
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 5_000_000) {
         let _ = std::fs::rename(&path, path.with_extension("old.log"));
     }
-    if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let logger = Box::leak(Box::new(FileLogger { file: parking_lot::Mutex::new(file) }));
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let logger = Box::leak(Box::new(FileLogger {
+            file: parking_lot::Mutex::new(file),
+        }));
         if log::set_logger(logger).is_ok() {
             log::set_max_level(log::LevelFilter::Debug);
         }
@@ -73,7 +91,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 notify::show_main(tray.app_handle());
             }
         });
@@ -86,7 +109,9 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| notify::show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            notify::show_main(app)
+        }))
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
@@ -98,8 +123,14 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             init_logging();
-            log::info!("Claude Code Manager {} starting", app.package_info().version);
-            let (core, git_rx) = Core::load(app.handle().clone());
+            log::info!(
+                "Claude Code Manager {} starting",
+                app.package_info().version
+            );
+            let (core, git_rx) = Core::load(
+                app.handle().clone(),
+                paths::DataDir::new(paths::default_data_dir()),
+            );
             app.manage(core.clone());
             build_tray(app)?;
             core.start(git_rx);

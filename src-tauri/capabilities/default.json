@@ -14,6 +14,10 @@
     "core:window:allow-start-dragging",
     "dialog:allow-open",
     "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }]
+    },
     "process:allow-restart",
     "updater:default"
   ]

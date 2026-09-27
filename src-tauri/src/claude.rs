@@ -1,12 +1,13 @@
 //! A `claude` process driven over the stream-json protocol (see docs/PROTOCOL.md).
 
+use crate::job::Job;
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -30,6 +31,8 @@ pub struct ClaudeProcess {
     pending: Pending,
     next_id: AtomicU64,
     kill_tx: Mutex<Option<oneshot::Sender<()>>>,
+    exited: Arc<AtomicBool>,
+    job: Option<Arc<Job>>,
 }
 
 impl ClaudeProcess {
@@ -56,6 +59,11 @@ impl ClaudeProcess {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("impossible de lancer {}", opts.program.display()))?;
+        let job = Job::new().map(Arc::new);
+        #[cfg(windows)]
+        if let (Some(j), Some(h)) = (&job, child.raw_handle()) {
+            j.assign_handle(h);
+        }
         let mut stdin = child.stdin.take().context("stdin")?;
         let stdout = child.stdout.take().context("stdout")?;
         let stderr = child.stderr.take().context("stderr")?;
@@ -91,11 +99,14 @@ impl ClaudeProcess {
 
         let pending: Pending = Arc::default();
         let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
+        let exited = Arc::new(AtomicBool::new(false));
         let proc = Arc::new(Self {
             tx: Mutex::new(Some(tx)),
             pending: pending.clone(),
             next_id: AtomicU64::new(1),
             kill_tx: Mutex::new(Some(kill_tx)),
+            exited: exited.clone(),
+            job: job.clone(),
         });
 
         tokio::spawn(async move {
@@ -127,27 +138,52 @@ impl ClaudeProcess {
                 }
             }
             let code = child.wait().await.ok().and_then(|s| s.code());
+            exited.store(true, Ordering::Release);
+            let tail = stderr_tail
+                .lock()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n");
+            // The exit is handled before pending requests fail, so a caller seeing a failed
+            // request also sees the consequences of the exit (status, cleared session…).
+            on_exit(code, tail);
             for (_, tx) in pending.lock().drain() {
                 let _ = tx.send(Err("process exited".into()));
             }
-            let tail = stderr_tail.lock().iter().cloned().collect::<Vec<_>>().join("\n");
-            on_exit(code, tail);
+            // Closing the job ends whatever the process left running.
+            drop(job);
         });
 
         Ok(proc)
     }
 
+    pub fn is_alive(&self) -> bool {
+        !self.exited.load(Ordering::Acquire)
+    }
+
     pub fn send(&self, frame: &Value) -> Result<()> {
+        if !self.is_alive() {
+            return Err(anyhow!("process exited"));
+        }
         let guard = self.tx.lock();
-        let tx = guard.as_ref().ok_or_else(|| anyhow!("process input closed"))?;
-        tx.send(frame.to_string()).map_err(|_| anyhow!("process input closed"))
+        let tx = guard
+            .as_ref()
+            .ok_or_else(|| anyhow!("process input closed"))?;
+        tx.send(frame.to_string())
+            .map_err(|_| anyhow!("process input closed"))
     }
 
     pub async fn control(&self, request: Value, timeout: Duration) -> Result<Value> {
         let id = format!("ccm_{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(id.clone(), tx);
-        self.send(&json!({ "type": "control_request", "request_id": id, "request": request }))?;
+        if let Err(e) =
+            self.send(&json!({ "type": "control_request", "request_id": id, "request": request }))
+        {
+            self.pending.lock().remove(&id);
+            return Err(e);
+        }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(Ok(v))) => Ok(v),
             Ok(Ok(Err(e))) => Err(anyhow!(e)),
@@ -179,8 +215,12 @@ impl ClaudeProcess {
         self.tx.lock().take();
     }
 
+    /// Kills the process and its whole tree.
     pub fn kill(&self) {
         self.tx.lock().take();
+        if let Some(job) = &self.job {
+            job.terminate();
+        }
         if let Some(k) = self.kill_tx.lock().take() {
             let _ = k.send(());
         }
@@ -188,10 +228,17 @@ impl ClaudeProcess {
 }
 
 fn resolve(pending: &Pending, response: &Value) {
-    let Some(id) = response["request_id"].as_str() else { return };
-    let Some(tx) = pending.lock().remove(id) else { return };
+    let Some(id) = response["request_id"].as_str() else {
+        return;
+    };
+    let Some(tx) = pending.lock().remove(id) else {
+        return;
+    };
     let result = if response["subtype"] == "success" {
-        Ok(response.get("response").cloned().unwrap_or_else(|| json!({})))
+        Ok(response
+            .get("response")
+            .cloned()
+            .unwrap_or_else(|| json!({})))
     } else {
         Err(response["error"].as_str().unwrap_or("error").to_string())
     };
@@ -215,7 +262,11 @@ pub fn resolve_binary(configured: &str) -> Option<PathBuf> {
         let p = PathBuf::from(configured.trim());
         return p.exists().then_some(p);
     }
-    let exts: &[&str] = if cfg!(windows) { &["exe", "cmd"] } else { &[""] };
+    let exts: &[&str] = if cfg!(windows) {
+        &["exe", "cmd"]
+    } else {
+        &[""]
+    };
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
             for ext in exts {
@@ -233,7 +284,10 @@ pub fn resolve_binary(configured: &str) -> Option<PathBuf> {
     [
         home.join(".local").join("bin").join("claude.exe"),
         home.join(".claude").join("local").join("claude.exe"),
-        home.join("AppData").join("Roaming").join("npm").join("claude.cmd"),
+        home.join("AppData")
+            .join("Roaming")
+            .join("npm")
+            .join("claude.cmd"),
     ]
     .into_iter()
     .find(|p| p.is_file())

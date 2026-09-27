@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Pilote plusieurs instances de Claude Code en local"
 authors = ["Guillaume Gagnaire"]
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 
 [lib]
 name = "ccm_lib"
@@ -37,12 +37,15 @@ base64 = "0.22"
 log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_Media_Audio", "Win32_Foundation"] }
+windows-sys = { version = "0.60", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
 tauri-winrt-notification = "0.7"
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# Unwinding (the default) keeps a panicking background task from taking every agent down.
 strip = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test", "tray-icon", "image-png"] }

@@ -84,13 +84,13 @@ const MAX_INPUT_STR: usize = 4000;
 const MAX_PATCH_LINES: usize = 800;
 
 impl AgentRt {
-    pub fn new(mut meta: AgentMeta) -> Self {
+    pub fn new(mut meta: AgentMeta, conv_dir: &std::path::Path) -> Self {
         // A turn cannot survive an app restart.
         if meta.status.is_active() {
             meta.status = AgentStatus::Done;
         }
         Self {
-            conv: Conv::new(&meta.id),
+            conv: Conv::new(conv_dir, &meta.id),
             meta,
             proc: None,
             gen: 0,
@@ -120,6 +120,8 @@ impl AgentRt {
     /// Resets per-process bookkeeping when a new `claude` process is attached.
     pub fn attach(&mut self, proc: Arc<ClaudeProcess>) {
         self.proc = Some(proc);
+        // A process that just started is not idle.
+        self.meta.last_activity = now_ms();
         self.blocks.clear();
         self.current_msg.clear();
         self.pending.clear();
@@ -138,7 +140,13 @@ impl AgentRt {
     }
 
     fn patch(&mut self, id: &str, patch: Value, fx: &mut Effects) {
-        self.push(ConvOp::Patch { id: id.to_string(), patch }, fx);
+        self.push(
+            ConvOp::Patch {
+                id: id.to_string(),
+                patch,
+            },
+            fx,
+        );
     }
 
     pub fn notice(&mut self, level: &str, text: impl Into<String>, fx: &mut Effects) {
@@ -165,22 +173,31 @@ impl AgentRt {
         fx.save = true;
     }
 
-    /// Records a user message; returns its item id (also used as the frame uuid).
-    pub fn push_user(&mut self, text: &str, images: u32, fx: &mut Effects) -> (String, bool) {
+    /// Records a user message delivered to Claude under `id` (the frame uuid). Returns true
+    /// when it was queued behind a running turn.
+    pub fn push_user(&mut self, id: &str, text: &str, images: u32, fx: &mut Effects) -> bool {
         let queued = self.meta.status.is_active();
-        let id = uuid::Uuid::new_v4().to_string();
         let item = json!({ "kind": "user", "id": id, "text": text, "images": images, "ts": now_ms(), "queued": queued });
         self.append(item, fx);
         if queued {
             self.queued += 1;
         } else {
+            self.interrupted = false;
             self.set_status(AgentStatus::Running, fx);
         }
         self.meta.prompts += 1;
         self.meta.last_activity = now_ms();
         fx.agent_changed = true;
         fx.save = true;
-        (id, queued)
+        queued
+    }
+
+    /// Deliberate stop (idle, archive): detaches the process so that its exit is ignored and
+    /// the next action spawns a fresh one resuming the same session.
+    pub fn detach(&mut self) -> Option<Arc<ClaudeProcess>> {
+        let p = self.proc.take()?;
+        self.gen += 1;
+        Some(p)
     }
 
     pub fn clear_pending(&mut self, fx: &mut Effects) {
@@ -190,27 +207,72 @@ impl AgentRt {
         }
     }
 
+    /// Closes what a turn left open: partial text is kept (and persisted, deltas being
+    /// memory-only), tools that never returned are marked interrupted.
+    fn close_open_items(&mut self, fx: &mut Effects) {
+        for (id, text) in self.conv.open_items() {
+            let patch = match text {
+                Some(text) => json!({ "text": text, "streaming": false }),
+                None => json!({ "status": "interrupted" }),
+            };
+            self.patch(&id, patch, fx);
+        }
+        for blocks in self.blocks.values_mut() {
+            for b in blocks.iter_mut() {
+                b.finalized = true;
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn has_pending(&self, request_id: &str) -> bool {
         self.pending.contains_key(request_id)
     }
 
-    pub fn answer_question(&mut self, request_id: &str, answers: Value, fx: &mut Effects) -> Result<()> {
-        let proc = self.proc.clone().ok_or_else(|| anyhow!("Claude ne tourne plus pour cet agent"))?;
-        let p = self.pending.remove(request_id).ok_or_else(|| anyhow!("question introuvable"))?;
+    pub fn answer_question(
+        &mut self,
+        request_id: &str,
+        answers: Value,
+        fx: &mut Effects,
+    ) -> Result<()> {
+        let proc = self
+            .proc
+            .clone()
+            .ok_or_else(|| anyhow!("Claude ne tourne plus pour cet agent"))?;
+        let p = self
+            .pending
+            .remove(request_id)
+            .ok_or_else(|| anyhow!("question introuvable"))?;
         let mut input = p.input.clone();
         input["answers"] = answers.clone();
-        proc.respond(request_id, json!({ "behavior": "allow", "updatedInput": input, "toolUseID": p.tool_use_id }))?;
+        proc.respond(
+            request_id,
+            json!({ "behavior": "allow", "updatedInput": input, "toolUseID": p.tool_use_id }),
+        )?;
         self.patch(&p.item_id, json!({ "answers": answers }), fx);
         self.after_answer(fx);
         Ok(())
     }
 
-    pub fn answer_permission(&mut self, request_id: &str, decision: &str, message: Option<String>, fx: &mut Effects) -> Result<()> {
-        let proc = self.proc.clone().ok_or_else(|| anyhow!("Claude ne tourne plus pour cet agent"))?;
-        let p = self.pending.remove(request_id).ok_or_else(|| anyhow!("demande introuvable"))?;
+    pub fn answer_permission(
+        &mut self,
+        request_id: &str,
+        decision: &str,
+        message: Option<String>,
+        fx: &mut Effects,
+    ) -> Result<()> {
+        let proc = self
+            .proc
+            .clone()
+            .ok_or_else(|| anyhow!("Claude ne tourne plus pour cet agent"))?;
+        let p = self
+            .pending
+            .remove(request_id)
+            .ok_or_else(|| anyhow!("demande introuvable"))?;
         let response = match decision {
-            "allow" => json!({ "behavior": "allow", "updatedInput": p.input, "toolUseID": p.tool_use_id }),
+            "allow" => {
+                json!({ "behavior": "allow", "updatedInput": p.input, "toolUseID": p.tool_use_id })
+            }
             "always" => json!({
                 "behavior": "allow", "updatedInput": p.input, "toolUseID": p.tool_use_id,
                 "updatedPermissions": p.suggestions,
@@ -222,7 +284,11 @@ impl AgentRt {
             }),
         };
         proc.respond(request_id, response)?;
-        self.patch(&p.item_id, json!({ "decision": decision, "message": message }), fx);
+        self.patch(
+            &p.item_id,
+            json!({ "decision": decision, "message": message }),
+            fx,
+        );
         self.after_answer(fx);
         Ok(())
     }
@@ -241,14 +307,23 @@ impl AgentRt {
         }
         self.proc = None;
         self.clear_pending(fx);
+        self.close_open_items(fx);
         if !self.saw_init && stderr.contains("No conversation found") {
             self.meta.session_id = None;
             self.notice("warn", "Session Claude introuvable : une nouvelle session sera démarrée au prochain message.", fx);
             self.set_status(AgentStatus::Done, fx);
         } else if self.meta.status.is_active() || !self.saw_init {
-            let detail = if stderr.trim().is_empty() { String::new() } else { format!("\n\n{}", truncate(stderr.trim(), 2000)) };
+            let detail = if stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n\n{}", truncate(stderr.trim(), 2000))
+            };
             let code = code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
-            self.notice("error", format!("Claude Code s'est arrêté (code {code}).{detail}"), fx);
+            self.notice(
+                "error",
+                format!("Claude Code s'est arrêté (code {code}).{detail}"),
+                fx,
+            );
             self.set_status(AgentStatus::Error, fx);
             fx.notify = Some(NotifyKind::Error);
         }
@@ -285,7 +360,7 @@ impl AgentRt {
             }
             "status" => {
                 if let Some(mode) = f["permissionMode"].as_str() {
-                    if self.meta.mode != mode && mode != "default" {
+                    if self.meta.mode != mode {
                         self.meta.mode = mode.to_string();
                         fx.agent_changed = true;
                         fx.save = true;
@@ -309,15 +384,21 @@ impl AgentRt {
         let pkey = parent.clone().unwrap_or_default();
         match ev["type"].as_str().unwrap_or("") {
             "message_start" => {
-                let Some(mid) = ev["message"]["id"].as_str() else { return };
+                let Some(mid) = ev["message"]["id"].as_str() else {
+                    return;
+                };
                 self.current_msg.insert(pkey, mid.to_string());
                 self.blocks.entry(mid.to_string()).or_default();
                 if parent.is_none() {
                     let u = &ev["message"]["usage"];
-                    self.context_tokens = [&u["input_tokens"], &u["cache_read_input_tokens"], &u["cache_creation_input_tokens"]]
-                        .iter()
-                        .filter_map(|v| v.as_u64())
-                        .sum();
+                    self.context_tokens = [
+                        &u["input_tokens"],
+                        &u["cache_read_input_tokens"],
+                        &u["cache_creation_input_tokens"],
+                    ]
+                    .iter()
+                    .filter_map(|v| v.as_u64())
+                    .sum();
                     fx.agent_changed = true;
                 }
                 // A turn started without a user message from us (queued message, background task).
@@ -326,12 +407,20 @@ impl AgentRt {
                 }
             }
             "content_block_start" => {
-                let Some(mid) = self.current_msg.get(&pkey).cloned() else { return };
+                let Some(mid) = self.current_msg.get(&pkey).cloned() else {
+                    return;
+                };
                 let index = ev["index"].as_u64().unwrap_or(0);
                 let cb = &ev["content_block"];
                 let (kind, item) = match cb["type"].as_str().unwrap_or("") {
-                    "text" => ("text", json!({ "kind": "text", "id": format!("{mid}:{index}"), "text": "", "parent": parent, "streaming": true })),
-                    "thinking" => ("thinking", json!({ "kind": "thinking", "id": format!("{mid}:{index}"), "text": "", "parent": parent, "streaming": true })),
+                    "text" => (
+                        "text",
+                        json!({ "kind": "text", "id": format!("{mid}:{index}"), "text": "", "parent": parent, "streaming": true }),
+                    ),
+                    "thinking" => (
+                        "thinking",
+                        json!({ "kind": "thinking", "id": format!("{mid}:{index}"), "text": "", "parent": parent, "streaming": true }),
+                    ),
                     "tool_use" | "server_tool_use" => (
                         "tool",
                         json!({
@@ -343,12 +432,25 @@ impl AgentRt {
                 };
                 let item_id = item["id"].as_str().unwrap_or_default().to_string();
                 self.append(item, fx);
-                self.blocks.entry(mid).or_default().push(Block { index, item_id, kind, finalized: false });
+                self.blocks.entry(mid).or_default().push(Block {
+                    index,
+                    item_id,
+                    kind,
+                    finalized: false,
+                });
             }
             "content_block_delta" => {
-                let Some(mid) = self.current_msg.get(&pkey) else { return };
+                let Some(mid) = self.current_msg.get(&pkey) else {
+                    return;
+                };
                 let index = ev["index"].as_u64().unwrap_or(0);
-                let Some(block) = self.blocks.get(mid).and_then(|b| b.iter().find(|b| b.index == index)) else { return };
+                let Some(block) = self
+                    .blocks
+                    .get(mid)
+                    .and_then(|b| b.iter().find(|b| b.index == index))
+                else {
+                    return;
+                };
                 let d = &ev["delta"];
                 let text = match d["type"].as_str().unwrap_or("") {
                     "text_delta" => d["text"].as_str(),
@@ -357,7 +459,13 @@ impl AgentRt {
                 };
                 if let Some(text) = text.filter(|t| !t.is_empty()) {
                     let id = block.item_id.clone();
-                    self.push(ConvOp::Delta { id, text: text.to_string() }, fx);
+                    self.push(
+                        ConvOp::Delta {
+                            id,
+                            text: text.to_string(),
+                        },
+                        fx,
+                    );
                 }
             }
             _ => {}
@@ -369,11 +477,16 @@ impl AgentRt {
         let mid = msg["id"].as_str().unwrap_or("").to_string();
         let parent = f["parent_tool_use_id"].as_str().map(str::to_string);
         if let Some(err) = f["error"].as_str() {
-            let text = msg["content"][0]["text"].as_str().unwrap_or(err).to_string();
+            let text = msg["content"][0]["text"]
+                .as_str()
+                .unwrap_or(err)
+                .to_string();
             self.notice("error", text, fx);
             return;
         }
-        let Some(content) = msg["content"].as_array() else { return };
+        let Some(content) = msg["content"].as_array() else {
+            return;
+        };
         for block in content {
             let kind = match block["type"].as_str().unwrap_or("") {
                 "text" => "text",
@@ -390,17 +503,27 @@ impl AgentRt {
                     b.item_id.clone()
                 });
             match (kind, streamed) {
-                ("text", Some(id)) => self.patch(&id, json!({ "text": block["text"], "streaming": false }), fx),
+                ("text", Some(id)) => self.patch(
+                    &id,
+                    json!({ "text": block["text"], "streaming": false }),
+                    fx,
+                ),
                 ("thinking", Some(id)) => {
                     let text = block["thinking"].as_str().unwrap_or("");
                     self.patch(&id, json!({ "text": text, "streaming": false }), fx)
                 }
-                ("tool", Some(id)) => self.patch(&id, json!({ "input": trim_strings(&block["input"]) }), fx),
+                ("tool", Some(id)) => {
+                    self.patch(&id, json!({ "input": trim_strings(&block["input"]) }), fx)
+                }
                 (_, None) => {
                     let n = self.blocks.get(&mid).map_or(0, Vec::len);
                     let item = match kind {
-                        "text" => json!({ "kind": "text", "id": format!("{mid}:a{n}"), "text": block["text"], "parent": parent, "streaming": false }),
-                        "thinking" => json!({ "kind": "thinking", "id": format!("{mid}:a{n}"), "text": block["thinking"].as_str().unwrap_or(""), "parent": parent, "streaming": false }),
+                        "text" => {
+                            json!({ "kind": "text", "id": format!("{mid}:a{n}"), "text": block["text"], "parent": parent, "streaming": false })
+                        }
+                        "thinking" => {
+                            json!({ "kind": "thinking", "id": format!("{mid}:a{n}"), "text": block["thinking"].as_str().unwrap_or(""), "parent": parent, "streaming": false })
+                        }
                         _ => json!({
                             "kind": "tool", "id": block["id"], "name": block["name"], "input": trim_strings(&block["input"]),
                             "status": "running", "parent": parent, "ts": now_ms(),
@@ -408,7 +531,12 @@ impl AgentRt {
                     };
                     let item_id = item["id"].as_str().unwrap_or_default().to_string();
                     self.append(item, fx);
-                    self.blocks.entry(mid.clone()).or_default().push(Block { index: u64::MAX, item_id, kind, finalized: true });
+                    self.blocks.entry(mid.clone()).or_default().push(Block {
+                        index: u64::MAX,
+                        item_id,
+                        kind,
+                        finalized: true,
+                    });
                 }
                 _ => {}
             }
@@ -426,10 +554,14 @@ impl AgentRt {
             }
             return;
         }
-        let Some(blocks) = content.as_array() else { return };
+        let Some(blocks) = content.as_array() else {
+            return;
+        };
         let tur = &f["tool_use_result"];
         for b in blocks.iter().filter(|b| b["type"] == "tool_result") {
-            let Some(id) = b["tool_use_id"].as_str() else { continue };
+            let Some(id) = b["tool_use_id"].as_str() else {
+                continue;
+            };
             let is_error = b["is_error"].as_bool().unwrap_or(false);
             let mut result = json!({ "isError": is_error });
             let mut text = tool_result_text(&b["content"]);
@@ -454,13 +586,22 @@ impl AgentRt {
                     self.touch(path, fx);
                 }
             }
-            self.patch(id, json!({ "status": if is_error { "error" } else { "ok" }, "result": result }), fx);
+            self.patch(
+                id,
+                json!({ "status": if is_error { "error" } else { "ok" }, "result": result }),
+                fx,
+            );
         }
     }
 
     fn touch(&mut self, path: &str, fx: &mut Effects) {
         let rel = relative_slash(&self.meta.cwd, path);
-        if !self.meta.touched_files.iter().any(|p| p.eq_ignore_ascii_case(&rel)) {
+        if !self
+            .meta
+            .touched_files
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&rel))
+        {
             self.meta.touched_files.push(rel);
             fx.save = true;
         }
@@ -476,7 +617,8 @@ impl AgentRt {
                 let cur = Counters {
                     input: u["inputTokens"].as_u64().unwrap_or(0),
                     output: u["outputTokens"].as_u64().unwrap_or(0),
-                    cache: u["cacheReadInputTokens"].as_u64().unwrap_or(0) + u["cacheCreationInputTokens"].as_u64().unwrap_or(0),
+                    cache: u["cacheReadInputTokens"].as_u64().unwrap_or(0)
+                        + u["cacheCreationInputTokens"].as_u64().unwrap_or(0),
                     cost: u["costUSD"].as_f64().unwrap_or(0.0),
                 };
                 let prev = self.last_usage.get(model).cloned().unwrap_or_default();
@@ -484,8 +626,8 @@ impl AgentRt {
                     cur.clone()
                 } else {
                     Counters {
-                        input: cur.input - prev.input,
-                        output: cur.output - prev.output,
+                        input: cur.input.saturating_sub(prev.input),
+                        output: cur.output.saturating_sub(prev.output),
                         cache: cur.cache.saturating_sub(prev.cache),
                         cost: (cur.cost - prev.cost).max(0.0),
                     }
@@ -498,18 +640,30 @@ impl AgentRt {
                 tokens += total;
                 cost += delta.cost;
                 let name = u["canonicalModel"].as_str().unwrap_or(model).to_string();
-                fx.turns.push(TurnRow { model: name, input: delta.input, cache: delta.cache, output: delta.output, cost: delta.cost });
+                fx.turns.push(TurnRow {
+                    model: name,
+                    input: delta.input,
+                    cache: delta.cache,
+                    output: delta.output,
+                    cost: delta.cost,
+                });
             }
         }
         self.meta.tokens += tokens;
         self.meta.cost += cost;
         let error = if is_error && !interrupted {
             f["result"].as_str().map(str::to_string).or_else(|| {
-                f["errors"].as_array().map(|e| e.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("\n"))
+                f["errors"].as_array().map(|e| {
+                    e.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
             })
         } else {
             None
         };
+        self.close_open_items(fx);
         let item = json!({
             "kind": "turn", "id": f["uuid"].as_str().map(str::to_string).unwrap_or_else(new_id), "ts": now_ms(),
             "durationMs": f["duration_ms"], "cost": cost, "tokens": tokens,
@@ -522,22 +676,37 @@ impl AgentRt {
         let had_queue = self.queued > 0;
         if had_queue {
             self.queued = 0;
-            let ids = self.conv.ids_where(|v| v["kind"] == "user" && v["queued"] == true);
+            let ids = self
+                .conv
+                .ids_where(|v| v["kind"] == "user" && v["queued"] == true);
             for id in ids {
                 self.patch(&id, json!({ "queued": false }), fx);
             }
         }
         let failed = is_error && !interrupted;
-        self.set_status(if failed { AgentStatus::Error } else { AgentStatus::Done }, fx);
+        self.set_status(
+            if failed {
+                AgentStatus::Error
+            } else {
+                AgentStatus::Done
+            },
+            fx,
+        );
         if !interrupted && !had_queue {
-            fx.notify = Some(if failed { NotifyKind::Error } else { NotifyKind::Done });
+            fx.notify = Some(if failed {
+                NotifyKind::Error
+            } else {
+                NotifyKind::Done
+            });
         }
         fx.agent_changed = true;
         fx.save = true;
     }
 
     fn on_control_request(&mut self, f: &Value, fx: &mut Effects) {
-        let Some(rid) = f["request_id"].as_str() else { return };
+        let Some(rid) = f["request_id"].as_str() else {
+            return;
+        };
         let req = &f["request"];
         match req["subtype"].as_str().unwrap_or("") {
             "can_use_tool" => {
@@ -563,7 +732,15 @@ impl AgentRt {
                     })
                 };
                 self.append(item, fx);
-                self.pending.insert(rid.to_string(), PendingReq { item_id: rid.to_string(), tool_use_id, input, suggestions });
+                self.pending.insert(
+                    rid.to_string(),
+                    PendingReq {
+                        item_id: rid.to_string(),
+                        tool_use_id,
+                        input,
+                        suggestions,
+                    },
+                );
                 self.set_status(AgentStatus::Waiting, fx);
                 fx.notify = Some(NotifyKind::Question);
                 fx.agent_changed = true;
@@ -582,7 +759,9 @@ impl AgentRt {
     }
 
     fn on_cancel(&mut self, f: &Value, fx: &mut Effects) {
-        let Some(rid) = f["request_id"].as_str() else { return };
+        let Some(rid) = f["request_id"].as_str() else {
+            return;
+        };
         if let Some(p) = self.pending.remove(rid) {
             self.patch(&p.item_id, json!({ "cancelled": true }), fx);
             if self.pending.is_empty() && self.meta.status == AgentStatus::Waiting {
@@ -607,7 +786,11 @@ pub fn parse_rate_event(info: &Value) -> (Option<RateWindow>, Option<RateWindow>
 fn tool_result_text(content: &Value) -> String {
     match content {
         Value::String(s) => s.clone(),
-        Value::Array(parts) => parts.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }
@@ -631,7 +814,9 @@ fn summarize_patch(hunks: &[Value]) -> (u32, u32, Value) {
                 .map(|l| Value::String(truncate(l.as_str().unwrap_or(""), 400)))
                 .collect();
             kept_total += kept.len();
-            out.push(json!({ "oldStart": h["oldStart"], "newStart": h["newStart"], "lines": kept }));
+            out.push(
+                json!({ "oldStart": h["oldStart"], "newStart": h["newStart"], "lines": kept }),
+            );
         }
     }
     (add, del, Value::Array(out))
@@ -639,8 +824,16 @@ fn summarize_patch(hunks: &[Value]) -> (u32, u32, Value) {
 
 fn created_file_patch(content: &str) -> (u32, u32, Value) {
     let lines: Vec<&str> = content.lines().collect();
-    let kept: Vec<Value> = lines.iter().take(MAX_PATCH_LINES).map(|l| Value::String(format!("+{}", truncate(l, 400)))).collect();
-    (lines.len() as u32, 0, json!([{ "oldStart": 0, "newStart": 1, "lines": kept }]))
+    let kept: Vec<Value> = lines
+        .iter()
+        .take(MAX_PATCH_LINES)
+        .map(|l| Value::String(format!("+{}", truncate(l, 400))))
+        .collect();
+    (
+        lines.len() as u32,
+        0,
+        json!([{ "oldStart": 0, "newStart": 1, "lines": kept }]),
+    )
 }
 
 /// Truncates long strings inside tool inputs (file contents, big edits) before they reach the UI.
@@ -648,7 +841,11 @@ fn trim_strings(v: &Value) -> Value {
     match v {
         Value::String(s) if s.len() > MAX_INPUT_STR => Value::String(truncate(s, MAX_INPUT_STR)),
         Value::Array(a) => Value::Array(a.iter().map(trim_strings).collect()),
-        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), trim_strings(v))).collect::<Map<_, _>>()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, v)| (k.clone(), trim_strings(v)))
+                .collect::<Map<_, _>>(),
+        ),
         other => other.clone(),
     }
 }
@@ -692,7 +889,14 @@ mod tests {
     use super::*;
 
     fn rt() -> AgentRt {
-        AgentRt::new(AgentMeta { id: "t".into(), cwd: "C:/p".into(), ..Default::default() })
+        AgentRt::new(
+            AgentMeta {
+                id: new_id(),
+                cwd: "C:/p".into(),
+                ..Default::default()
+            },
+            &std::env::temp_dir().join(format!("ccm-agent-tests-{}", std::process::id())),
+        )
     }
 
     #[test]
@@ -720,8 +924,10 @@ mod tests {
         assert_eq!(fx.notify, Some(NotifyKind::Question));
         assert!(a.has_pending("r1"));
 
-        let usage = |inp: u64, out: u64, cost: f64| json!({"type":"result","subtype":"success","is_error":false,"duration_ms":10,
-            "modelUsage":{"claude-sonnet-5":{"inputTokens":inp,"outputTokens":out,"cacheReadInputTokens":100,"cacheCreationInputTokens":0,"costUSD":cost}}});
+        let usage = |inp: u64, out: u64, cost: f64| {
+            json!({"type":"result","subtype":"success","is_error":false,"duration_ms":10,
+            "modelUsage":{"claude-sonnet-5":{"inputTokens":inp,"outputTokens":out,"cacheReadInputTokens":100,"cacheCreationInputTokens":0,"costUSD":cost}}})
+        };
         let mut fx = Effects::default();
         a.handle_frame(&usage(10, 20, 0.5), &mut fx);
         assert_eq!(fx.turns.len(), 1);
@@ -754,8 +960,83 @@ mod tests {
     }
 
     #[test]
+    fn follows_the_permission_mode_reported_by_claude() {
+        let mut a = rt();
+        a.meta.mode = "plan".into();
+        let mut fx = Effects::default();
+        // After an approved plan Claude leaves plan mode for the default (ask) mode.
+        a.handle_frame(
+            &json!({"type":"system","subtype":"status","status":null,"permissionMode":"default"}),
+            &mut fx,
+        );
+        assert_eq!(a.meta.mode, "default");
+        assert!(fx.agent_changed);
+    }
+
+    #[test]
+    fn usage_counters_that_go_backwards_never_underflow() {
+        let mut a = rt();
+        let result = |input: u64, output: u64, cost: f64| {
+            json!({"type":"result","subtype":"success","is_error":false,"duration_ms":1,
+                "modelUsage":{"m":{"inputTokens":input,"outputTokens":output,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":cost}}})
+        };
+        a.handle_frame(&result(100, 50, 1.0), &mut Effects::default());
+        let mut fx = Effects::default();
+        a.handle_frame(&result(90, 60, 1.2), &mut fx);
+        assert_eq!(fx.turns[0].input, 0);
+        assert_eq!(fx.turns[0].output, 10);
+    }
+
+    fn start_streaming(a: &mut AgentRt, fx: &mut Effects) {
+        a.handle_frame(&json!({"type":"stream_event","event":{"type":"message_start","message":{"id":"m9","usage":{}}},"parent_tool_use_id":null}), fx);
+        a.handle_frame(&json!({"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"parent_tool_use_id":null}), fx);
+        a.handle_frame(&json!({"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Je comm"}},"parent_tool_use_id":null}), fx);
+        a.handle_frame(&json!({"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu7","name":"Bash"}},"parent_tool_use_id":null}), fx);
+    }
+
+    #[test]
+    fn an_interrupted_turn_closes_open_blocks_and_tools() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        start_streaming(&mut a, &mut fx);
+        a.interrupted = true;
+        a.handle_frame(&json!({"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":5}), &mut fx);
+        let text = a.conv.get("m9:0").unwrap().clone();
+        assert_eq!(text["streaming"], false);
+        assert_eq!(text["text"], "Je comm");
+        assert_eq!(a.conv.get("tu7").unwrap()["status"], "interrupted");
+    }
+
+    #[test]
+    fn a_process_exit_closes_open_blocks_and_persists_their_text() {
+        let dir = std::env::temp_dir().join(format!("ccm-agent-tests-{}", std::process::id()));
+        let mut a = AgentRt::new(
+            AgentMeta {
+                id: new_id(),
+                cwd: "C:/p".into(),
+                ..Default::default()
+            },
+            &dir,
+        );
+        let mut fx = Effects::default();
+        start_streaming(&mut a, &mut fx);
+        a.on_exit(a.gen, Some(1), "", &mut fx);
+        assert_eq!(a.conv.get("m9:0").unwrap()["streaming"], false);
+        assert_eq!(a.conv.get("tu7").unwrap()["status"], "interrupted");
+        // Reloading the log (e.g. after a restart) shows the partial text, not an empty block.
+        let mut reloaded = Conv::new(&dir, &a.meta.id);
+        let items = reloaded.items();
+        let text = items.iter().find(|i| i["id"] == "m9:0").unwrap();
+        assert_eq!(text["text"], "Je comm");
+        assert_eq!(text["streaming"], false);
+    }
+
+    #[test]
     fn ansi_and_tags_are_stripped() {
         assert_eq!(strip_ansi("\u{1b}[31mrouge\u{1b}[0m"), "rouge");
-        assert_eq!(strip_tags("<local-command-stdout>ok</local-command-stdout>"), "ok");
+        assert_eq!(
+            strip_tags("<local-command-stdout>ok</local-command-stdout>"),
+            "ok"
+        );
     }
 }

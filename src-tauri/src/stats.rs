@@ -2,15 +2,16 @@
 
 use crate::agent::TurnRow;
 use crate::model::now_ms;
-use crate::paths;
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, TimeZone};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::Path;
 
 const SCHEMA: &str = "
 PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
 CREATE TABLE IF NOT EXISTS turns (
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, agent_id TEXT NOT NULL, project_id TEXT NOT NULL,
   model TEXT NOT NULL, input INTEGER NOT NULL, cache INTEGER NOT NULL, output INTEGER NOT NULL, cost REAL NOT NULL
@@ -62,13 +63,17 @@ pub struct StatsView {
 }
 
 impl Stats {
-    pub fn open() -> Self {
-        let conn = Connection::open(paths::stats_db()).and_then(|c| c.execute_batch(SCHEMA).map(|_| c));
+    pub fn open(path: &Path) -> Self {
+        let conn = Connection::open(path).and_then(|c| c.execute_batch(SCHEMA).map(|_| c));
         match conn {
-            Ok(c) => Self { conn: Mutex::new(Some(c)) },
+            Ok(c) => Self {
+                conn: Mutex::new(Some(c)),
+            },
             Err(e) => {
                 log::error!("stats database unavailable: {e}");
-                Self { conn: Mutex::new(None) }
+                Self {
+                    conn: Mutex::new(None),
+                }
             }
         }
     }
@@ -77,7 +82,9 @@ impl Stats {
     fn memory() -> Self {
         let c = Connection::open_in_memory().unwrap();
         c.execute_batch(SCHEMA).unwrap();
-        Self { conn: Mutex::new(Some(c)) }
+        Self {
+            conn: Mutex::new(Some(c)),
+        }
     }
 
     pub fn record_turns(&self, agent_id: &str, project_id: &str, rows: &[TurnRow]) {
@@ -101,7 +108,10 @@ impl Stats {
     pub fn record_prompt(&self, agent_id: &str, project_id: &str) {
         let guard = self.conn.lock();
         if let Some(c) = guard.as_ref() {
-            let _ = c.execute("INSERT INTO prompts (ts, agent_id, project_id) VALUES (?1,?2,?3)", params![now_ms(), agent_id, project_id]);
+            let _ = c.execute(
+                "INSERT INTO prompts (ts, agent_id, project_id) VALUES (?1,?2,?3)",
+                params![now_ms(), agent_id, project_id],
+            );
         }
     }
 
@@ -109,7 +119,12 @@ impl Stats {
         let start = local_ms(Local::now().date_naive());
         let guard = self.conn.lock();
         let Some(c) = guard.as_ref() else { return 0.0 };
-        c.query_row("SELECT COALESCE(SUM(cost),0) FROM turns WHERE ts >= ?1", [start], |r| r.get(0)).unwrap_or(0.0)
+        c.query_row(
+            "SELECT COALESCE(SUM(cost),0) FROM turns WHERE ts >= ?1",
+            [start],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0)
     }
 
     pub fn query(&self, range: &str) -> StatsView {
@@ -131,14 +146,19 @@ impl Stats {
             buckets: bounds
                 .iter()
                 .zip(labels)
-                .map(|(s, l)| Bucket { label: l, start: *s, ..Default::default() })
+                .map(|(s, l)| Bucket {
+                    label: l,
+                    start: *s,
+                    ..Default::default()
+                })
                 .collect(),
             ..Default::default()
         };
         let guard = self.conn.lock();
         let Some(c) = guard.as_ref() else { return view };
 
-        let (mut by_project, mut by_model): (HashMap<String, Share>, HashMap<String, Share>) = Default::default();
+        let (mut by_project, mut by_model): (HashMap<String, Share>, HashMap<String, Share>) =
+            Default::default();
         if let Ok(mut stmt) = c.prepare("SELECT ts, project_id, model, input, cache, output, cost FROM turns WHERE ts >= ?1 AND ts < ?2") {
             let rows = stmt.query_map([prev, end], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?, r.get::<_, f64>(6)?))
@@ -172,8 +192,13 @@ impl Stats {
                 view.prompts += 1;
             }
         }
-        let (cost_all, first_ts): (f64, Option<i64>) =
-            c.query_row("SELECT COALESCE(SUM(cost),0), MIN(ts) FROM turns", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap_or((0.0, None));
+        let (cost_all, first_ts): (f64, Option<i64>) = c
+            .query_row(
+                "SELECT COALESCE(SUM(cost),0), MIN(ts) FROM turns",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0.0, None));
         view.cost_all = cost_all;
         view.first_ts = first_ts;
         let sort = |m: HashMap<String, Share>| {
@@ -189,31 +214,48 @@ impl Stats {
 
 fn local_ms(d: NaiveDate) -> i64 {
     let naive = d.and_hms_opt(0, 0, 0).expect("midnight");
-    Local.from_local_datetime(&naive).earliest().map(|t| t.timestamp_millis()).unwrap_or_else(|| naive.and_utc().timestamp_millis())
+    Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .map(|t| t.timestamp_millis())
+        .unwrap_or_else(|| naive.and_utc().timestamp_millis())
 }
 
-const MONTHS: [&str; 12] = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const MONTHS: [&str; 12] = [
+    "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+    "déc.",
+];
 
 /// Bucket start dates, labels and the start of the previous (comparison) period.
 fn bucket_bounds(range: &str, today: NaiveDate) -> (Vec<NaiveDate>, Vec<String>, NaiveDate) {
     match range {
         "week" => {
             let monday = today - Duration::days(today.weekday().num_days_from_monday() as i64);
-            let starts: Vec<NaiveDate> = (0..12).map(|i| monday - Duration::weeks(11 - i)).collect();
-            let labels = starts.iter().map(|d| format!("S{}", d.iso_week().week())).collect();
+            let starts: Vec<NaiveDate> =
+                (0..12).map(|i| monday - Duration::weeks(11 - i)).collect();
+            let labels = starts
+                .iter()
+                .map(|d| format!("S{}", d.iso_week().week()))
+                .collect();
             let prev = starts[0] - Duration::weeks(12);
             (starts, labels, prev)
         }
         "month" => {
             let first = today.with_day(1).expect("first of month");
             let starts: Vec<NaiveDate> = (0..12).map(|i| first - Months::new(11 - i)).collect();
-            let labels = starts.iter().map(|d| MONTHS[d.month0() as usize].to_string()).collect();
+            let labels = starts
+                .iter()
+                .map(|d| MONTHS[d.month0() as usize].to_string())
+                .collect();
             let prev = starts[0] - Months::new(12);
             (starts, labels, prev)
         }
         _ => {
             let starts: Vec<NaiveDate> = (0..14).map(|i| today - Duration::days(13 - i)).collect();
-            let labels = starts.iter().map(|d| format!("{:02}/{:02}", d.day(), d.month())).collect();
+            let labels = starts
+                .iter()
+                .map(|d| format!("{:02}/{:02}", d.day(), d.month()))
+                .collect();
             let prev = starts[0] - Duration::days(14);
             (starts, labels, prev)
         }
@@ -225,7 +267,13 @@ mod tests {
     use super::*;
 
     fn row(model: &str, input: u64, cost: f64) -> TurnRow {
-        TurnRow { model: model.into(), input, cache: 100, output: 10, cost }
+        TurnRow {
+            model: model.into(),
+            input,
+            cache: 100,
+            output: 10,
+            cost,
+        }
     }
 
     #[test]
@@ -234,8 +282,18 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2026, 9, 27).unwrap();
         let noon = |d: NaiveDate| local_ms(d) + 12 * 3600 * 1000;
         s.record_turns_at(noon(today), "a1", "p1", &[row("claude-opus-5-5", 50, 1.0)]);
-        s.record_turns_at(noon(today - Duration::days(2)), "a2", "p2", &[row("claude-sonnet-5", 20, 0.25)]);
-        s.record_turns_at(noon(today - Duration::days(20)), "a2", "p2", &[row("claude-sonnet-5", 5, 0.1)]);
+        s.record_turns_at(
+            noon(today - Duration::days(2)),
+            "a2",
+            "p2",
+            &[row("claude-sonnet-5", 20, 0.25)],
+        );
+        s.record_turns_at(
+            noon(today - Duration::days(20)),
+            "a2",
+            "p2",
+            &[row("claude-sonnet-5", 5, 0.1)],
+        );
         let v = s.query_at("day", today);
         assert_eq!(v.buckets.len(), 14);
         assert_eq!(v.buckets[13].label, "27/09");

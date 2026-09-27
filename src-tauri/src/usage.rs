@@ -27,7 +27,8 @@ pub fn http_client(settings: &Settings) -> Result<reqwest::Client> {
     let mut b = reqwest::Client::builder().timeout(Duration::from_secs(15));
     let url = settings.proxy_url.trim();
     if !url.is_empty() {
-        let proxy = reqwest::Proxy::all(url)?.no_proxy(reqwest::NoProxy::from_string(&settings.no_proxy));
+        let proxy =
+            reqwest::Proxy::all(url)?.no_proxy(reqwest::NoProxy::from_string(&settings.no_proxy));
         b = b.proxy(proxy);
     }
     Ok(b.build()?)
@@ -36,11 +37,19 @@ pub fn http_client(settings: &Settings) -> Result<reqwest::Client> {
 /// Fallback when no Claude process is running: the endpoint `/usage` relies on, authenticated
 /// with the OAuth token Claude Code stores locally (read-only use).
 pub async fn fetch_oauth(settings: &Settings) -> Result<Windows> {
-    let path = dirs::home_dir().context("home")?.join(".claude").join(".credentials.json");
+    let path = dirs::home_dir()
+        .context("home")?
+        .join(".claude")
+        .join(".credentials.json");
     let creds: Value = serde_json::from_str(&tokio::fs::read_to_string(&path).await?)?;
     let oauth = &creds["claudeAiOauth"];
-    let token = oauth["accessToken"].as_str().ok_or_else(|| anyhow!("pas de connexion claude.ai"))?;
-    if oauth["expiresAt"].as_i64().is_some_and(|exp| exp < crate::model::now_ms()) {
+    let token = oauth["accessToken"]
+        .as_str()
+        .ok_or_else(|| anyhow!("pas de connexion claude.ai"))?;
+    if oauth["expiresAt"]
+        .as_i64()
+        .is_some_and(|exp| exp < crate::model::now_ms())
+    {
         return Err(anyhow!("jeton OAuth expiré"));
     }
     let body: Value = http_client(settings)?
@@ -73,5 +82,25 @@ mod tests {
         assert_eq!(five.pct, 62.0);
         assert!(five.resets_at.unwrap() > 1_790_000_000_000);
         assert_eq!(week.unwrap().resets_at, None);
+    }
+}
+
+/// Minimum delay between two calls to the OAuth usage endpoint (fallback path only).
+pub const OAUTH_POLL_MS: i64 = 5 * 60_000;
+
+/// Whether the fallback endpoint may be called again.
+pub fn oauth_due(last_call: Option<i64>, now: i64) -> bool {
+    last_call.is_none_or(|t| now - t >= OAUTH_POLL_MS)
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::*;
+
+    #[test]
+    fn the_fallback_endpoint_is_polled_at_most_every_five_minutes() {
+        assert!(oauth_due(None, 0));
+        assert!(!oauth_due(Some(1_000), 1_000 + 60_000));
+        assert!(oauth_due(Some(1_000), 1_000 + 5 * 60_000));
     }
 }

@@ -6,7 +6,7 @@ use crate::git::{self, GitService};
 use crate::hub::Hub;
 use crate::model::*;
 use crate::notify;
-use crate::paths;
+use crate::paths::{self, DataDir};
 use crate::pty::PtyManager;
 use crate::stats::Stats;
 use crate::usage;
@@ -19,8 +19,20 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime, Wry};
 use tokio::sync::mpsc;
+
+/// The Claude process exited while starting; the exit handler recorded why in the conversation.
+#[derive(Debug)]
+pub struct StartupFailure;
+
+impl std::fmt::Display for StartupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Claude Code n'a pas pu démarrer : voir le détail dans la conversation.")
+    }
+}
+
+impl std::error::Error for StartupFailure {}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,8 +41,9 @@ pub struct ImageInput {
     pub data: String,
 }
 
-pub struct Core {
-    pub app: AppHandle,
+pub struct Core<R: Runtime = Wry> {
+    pub app: AppHandle<R>,
+    pub data: DataDir,
     pub hub: Hub,
     pub settings: RwLock<Settings>,
     pub projects: RwLock<Vec<Project>>,
@@ -42,6 +55,12 @@ pub struct Core {
     pub git_cache: RwLock<HashMap<String, GitInfo>>,
     pub pty: PtyManager,
     spawn_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Serializes agent creation so that concurrent creations get distinct names.
+    create_lock: tokio::sync::Mutex<()>,
+    conv_buffer: Mutex<HashMap<String, Vec<ConvOp>>>,
+    conv_flush: tokio::sync::Notify,
+    last_oauth_call: Mutex<Option<i64>>,
+    git_inflight: Mutex<std::collections::HashSet<String>>,
     toplevels: Mutex<HashMap<String, Option<String>>>,
     dirty: AtomicBool,
     waiting: AtomicUsize,
@@ -78,7 +97,7 @@ pub fn supports_effort(model: &str) -> bool {
     !model.to_lowercase().contains("haiku")
 }
 
-fn claude_args(m: &AgentMeta) -> Vec<String> {
+pub(crate) fn claude_args(m: &AgentMeta) -> Vec<String> {
     let mut a: Vec<String> = CLAUDE_BASE_ARGS.iter().map(|s| s.to_string()).collect();
     a.extend(["--model".into(), m.model.clone()]);
     if supports_effort(&m.model) {
@@ -129,36 +148,52 @@ fn sub_prefix(root: &str, sub: &str) -> String {
         String::new()
     } else {
         let rel = paths::relative_slash(root, sub);
-        if rel.contains(':') { String::new() } else { format!("{rel}/") }
+        if rel.contains(':') {
+            String::new()
+        } else {
+            format!("{rel}/")
+        }
     }
 }
 
-impl Core {
-    pub fn load(app: AppHandle) -> (Arc<Self>, mpsc::UnboundedReceiver<String>) {
-        if let Err(e) = paths::ensure_dirs() {
+impl<R: Runtime> Core<R> {
+    pub fn load(app: AppHandle<R>, data: DataDir) -> (Arc<Self>, mpsc::UnboundedReceiver<String>) {
+        if let Err(e) = data.ensure() {
             log::error!("cannot create data dir: {e}");
         }
-        let settings: Settings = read_json(&paths::settings_file()).unwrap_or_default();
-        let state: PersistedState = read_json(&paths::state_file()).unwrap_or_default();
+        let settings: Settings = read_json(&data.settings_file()).unwrap_or_default();
+        let state: PersistedState = read_json(&data.state_file()).unwrap_or_default();
+        let conv_dir = data.conversations();
         let agents = state
             .agents
             .into_iter()
-            .map(|m| (m.id.clone(), Arc::new(Mutex::new(AgentRt::new(m)))))
+            .map(|m| {
+                (
+                    m.id.clone(),
+                    Arc::new(Mutex::new(AgentRt::new(m, &conv_dir))),
+                )
+            })
             .collect();
         let (git, rx) = GitService::new();
         let core = Arc::new(Self {
+            stats: Stats::open(&data.stats_db()),
             app,
+            data,
             hub: Hub::default(),
             settings: RwLock::new(settings),
             projects: RwLock::new(state.projects),
             ui: RwLock::new(state.ui),
             agents: RwLock::new(agents),
-            stats: Stats::open(),
             usage: Mutex::new(UsageSnapshot::default()),
             git,
             git_cache: RwLock::default(),
             pty: PtyManager::default(),
             spawn_locks: Mutex::default(),
+            create_lock: tokio::sync::Mutex::new(()),
+            conv_buffer: Mutex::default(),
+            conv_flush: tokio::sync::Notify::new(),
+            last_oauth_call: Mutex::new(None),
+            git_inflight: Mutex::default(),
             toplevels: Mutex::default(),
             dirty: AtomicBool::new(false),
             waiting: AtomicUsize::new(usize::MAX),
@@ -174,6 +209,14 @@ impl Core {
         }
         let c = self.clone();
         tauri::async_runtime::spawn(async move { c.git_loop(git_rx).await });
+        let c = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                c.conv_flush.notified().await;
+                tokio::time::sleep(Duration::from_millis(16)).await;
+                c.flush_conv();
+            }
+        });
         let c = self.clone();
         tauri::async_runtime::spawn(async move {
             loop {
@@ -204,16 +247,28 @@ impl Core {
     // ---------- persistence ----------
 
     fn snapshot(&self) -> PersistedState {
-        let mut agents: Vec<AgentMeta> = self.agents.read().values().map(|h| h.lock().meta.clone()).collect();
+        let mut agents: Vec<AgentMeta> = self
+            .agents
+            .read()
+            .values()
+            .map(|h| h.lock().meta.clone())
+            .collect();
         agents.sort_by_key(|m| m.created_at);
-        PersistedState { projects: self.projects.read().clone(), agents, ui: self.ui.read().clone() }
+        // One lock at a time (each guard ends with its statement).
+        let projects = self.projects.read().clone();
+        let ui = self.ui.read().clone();
+        PersistedState {
+            projects,
+            agents,
+            ui,
+        }
     }
 
     pub fn save_now(&self) {
         let state = self.snapshot();
         match serde_json::to_vec_pretty(&state) {
             Ok(bytes) => {
-                if let Err(e) = paths::write_atomic(&paths::state_file(), &bytes) {
+                if let Err(e) = paths::write_atomic(&self.data.state_file(), &bytes) {
                     log::error!("cannot save state: {e}");
                 }
             }
@@ -227,7 +282,7 @@ impl Core {
 
     pub fn save_settings(&self, s: Settings) -> Result<()> {
         let bytes = serde_json::to_vec_pretty(&s)?;
-        paths::write_atomic(&paths::settings_file(), &bytes)?;
+        paths::write_atomic(&self.data.settings_file(), &bytes)?;
         *self.settings.write() = s;
         Ok(())
     }
@@ -235,21 +290,40 @@ impl Core {
     // ---------- lookups ----------
 
     pub fn agent(&self, id: &str) -> Result<AgentHandle> {
-        self.agents.read().get(id).cloned().ok_or_else(|| anyhow!("agent introuvable"))
+        self.agents
+            .read()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| anyhow!("agent introuvable"))
     }
 
     pub fn project(&self, id: &str) -> Result<Project> {
-        self.projects.read().iter().find(|p| p.id == id).cloned().ok_or_else(|| anyhow!("projet introuvable"))
+        self.projects
+            .read()
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or_else(|| anyhow!("projet introuvable"))
     }
 
     pub fn agent_views(&self) -> Vec<AgentView> {
-        let mut v: Vec<AgentView> = self.agents.read().values().map(|h| h.lock().view()).collect();
+        let mut v: Vec<AgentView> = self
+            .agents
+            .read()
+            .values()
+            .map(|h| h.lock().view())
+            .collect();
         v.sort_by_key(|a| a.meta.created_at);
         v
     }
 
     fn project_agents(&self, project_id: &str) -> Vec<AgentHandle> {
-        self.agents.read().values().filter(|h| h.lock().meta.project_id == project_id).cloned().collect()
+        self.agents
+            .read()
+            .values()
+            .filter(|h| h.lock().meta.project_id == project_id)
+            .cloned()
+            .collect()
     }
 
     fn emit_agent(&self, h: &AgentHandle) {
@@ -259,7 +333,11 @@ impl Core {
     }
 
     fn spawn_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.spawn_locks.lock().entry(id.to_string()).or_default().clone()
+        self.spawn_locks
+            .lock()
+            .entry(id.to_string())
+            .or_default()
+            .clone()
     }
 
     async fn toplevel(&self, path: &str) -> Option<String> {
@@ -273,9 +351,50 @@ impl Core {
 
     // ---------- effects of agent activity ----------
 
-    fn apply(self: &Arc<Self>, id: &str, project_id: &str, name: &str, fx: Effects, view: Option<AgentView>) {
+    /// Streaming deltas are buffered and sent at most every 16 ms (merged); any other op first
+    /// flushes the agent's buffered deltas so the UI sees every op in order.
+    fn emit_conv(&self, agent_id: &str, ops: Vec<ConvOp>) {
+        let only_deltas = ops.iter().all(|o| matches!(o, ConvOp::Delta { .. }));
+        let mut buf = self.conv_buffer.lock();
+        let was_empty = buf.is_empty();
+        let pending = buf.entry(agent_id.to_string()).or_default();
+        pending.extend(ops);
+        if only_deltas {
+            if was_empty {
+                self.conv_flush.notify_one();
+            }
+            return;
+        }
+        let ops = coalesce_ops(std::mem::take(pending));
+        buf.remove(agent_id);
+        drop(buf);
+        self.hub.emit(UiEvent::Conv {
+            agent_id: agent_id.to_string(),
+            ops,
+        });
+    }
+
+    /// Sends every buffered delta now.
+    pub fn flush_conv(&self) {
+        let drained: Vec<(String, Vec<ConvOp>)> = self.conv_buffer.lock().drain().collect();
+        for (agent_id, ops) in drained {
+            self.hub.emit(UiEvent::Conv {
+                agent_id,
+                ops: coalesce_ops(ops),
+            });
+        }
+    }
+
+    fn apply(
+        self: &Arc<Self>,
+        id: &str,
+        project_id: &str,
+        name: &str,
+        fx: Effects,
+        view: Option<AgentView>,
+    ) {
         if !fx.ops.is_empty() {
-            self.hub.emit(UiEvent::Conv { agent_id: id.to_string(), ops: fx.ops });
+            self.emit_conv(id, fx.ops);
         }
         let changed = view.is_some();
         if let Some(v) = view {
@@ -321,7 +440,12 @@ impl Core {
             }
             rt.handle_frame(&frame, &mut fx);
             let view = fx.agent_changed.then(|| rt.view());
-            (rt.meta.id.clone(), rt.meta.project_id.clone(), rt.meta.name.clone(), view)
+            (
+                rt.meta.id.clone(),
+                rt.meta.project_id.clone(),
+                rt.meta.name.clone(),
+                view,
+            )
         };
         self.apply(&id, &pid, &name, fx, view);
     }
@@ -331,7 +455,12 @@ impl Core {
         let (id, pid, name, view) = {
             let mut rt = h.lock();
             rt.on_exit(gen, code, &stderr, &mut fx);
-            (rt.meta.id.clone(), rt.meta.project_id.clone(), rt.meta.name.clone(), rt.view())
+            (
+                rt.meta.id.clone(),
+                rt.meta.project_id.clone(),
+                rt.meta.name.clone(),
+                rt.view(),
+            )
         };
         if self.quitting.load(Ordering::Acquire) {
             return;
@@ -339,7 +468,13 @@ impl Core {
         self.apply(&id, &pid, &name, fx, Some(view));
     }
 
-    fn notify_agent(self: &Arc<Self>, kind: NotifyKind, project_id: &str, agent_id: &str, agent_name: &str) {
+    fn notify_agent(
+        self: &Arc<Self>,
+        kind: NotifyKind,
+        project_id: &str,
+        agent_id: &str,
+        agent_name: &str,
+    ) {
         let settings = self.settings.read().clone();
         if settings.sound {
             notify::play_chime();
@@ -355,19 +490,36 @@ impl Core {
                 NotifyKind::Done => "Tâche terminée",
                 NotifyKind::Error => "Erreur : l'agent s'est arrêté",
             };
-            let (app, pid, aid) = (self.app.clone(), project_id.to_string(), agent_id.to_string());
+            let (app, pid, aid) = (
+                self.app.clone(),
+                project_id.to_string(),
+                agent_id.to_string(),
+            );
             let hub_core = Arc::downgrade(self);
-            notify::toast(&self.app, &format!("{project} · {agent_name}"), body, move || {
-                notify::show_main(&app);
-                if let Some(c) = hub_core.upgrade() {
-                    c.hub.emit(UiEvent::Focus { project_id: pid.clone(), agent_id: Some(aid.clone()) });
-                }
-            });
+            notify::toast(
+                &self.app,
+                &format!("{project} · {agent_name}"),
+                body,
+                move || {
+                    notify::show_main(&app);
+                    if let Some(c) = hub_core.upgrade() {
+                        c.hub.emit(UiEvent::Focus {
+                            project_id: pid.clone(),
+                            agent_id: Some(aid.clone()),
+                        });
+                    }
+                },
+            );
         }
     }
 
     pub fn update_tray(&self) {
-        let n = self.agents.read().values().filter(|h| h.lock().meta.status == AgentStatus::Waiting).count();
+        let n = self
+            .agents
+            .read()
+            .values()
+            .filter(|h| h.lock().meta.status == AgentStatus::Waiting)
+            .count();
         if self.waiting.swap(n, Ordering::AcqRel) == n {
             return;
         }
@@ -384,20 +536,45 @@ impl Core {
 
     // ---------- claude processes ----------
 
+    /// Returns the agent's live process, starting it (with --resume) when needed.
     pub async fn ensure_process(self: &Arc<Self>, id: &str) -> Result<Arc<ClaudeProcess>> {
+        let resumed = self.agent(id)?.lock().meta.session_id.is_some();
+        match self.start_process(id).await {
+            // The session could not be resumed: its exit handler dropped the session id, so a
+            // second start opens a new session instead.
+            Err(e)
+                if resumed
+                    && e.is::<StartupFailure>()
+                    && self.agent(id)?.lock().meta.session_id.is_none() =>
+            {
+                self.start_process(id).await
+            }
+            other => other,
+        }
+    }
+
+    async fn start_process(self: &Arc<Self>, id: &str) -> Result<Arc<ClaudeProcess>> {
         let h = self.agent(id)?;
         let lock = self.spawn_lock(id);
         let _guard = lock.lock().await;
         if let Some(p) = h.lock().proc.clone() {
-            return Ok(p);
+            if p.is_alive() {
+                return Ok(p);
+            }
         }
         let settings = self.settings.read().clone();
-        let program = claude::resolve_binary(&settings.claude_path)
-            .ok_or_else(|| anyhow!("Claude Code introuvable. Installe-le ou indique son chemin dans les réglages."))?;
+        let program = claude::resolve_binary(&settings.claude_path).ok_or_else(|| {
+            anyhow!("Claude Code introuvable. Installe-le ou indique son chemin dans les réglages.")
+        })?;
         let (opts, gen) = {
             let mut rt = h.lock();
             rt.gen += 1;
-            let opts = SpawnOpts { program, cwd: rt.meta.cwd.clone(), args: claude_args(&rt.meta), env: settings.proxy_env() };
+            let opts = SpawnOpts {
+                program,
+                cwd: rt.meta.cwd.clone(),
+                args: claude_args(&rt.meta),
+                env: settings.proxy_env(),
+            };
             (opts, rt.gen)
         };
         if !Path::new(&opts.cwd).is_dir() {
@@ -420,8 +597,14 @@ impl Core {
         )?;
         h.lock().attach(proc.clone());
         self.emit_agent(&h);
-        match proc.control(json!({ "subtype": "initialize" }), Duration::from_secs(90)).await {
-            Ok(resp) => h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default(),
+        match proc
+            .control(json!({ "subtype": "initialize" }), Duration::from_secs(90))
+            .await
+        {
+            Ok(resp) => {
+                h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default()
+            }
+            Err(_) if !proc.is_alive() => return Err(StartupFailure.into()),
             Err(e) => log::warn!("initialize failed: {e}"),
         }
         Ok(proc)
@@ -444,18 +627,30 @@ impl Core {
         });
     }
 
-    fn stop_idle_processes(&self) {
+    /// Stops the processes of agents idle for longer than the configured delay. The session
+    /// and the conversation stay: the next action on the agent resumes it (--resume).
+    pub(crate) fn stop_idle_processes(&self) {
         let minutes = self.settings.read().idle_stop_minutes;
         if minutes == 0 {
             return;
         }
         let limit = now_ms() - minutes as i64 * 60_000;
-        for h in self.agents.read().values() {
-            let rt = h.lock();
-            if let Some(p) = &rt.proc {
-                if !rt.meta.status.is_active() && rt.meta.last_activity < limit {
-                    p.close_input();
+        let agents: Vec<AgentHandle> = self.agents.read().values().cloned().collect();
+        for h in agents {
+            let stopped = {
+                let mut rt = h.lock();
+                let idle = rt.proc.is_some()
+                    && !rt.meta.status.is_active()
+                    && rt.meta.last_activity < limit;
+                if idle {
+                    rt.detach()
+                } else {
+                    None
                 }
+            };
+            if let Some(p) = stopped {
+                p.close_input();
+                self.emit_agent(&h);
             }
         }
     }
@@ -473,15 +668,41 @@ impl Core {
         self.save_now();
     }
 
-    pub async fn send_message(self: &Arc<Self>, id: &str, text: String, images: Vec<ImageInput>) -> Result<()> {
-        let proc = self.ensure_process(id).await?;
+    pub async fn send_message(
+        self: &Arc<Self>,
+        id: &str,
+        text: String,
+        images: Vec<ImageInput>,
+    ) -> Result<()> {
+        // Two attempts: the process may die between being started and receiving the message.
+        for attempt in 0..2 {
+            let proc = self.ensure_process(id).await?;
+            if self.deliver(id, &proc, &text, &images)? {
+                return Ok(());
+            }
+            log::warn!("message not delivered (attempt {attempt}): the process exited");
+        }
+        bail!("Claude Code s'est arrêté pendant l'envoi du message : voir le détail dans la conversation.")
+    }
+
+    /// Sends the message to `proc` if it is still the agent's live process, then records it.
+    fn deliver(
+        self: &Arc<Self>,
+        id: &str,
+        proc: &Arc<ClaudeProcess>,
+        text: &str,
+        images: &[ImageInput],
+    ) -> Result<bool> {
         let h = self.agent(id)?;
         let mut fx = Effects::default();
         let (pid, name, view, first) = {
             let mut rt = h.lock();
-            let (uid, _queued) = rt.push_user(&text, images.len() as u32, &mut fx);
+            if !rt.proc.as_ref().is_some_and(|p| Arc::ptr_eq(p, proc)) || !proc.is_alive() {
+                return Ok(false);
+            }
+            let uid = uuid::Uuid::new_v4().to_string();
             let content = if images.is_empty() {
-                Value::String(text.clone())
+                Value::String(text.to_string())
             } else {
                 let mut blocks: Vec<Value> = images
                     .iter()
@@ -492,53 +713,98 @@ impl Core {
                 }
                 Value::Array(blocks)
             };
-            if let Err(e) = proc.send(&json!({ "type": "user", "message": { "role": "user", "content": content }, "parent_tool_use_id": null, "uuid": uid })) {
-                rt.notice("error", format!("Message non transmis : {e}"), &mut fx);
-                rt.set_status(AgentStatus::Error, &mut fx);
+            let frame = json!({ "type": "user", "message": { "role": "user", "content": content }, "parent_tool_use_id": null, "uuid": uid });
+            if proc.send(&frame).is_err() {
+                return Ok(false);
             }
+            rt.push_user(&uid, text, images.len() as u32, &mut fx);
             let first = !rt.meta.named && rt.meta.prompts == 1;
-            (rt.meta.project_id.clone(), rt.meta.name.clone(), rt.view(), first)
+            (
+                rt.meta.project_id.clone(),
+                rt.meta.name.clone(),
+                rt.view(),
+                first,
+            )
         };
         self.stats.record_prompt(id, &pid);
         self.apply(id, &pid, &name, fx, Some(view));
         if first && !text.trim().is_empty() && !text.trim_start().starts_with('/') {
-            let (c, id) = (self.clone(), id.to_string());
+            let (c, id, text) = (self.clone(), id.to_string(), text.to_string());
             tauri::async_runtime::spawn(async move { c.auto_name(&id, &text).await });
         }
-        Ok(())
+        Ok(true)
     }
 
     pub async fn interrupt(self: &Arc<Self>, id: &str) -> Result<()> {
         let h = self.agent(id)?;
-        let proc = h.lock().proc.clone();
+        let proc = {
+            let mut rt = h.lock();
+            // Only a running turn can be interrupted; a stale flag would hide the next turn's end.
+            let active = rt.meta.status.is_active();
+            rt.interrupted = active;
+            rt.proc.clone().filter(|_| active)
+        };
         if let Some(p) = proc {
-            h.lock().interrupted = true;
-            p.control(json!({ "subtype": "interrupt" }), Duration::from_secs(15)).await?;
+            if let Err(e) = p
+                .control(json!({ "subtype": "interrupt" }), Duration::from_secs(15))
+                .await
+            {
+                h.lock().interrupted = false;
+                return Err(e);
+            }
         }
         Ok(())
     }
 
-    fn with_agent<T>(self: &Arc<Self>, id: &str, f: impl FnOnce(&mut AgentRt, &mut Effects) -> Result<T>) -> Result<T> {
+    fn with_agent<T>(
+        self: &Arc<Self>,
+        id: &str,
+        f: impl FnOnce(&mut AgentRt, &mut Effects) -> Result<T>,
+    ) -> Result<T> {
         let h = self.agent(id)?;
         let mut fx = Effects::default();
         let (out, pid, name, view) = {
             let mut rt = h.lock();
             let out = f(&mut rt, &mut fx)?;
-            (out, rt.meta.project_id.clone(), rt.meta.name.clone(), rt.view())
+            (
+                out,
+                rt.meta.project_id.clone(),
+                rt.meta.name.clone(),
+                rt.view(),
+            )
         };
         self.apply(id, &pid, &name, fx, Some(view));
         Ok(out)
     }
 
-    pub fn answer_question(self: &Arc<Self>, id: &str, request_id: &str, answers: Value) -> Result<()> {
+    pub fn answer_question(
+        self: &Arc<Self>,
+        id: &str,
+        request_id: &str,
+        answers: Value,
+    ) -> Result<()> {
         self.with_agent(id, |rt, fx| rt.answer_question(request_id, answers, fx))
     }
 
-    pub fn answer_permission(self: &Arc<Self>, id: &str, request_id: &str, decision: &str, message: Option<String>) -> Result<()> {
-        self.with_agent(id, |rt, fx| rt.answer_permission(request_id, decision, message, fx))
+    pub fn answer_permission(
+        self: &Arc<Self>,
+        id: &str,
+        request_id: &str,
+        decision: &str,
+        message: Option<String>,
+    ) -> Result<()> {
+        self.with_agent(id, |rt, fx| {
+            rt.answer_permission(request_id, decision, message, fx)
+        })
     }
 
-    pub async fn set_agent_options(self: &Arc<Self>, id: &str, model: Option<String>, effort: Option<String>, mode: Option<String>) -> Result<()> {
+    pub async fn set_agent_options(
+        self: &Arc<Self>,
+        id: &str,
+        model: Option<String>,
+        effort: Option<String>,
+        mode: Option<String>,
+    ) -> Result<()> {
         let h = self.agent(id)?;
         let proc = {
             let mut rt = h.lock();
@@ -558,14 +824,20 @@ impl Core {
         if let Some(p) = proc {
             let t = Duration::from_secs(15);
             if let Some(m) = model {
-                p.control(json!({ "subtype": "set_model", "model": m }), t).await?;
+                p.control(json!({ "subtype": "set_model", "model": m }), t)
+                    .await?;
             }
             let current_model = h.lock().meta.model.clone();
             if let Some(e) = effort.filter(|_| supports_effort(&current_model)) {
-                p.control(json!({ "subtype": "apply_flag_settings", "settings": { "effortLevel": e } }), t).await?;
+                p.control(
+                    json!({ "subtype": "apply_flag_settings", "settings": { "effortLevel": e } }),
+                    t,
+                )
+                .await?;
             }
             if let Some(m) = mode {
-                p.control(json!({ "subtype": "set_permission_mode", "mode": m }), t).await?;
+                p.control(json!({ "subtype": "set_permission_mode", "mode": m }), t)
+                    .await?;
             }
         }
         Ok(())
@@ -573,10 +845,19 @@ impl Core {
 
     // ---------- agents lifecycle ----------
 
-    pub async fn create_agent(self: &Arc<Self>, project_id: &str, model: Option<String>) -> Result<AgentView> {
+    pub async fn create_agent(
+        self: &Arc<Self>,
+        project_id: &str,
+        model: Option<String>,
+    ) -> Result<AgentView> {
+        let _creating = self.create_lock.lock().await;
         let project = self.project(project_id)?;
         let settings = self.settings.read().clone();
-        let existing: Vec<String> = self.project_agents(project_id).iter().map(|h| h.lock().meta.name.clone()).collect();
+        let existing: Vec<String> = self
+            .project_agents(project_id)
+            .iter()
+            .map(|h| h.lock().meta.name.clone())
+            .collect();
         let mut n = existing.len() + 1;
         while existing.iter().any(|e| *e == format!("agent-{n}")) {
             n += 1;
@@ -599,19 +880,30 @@ impl Core {
             match git::worktree_add(&project.path, &name).await {
                 Ok((path, branch, base)) => {
                     meta.cwd = path.clone();
-                    meta.worktree = Some(Worktree { path, branch, base_branch: base });
+                    meta.worktree = Some(Worktree {
+                        path,
+                        branch,
+                        base_branch: base,
+                    });
                 }
-                Err(e) => warning = Some(format!("Worktree non créé, l'agent travaille dans le dossier du projet : {e}")),
+                Err(e) => {
+                    warning = Some(format!(
+                        "Worktree non créé, l'agent travaille dans le dossier du projet : {e}"
+                    ))
+                }
             }
         }
         let id = meta.id.clone();
-        let h = Arc::new(Mutex::new(AgentRt::new(meta)));
+        let h = Arc::new(Mutex::new(AgentRt::new(meta, &self.data.conversations())));
         if let Some(w) = warning {
             let mut fx = Effects::default();
             h.lock().notice("warn", w, &mut fx);
         }
         self.agents.write().insert(id.clone(), h.clone());
-        self.ui.write().selected_agent.insert(project_id.to_string(), id.clone());
+        self.ui
+            .write()
+            .selected_agent
+            .insert(project_id.to_string(), id.clone());
         self.request_save();
         self.emit_agent(&h);
         self.git.refresh(project_id);
@@ -635,7 +927,8 @@ impl Core {
     async fn generate_name(&self, prompt: &str) -> Result<String> {
         use tokio::io::AsyncWriteExt;
         let settings = self.settings.read().clone();
-        let program = claude::resolve_binary(&settings.claude_path).context("claude introuvable")?;
+        let program =
+            claude::resolve_binary(&settings.claude_path).context("claude introuvable")?;
         let mut cmd = tokio::process::Command::new(program);
         cmd.args([
             "-p",
@@ -662,18 +955,32 @@ impl Core {
         cmd.creation_flags(claude::CREATE_NO_WINDOW);
         let mut child = cmd.spawn()?;
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(claude::truncate(prompt, 2000).as_bytes()).await?;
+            stdin
+                .write_all(claude::truncate(prompt, 2000).as_bytes())
+                .await?;
         }
         let out = tokio::time::timeout(Duration::from_secs(90), child.wait_with_output()).await??;
         let v: Value = serde_json::from_slice(&out.stdout)?;
-        let raw = v["result"].as_str().unwrap_or("").lines().next().unwrap_or("").trim().to_string();
+        let raw = v["result"]
+            .as_str()
+            .unwrap_or("")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         Ok(slugify(&raw))
     }
 
     async fn apply_generated_name(self: &Arc<Self>, id: &str, slug: &str) -> Result<()> {
         let h = self.agent(id)?;
         let project_id = h.lock().meta.project_id.clone();
-        let taken: Vec<String> = self.project_agents(&project_id).iter().filter(|a| a.lock().meta.id != id).map(|a| a.lock().meta.name.clone()).collect();
+        let taken: Vec<String> = self
+            .project_agents(&project_id)
+            .iter()
+            .filter(|a| a.lock().meta.id != id)
+            .map(|a| a.lock().meta.name.clone())
+            .collect();
         let mut name = slug.to_string();
         let mut n = 2;
         while taken.contains(&name) {
@@ -694,7 +1001,9 @@ impl Core {
         if let Some(wt) = worktree {
             let project = self.project(&project_id)?;
             let branch = format!("ccm/{name}");
-            if !git::branch_exists(&project.path, &branch).await && git::rename_current_branch(&wt.path, &branch).await.is_ok() {
+            if !git::branch_exists(&project.path, &branch).await
+                && git::rename_current_branch(&wt.path, &branch).await.is_ok()
+            {
                 if let Some(w) = h.lock().meta.worktree.as_mut() {
                     w.branch = branch;
                 }
@@ -702,7 +1011,12 @@ impl Core {
             }
         }
         if let Some(p) = proc {
-            let _ = p.control(json!({ "subtype": "rename_session", "title": name, "source": "host" }), Duration::from_secs(10)).await;
+            let _ = p
+                .control(
+                    json!({ "subtype": "rename_session", "title": name, "source": "host" }),
+                    Duration::from_secs(10),
+                )
+                .await;
         }
         Ok(())
     }
@@ -722,16 +1036,39 @@ impl Core {
         self.emit_agent(&h);
         self.request_save();
         if let Some(p) = proc {
-            let _ = p.control(json!({ "subtype": "rename_session", "title": name, "source": "host" }), Duration::from_secs(10)).await;
+            let _ = p
+                .control(
+                    json!({ "subtype": "rename_session", "title": name, "source": "host" }),
+                    Duration::from_secs(10),
+                )
+                .await;
         }
         Ok(())
     }
 
-    pub fn archive_agent(self: &Arc<Self>, id: &str, archived: bool) -> Result<()> {
+    pub async fn archive_agent(self: &Arc<Self>, id: &str, archived: bool) -> Result<()> {
+        if archived {
+            // Stop the current turn first: closing stdin alone lets it run to completion.
+            let running = {
+                let h = self.agent(id)?;
+                let rt = h.lock();
+                rt.proc.clone().filter(|_| rt.meta.status.is_active())
+            };
+            if let Some(p) = running {
+                let _ = p
+                    .control(
+                        json!({ "subtype": "interrupt", "cancel_queued": true }),
+                        Duration::from_secs(5),
+                    )
+                    .await;
+            }
+        }
+        let lock = self.spawn_lock(id);
+        let _guard = lock.lock().await;
         self.with_agent(id, |rt, fx| {
             rt.meta.archived = archived;
             if archived {
-                if let Some(p) = rt.proc.take() {
+                if let Some(p) = rt.detach() {
                     p.close_input();
                 }
                 rt.clear_pending(fx);
@@ -747,8 +1084,21 @@ impl Core {
         Ok(())
     }
 
-    pub async fn delete_agent(self: &Arc<Self>, id: &str, remove_worktree: bool) -> Result<()> {
-        let h = self.agents.write().remove(id).ok_or_else(|| anyhow!("agent introuvable"))?;
+    /// Removes the agent. Worktree cleanup is best effort: a problem there is returned as a
+    /// warning, the agent is removed regardless.
+    pub async fn delete_agent(
+        self: &Arc<Self>,
+        id: &str,
+        remove_worktree: bool,
+    ) -> Result<Option<String>> {
+        // Wait for an in-flight start (warm-up) so that its process is killed too.
+        let lock = self.spawn_lock(id);
+        let _guard = lock.lock().await;
+        let h = self
+            .agents
+            .write()
+            .remove(id)
+            .ok_or_else(|| anyhow!("agent introuvable"))?;
         let (pid, worktree) = {
             let mut rt = h.lock();
             rt.gen += 1;
@@ -758,42 +1108,65 @@ impl Core {
             rt.conv.delete_file();
             (rt.meta.project_id.clone(), rt.meta.worktree.clone())
         };
-        if let (true, Some(wt)) = (remove_worktree, worktree) {
-            let project = self.project(&pid)?;
-            // Give the killed process a moment to release its handles on the worktree.
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            git::worktree_remove(&project.path, &wt.path, &wt.branch).await?;
-        }
+        self.spawn_locks.lock().remove(id);
         {
             let mut ui = self.ui.write();
             if ui.selected_agent.get(&pid).map(String::as_str) == Some(id) {
                 ui.selected_agent.remove(&pid);
             }
         }
-        self.hub.emit(UiEvent::AgentRemoved { id: id.to_string(), project_id: pid.clone() });
+        self.hub.emit(UiEvent::AgentRemoved {
+            id: id.to_string(),
+            project_id: pid.clone(),
+        });
         self.request_save();
         self.update_tray();
+        let mut warning = None;
+        if let (true, Some(wt), Ok(project)) = (remove_worktree, worktree, self.project(&pid)) {
+            // Give the killed process tree a moment to release its handles on the worktree.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if let Err(e) = git::worktree_remove(&project.path, &wt.path, &wt.branch).await {
+                warning = Some(format!(
+                    "Agent supprimé, mais le worktree n'a pas pu être nettoyé : {e:#}"
+                ));
+            }
+        }
         self.git.refresh(&pid);
-        Ok(())
+        Ok(warning)
     }
 
     pub async fn merge_agent(self: &Arc<Self>, id: &str, squash: bool) -> Result<String> {
         let h = self.agent(id)?;
         let (pid, name, wt) = {
             let rt = h.lock();
-            (rt.meta.project_id.clone(), rt.meta.name.clone(), rt.meta.worktree.clone())
+            (
+                rt.meta.project_id.clone(),
+                rt.meta.name.clone(),
+                rt.meta.worktree.clone(),
+            )
         };
         let wt = wt.ok_or_else(|| anyhow!("cet agent n'a pas de worktree"))?;
         let project = self.project(&pid)?;
+        if git::has_tracked_changes(&project.path).await? {
+            bail!("Le dépôt principal a des modifications non commitées : commite-les ou mets-les de côté avant de merger.");
+        }
         let dirty = git::status(&wt.path).await?.entries.len();
         if dirty > 0 {
             bail!("L'agent a {dirty} fichier(s) non commité(s) : demande-lui de commiter avant de merger.");
         }
         if git::ahead_count(&project.path, &wt.branch).await == 0 {
-            bail!("Rien à merger : la branche {} n'a pas de nouveau commit.", wt.branch);
+            bail!(
+                "Rien à merger : la branche {} n'a pas de nouveau commit.",
+                wt.branch
+            );
         }
         let message = if squash {
-            let subjects = git::text(&project.path, &["log", "--format=- %s", &format!("HEAD..{}", wt.branch)]).await.unwrap_or_default();
+            let subjects = git::text(
+                &project.path,
+                &["log", "--format=- %s", &format!("HEAD..{}", wt.branch)],
+            )
+            .await
+            .unwrap_or_default();
             format!("{name}\n\n{subjects}")
         } else {
             format!("Merge branch '{}'", wt.branch)
@@ -805,7 +1178,14 @@ impl Core {
 
     // ---------- projects ----------
 
-    pub async fn create_project(self: &Arc<Self>, path: &str, name: &str, color: &str, worktree_per_agent: bool, first_agent: Option<String>) -> Result<Project> {
+    pub async fn create_project(
+        self: &Arc<Self>,
+        path: &str,
+        name: &str,
+        color: &str,
+        worktree_per_agent: bool,
+        first_agent: Option<String>,
+    ) -> Result<Project> {
         let path = path.trim().trim_end_matches(['\\', '/']).to_string();
         if !Path::new(&path).is_dir() {
             bail!("Le dossier {path} n'existe pas");
@@ -816,7 +1196,10 @@ impl Core {
         let project = Project {
             id: new_id(),
             name: if name.trim().is_empty() {
-                Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "projet".into())
+                Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "projet".into())
             } else {
                 name.trim().to_string()
             },
@@ -841,7 +1224,10 @@ impl Core {
 
     pub fn update_project(&self, p: Project) -> Result<()> {
         let mut projects = self.projects.write();
-        let cur = projects.iter_mut().find(|x| x.id == p.id).ok_or_else(|| anyhow!("projet introuvable"))?;
+        let cur = projects
+            .iter_mut()
+            .find(|x| x.id == p.id)
+            .ok_or_else(|| anyhow!("projet introuvable"))?;
         cur.name = p.name;
         cur.color = p.color;
         cur.worktree_per_agent = p.worktree_per_agent;
@@ -858,9 +1244,15 @@ impl Core {
     }
 
     pub fn remove_project(self: &Arc<Self>, id: &str) -> Result<()> {
-        let agents: Vec<String> = self.project_agents(id).iter().map(|h| h.lock().meta.id.clone()).collect();
+        let agents: Vec<String> = self
+            .project_agents(id)
+            .iter()
+            .map(|h| h.lock().meta.id.clone())
+            .collect();
         for aid in agents {
-            if let Some(h) = self.agents.write().remove(&aid) {
+            // Bound first: the map guard must not live across the agent lock and the I/O below.
+            let removed = self.agents.write().remove(&aid);
+            if let Some(h) = removed {
                 let mut rt = h.lock();
                 rt.gen += 1;
                 if let Some(p) = rt.proc.take() {
@@ -868,16 +1260,21 @@ impl Core {
                 }
                 rt.conv.delete_file();
             }
-            self.hub.emit(UiEvent::AgentRemoved { id: aid, project_id: id.to_string() });
+            self.hub.emit(UiEvent::AgentRemoved {
+                id: aid,
+                project_id: id.to_string(),
+            });
         }
         self.pty.kill_project(id);
         self.git.unwatch(id);
         self.projects.write().retain(|p| p.id != id);
+        // Read before taking the ui lock: never hold ui while waiting on projects.
+        let fallback = self.projects.read().first().map(|p| p.id.clone());
         {
             let mut ui = self.ui.write();
             ui.selected_agent.remove(id);
             if ui.active_project.as_deref() == Some(id) {
-                ui.active_project = self.projects.read().first().map(|p| p.id.clone());
+                ui.active_project = fallback;
             }
         }
         self.request_save();
@@ -903,25 +1300,40 @@ impl Core {
                     let now = Instant::now();
                     let ready: Vec<String> = due.iter().filter(|(_, t)| **t <= now).map(|(k, _)| k.clone()).collect();
                     for pid in ready {
+                        // A refresh still running for this project (large repo): try again later
+                        // rather than overlapping and publishing results out of order.
+                        if !self.git_inflight.lock().insert(pid.clone()) {
+                            due.insert(pid, now + Duration::from_millis(250));
+                            continue;
+                        }
                         due.remove(&pid);
                         last.insert(pid.clone(), now);
                         self.git.take_flag(&pid);
                         let c = self.clone();
-                        tauri::async_runtime::spawn(async move { c.compute_git(&pid).await });
+                        tauri::async_runtime::spawn(async move {
+                            c.compute_git(&pid).await;
+                            c.git_inflight.lock().remove(&pid);
+                        });
                     }
                 }
             }
         }
     }
 
-    async fn compute_git(self: &Arc<Self>, project_id: &str) {
-        let Ok(project) = self.project(project_id) else { return };
+    pub(crate) async fn compute_git(self: &Arc<Self>, project_id: &str) {
+        let Ok(project) = self.project(project_id) else {
+            return;
+        };
         let info = match self.toplevel(&project.path).await {
             None => GitInfo::default(),
             Some(root) => {
                 let st = git::status(&root).await.unwrap_or_default();
                 let prefix = sub_prefix(&root, &project.path);
-                let mut info = GitInfo { is_repo: true, branch: st.branch.clone(), ..Default::default() };
+                let mut info = GitInfo {
+                    is_repo: true,
+                    branch: st.branch.clone(),
+                    ..Default::default()
+                };
                 let tally = |c: char, info: &mut GitInfo| match c {
                     'A' => info.added += 1,
                     'D' => info.deleted += 1,
@@ -935,7 +1347,11 @@ impl Core {
                     .iter()
                     .map(|h| {
                         let rt = h.lock();
-                        (rt.meta.id.clone(), rt.meta.worktree.clone(), rt.meta.touched_files.clone())
+                        (
+                            rt.meta.id.clone(),
+                            rt.meta.worktree.clone(),
+                            rt.meta.touched_files.clone(),
+                        )
                     })
                     .collect();
                 for (aid, wt, touched) in agents {
@@ -953,7 +1369,9 @@ impl Core {
                             .iter()
                             .filter(|t| {
                                 let full = format!("{prefix}{t}");
-                                st.entries.iter().any(|e| e.path.eq_ignore_ascii_case(&full))
+                                st.entries
+                                    .iter()
+                                    .any(|e| e.path.eq_ignore_ascii_case(&full))
                             })
                             .count() as u32,
                     };
@@ -964,28 +1382,56 @@ impl Core {
             }
         };
         self.git.invalidate_files();
-        self.git_cache.write().insert(project_id.to_string(), info.clone());
-        self.hub.emit(UiEvent::Git { project_id: project_id.to_string(), git: info });
+        self.git_cache
+            .write()
+            .insert(project_id.to_string(), info.clone());
+        self.hub.emit(UiEvent::Git {
+            project_id: project_id.to_string(),
+            git: info,
+        });
     }
 
     /// Dirty files for the files panel. `agent_id` + scope "agent" restricts to one agent.
-    pub async fn git_files(self: &Arc<Self>, project_id: &str, agent_id: Option<String>) -> Result<Vec<FileChange>> {
+    pub async fn git_files(
+        self: &Arc<Self>,
+        project_id: &str,
+        agent_id: Option<String>,
+    ) -> Result<Vec<FileChange>> {
         let project = self.project(project_id)?;
-        let root = self.toplevel(&project.path).await.ok_or_else(|| anyhow!("pas un dépôt git"))?;
+        let root = self
+            .toplevel(&project.path)
+            .await
+            .ok_or_else(|| anyhow!("pas un dépôt git"))?;
         let prefix = sub_prefix(&root, &project.path);
         let agents: Vec<(String, Option<Worktree>, Vec<String>)> = self
             .project_agents(project_id)
             .iter()
             .map(|h| {
                 let rt = h.lock();
-                (rt.meta.id.clone(), rt.meta.worktree.clone(), rt.meta.touched_files.clone())
+                (
+                    rt.meta.id.clone(),
+                    rt.meta.worktree.clone(),
+                    rt.meta.touched_files.clone(),
+                )
             })
             .filter(|(id, _, _)| agent_id.as_ref().is_none_or(|a| a == id))
             .collect();
         let mut out = Vec::new();
-        let main = if agents.iter().all(|(_, wt, _)| wt.is_some()) && agent_id.is_some() { Vec::new() } else { git::file_changes(&root).await? };
+        let main = if agents.iter().all(|(_, wt, _)| wt.is_some()) && agent_id.is_some() {
+            Vec::new()
+        } else {
+            git::file_changes(&root).await?
+        };
         let owner = |path: &str| {
-            agents.iter().find(|(_, wt, touched)| wt.is_none() && touched.iter().any(|t| format!("{prefix}{t}").eq_ignore_ascii_case(path))).map(|(id, _, _)| id.clone())
+            agents
+                .iter()
+                .find(|(_, wt, touched)| {
+                    wt.is_none()
+                        && touched
+                            .iter()
+                            .any(|t| format!("{prefix}{t}").eq_ignore_ascii_case(path))
+                })
+                .map(|(id, _, _)| id.clone())
         };
         for mut f in main {
             f.agent_id = owner(&f.path);
@@ -1004,7 +1450,12 @@ impl Core {
         Ok(out)
     }
 
-    pub async fn git_diff(self: &Arc<Self>, project_id: &str, agent_id: Option<String>, paths: Vec<String>) -> Result<String> {
+    pub async fn git_diff(
+        self: &Arc<Self>,
+        project_id: &str,
+        agent_id: Option<String>,
+        paths: Vec<String>,
+    ) -> Result<String> {
         let project = self.project(project_id)?;
         let worktree = match &agent_id {
             Some(a) => self.agent(a)?.lock().meta.worktree.clone(),
@@ -1012,12 +1463,19 @@ impl Core {
         };
         let root = match worktree {
             Some(wt) => wt.path,
-            None => self.toplevel(&project.path).await.ok_or_else(|| anyhow!("pas un dépôt git"))?,
+            None => self
+                .toplevel(&project.path)
+                .await
+                .ok_or_else(|| anyhow!("pas un dépôt git"))?,
         };
         git::diff(&root, &paths).await
     }
 
-    pub async fn file_suggestions(self: &Arc<Self>, agent_id: &str, query: &str) -> Result<Vec<String>> {
+    pub async fn file_suggestions(
+        self: &Arc<Self>,
+        agent_id: &str,
+        query: &str,
+    ) -> Result<Vec<String>> {
         let cwd = self.agent(agent_id)?.lock().meta.cwd.clone();
         let files = self.git.file_index(&cwd).await;
         Ok(git::fuzzy_files(&files, query, 40))
@@ -1026,16 +1484,27 @@ impl Core {
     // ---------- usage ----------
 
     pub async fn refresh_usage(self: &Arc<Self>) {
-        let proc = self.agents.read().values().find_map(|h| h.lock().proc.clone());
+        let proc = self
+            .agents
+            .read()
+            .values()
+            .find_map(|h| h.lock().proc.clone());
         let mut windows = None;
         if let Some(p) = proc {
-            if let Ok(v) = p.control(json!({ "subtype": "get_usage", "skip_behaviors": true }), Duration::from_secs(20)).await {
+            if let Ok(v) = p
+                .control(
+                    json!({ "subtype": "get_usage", "skip_behaviors": true }),
+                    Duration::from_secs(20),
+                )
+                .await
+            {
                 if v["rate_limits"].is_object() {
                     windows = Some(usage::parse_windows(&v["rate_limits"]));
                 }
             }
         }
-        if windows.is_none() {
+        if windows.is_none() && usage::oauth_due(*self.last_oauth_call.lock(), now_ms()) {
+            *self.last_oauth_call.lock() = Some(now_ms());
             let settings = self.settings.read().clone();
             match usage::fetch_oauth(&settings).await {
                 Ok(w) => windows = Some(w),
@@ -1063,17 +1532,31 @@ mod tests {
     #[test]
     fn slugs() {
         assert_eq!(slugify("Migration JWT rotation"), "migration-jwt-rotation");
-        assert_eq!(slugify("  réparer l'écran d'accueil! "), "reparer-l-ecran-d-accueil");
+        assert_eq!(
+            slugify("  réparer l'écran d'accueil! "),
+            "reparer-l-ecran-d-accueil"
+        );
         assert!(slugify(&"mot ".repeat(30)).len() <= 40);
     }
 
     #[test]
     fn args_for_haiku_skip_effort() {
-        let m = AgentMeta { model: "haiku".into(), effort: "high".into(), mode: "auto".into(), session_id: Some("s1".into()), ..Default::default() };
+        let m = AgentMeta {
+            model: "haiku".into(),
+            effort: "high".into(),
+            mode: "auto".into(),
+            session_id: Some("s1".into()),
+            ..Default::default()
+        };
         let a = claude_args(&m);
         assert!(!a.contains(&"--effort".to_string()));
         assert!(a.contains(&"--resume=s1".to_string()));
-        let m = AgentMeta { model: "opus".into(), effort: "max".into(), mode: "plan".into(), ..Default::default() };
+        let m = AgentMeta {
+            model: "opus".into(),
+            effort: "max".into(),
+            mode: "plan".into(),
+            ..Default::default()
+        };
         let a = claude_args(&m);
         assert!(a.windows(2).any(|w| w == ["--effort", "max"]));
     }
@@ -1081,6 +1564,9 @@ mod tests {
     #[test]
     fn sub_prefixes() {
         assert_eq!(sub_prefix("C:/code/app", "C:\\code\\app"), "");
-        assert_eq!(sub_prefix("C:/code/mono", "C:/code/mono/packages/web"), "packages/web/");
+        assert_eq!(
+            sub_prefix("C:/code/mono", "C:/code/mono/packages/web"),
+            "packages/web/"
+        );
     }
 }
