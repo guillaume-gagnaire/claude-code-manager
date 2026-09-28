@@ -8,6 +8,8 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   workers: 1,
   retries: process.env.CI ? 1 : 0,
+  // When the app cannot be driven at all, every test would wait for it in turn: stop early.
+  maxFailures: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: { trace: 'retain-on-failure' },
 });

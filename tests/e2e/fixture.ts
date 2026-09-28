@@ -46,6 +46,8 @@ function tail(file: string, lines = 40): string {
 }
 
 async function connect(port: number, stopped: () => string | null): Promise<{ browser: Browser; page: Page }> {
+  let lastError = '';
+  let pageless = 0;
   for (let i = 0; i < 120; i++) {
     const status = stopped();
     if (status) throw new Error(`the app stopped before exposing its WebView2 DevTools endpoint (${status})`);
@@ -53,13 +55,46 @@ async function connect(port: number, stopped: () => string | null): Promise<{ br
       const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
       const page = browser.contexts()[0]?.pages()[0];
       if (page) return { browser, page };
+      pageless++;
       await browser.close();
-    } catch {
-      // not listening yet
+    } catch (e) {
+      lastError = String((e as Error).message ?? e).split('\n')[0];
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error('the app did not expose its WebView2 DevTools endpoint');
+  const targets = await fetch(`http://127.0.0.1:${port}/json/list`)
+    .then((r) => r.text())
+    .catch((e) => `unreachable: ${e.message}`);
+  throw new Error(
+    `the app did not expose its WebView2 DevTools endpoint on port ${port} ` +
+      `(connected without a page ${pageless} times; last error: ${lastError || 'none'}; /json/list: ${targets.slice(0, 300)})`,
+  );
+}
+
+/** How the app's WebView2 was started, when its DevTools endpoint cannot be reached (CI diagnostics). */
+function webviewDiagnostics(root: string): string {
+  const webviewDir = path.join(root, 'webview');
+  const out = [`webview data folder: ${fs.existsSync(webviewDir) ? fs.readdirSync(webviewDir).join(', ') || '(empty)' : '(missing)'}`];
+  try {
+    const ours = execFileSync(
+      'powershell',
+      ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process -Filter "Name=\'msedgewebview2.exe\'" | ForEach-Object { $_.CommandLine }'],
+      { encoding: 'utf8', timeout: 20_000 },
+    )
+      .split('\n')
+      .filter((l) => l.includes(path.basename(root)));
+    const browser = ours.find((l) => !l.includes('--type='));
+    out.push(`WebView2 processes of this app: ${ours.length}`);
+    if (browser) {
+      out.push(`  remote debugging: ${browser.match(/--remote-debugging-port=\d+/)?.[0] ?? '(not passed)'}`);
+      out.push(`  browser flags: ${[...new Set(browser.match(/--[a-z][a-z0-9-]*/g) ?? [])].join(' ')}`);
+    }
+  } catch (e) {
+    out.push(`WebView2 processes: ${(e as Error).message.split('\n')[0]}`);
+  }
+  const vars = Object.entries(process.env).filter(([k]) => k.startsWith('WEBVIEW2'));
+  out.push(`WEBVIEW2_* in the test environment: ${vars.map(([k, v]) => `${k}=${v}`).join(' ') || '(none)'}`);
+  return out.join('\n');
 }
 
 export const test = base.extend<{ app: App }>({
@@ -99,7 +134,13 @@ export const test = base.extend<{ app: App }>({
       try {
         ({ browser, page } = await connect(port, () => stopped));
       } catch (e) {
-        throw new Error(`${(e as Error).message}\n--- app.log ---\n${tail(path.join(data, 'app.log'))}\n--- stderr ---\n${tail(stderr)}`);
+        const appLog = tail(path.join(data, 'app.log'));
+        const errLog = tail(stderr);
+        throw new Error(
+          `${(e as Error).message}\n--- app.log ---\n${appLog}\n` +
+            (errLog === appLog ? '' : `--- stderr ---\n${errLog}\n`) +
+            `--- WebView2 ---\n${webviewDiagnostics(root)}`,
+        );
       }
       await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
       const launches = () =>
