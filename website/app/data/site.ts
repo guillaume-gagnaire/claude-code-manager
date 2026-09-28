@@ -121,7 +121,7 @@ export const STEPS: Step[] = [
   {
     title: 'Installe Claude Code',
     text: 'CCM pilote le Claude Code installé sur ta machine : installe-le et connecte-toi une fois, avec ton abonnement Claude ou une clé API.',
-    link: { label: 'Documentation de Claude Code', href: 'https://docs.claude.com/claude-code' },
+    link: { label: 'Documentation de Claude Code', href: 'https://code.claude.com/docs/fr/overview' },
   },
   {
     title: 'Installe CCM',

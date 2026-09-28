@@ -23,7 +23,7 @@ Site : [guillaume-gagnaire.github.io/claude-code-manager](https://guillaume-gagn
 ## Prérequis
 
 - Windows 10 ou 11 (WebView2, présent par défaut sur Windows 11).
-- [Claude Code](https://docs.claude.com/claude-code) installé et connecté (`claude` dans le `PATH`, ou chemin indiqué dans les réglages).
+- [Claude Code](https://code.claude.com/docs/fr/overview) installé et connecté (`claude` dans le `PATH`, ou chemin indiqué dans les réglages).
 - Git for Windows.
 - Optionnel : PowerShell 7 (à défaut, les terminaux utilisent Windows PowerShell), WSL.
 

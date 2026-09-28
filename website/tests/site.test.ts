@@ -40,6 +40,10 @@ describe('generated site', () => {
     expect(html).toContain(`Version ${VERSION}`);
   });
 
+  it('sends the first install step to Claude Code’s own documentation', () => {
+    expect(html).toContain('href="https://code.claude.com/docs/fr/overview"');
+  });
+
   it('serves every local file under the GitHub Pages path', () => {
     const local = [...html.matchAll(/(?:src|href|poster)="(\/[^"]*)"/g)].map((m) => m[1]);
     expect(local.length).toBeGreaterThan(10);
