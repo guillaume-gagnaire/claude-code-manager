@@ -47,7 +47,7 @@ Les données affichées sont fictives (projets `demo-api`, `studio-web`, `mobile
 
 ## Technique
 
-Un dossier `video/` indépendant, avec son `package.json` (Remotion 4, React, TypeScript, Vitest). Il n'entre ni dans le build de l'app ni dans la CI ; il est exclu du Prettier de l'app, et il a son propre formatage.
+Un dossier `video/` indépendant, avec son `package.json` (Remotion 4, React, TypeScript, Vitest). Il n'entre ni dans le build de l'app ni dans la CI ; il suit le même Prettier que l'app.
 
 - `src/theme.ts` : couleurs et polices de l'app (Hanken Grotesk, JetBrains Mono via `@fontsource`).
 - `src/timeline.ts` : les plans en mesures, convertis en images ; pur et testé.
