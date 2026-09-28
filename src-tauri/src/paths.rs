@@ -11,20 +11,90 @@ const OLD_IDENTIFIER: &str = "dev.gagnaire.claude-code-manager";
 /// Prefix of the agents' worktree branches (agents made before 0.1.4 keep `ccm/`).
 pub const BRANCH_PREFIX: &str = "escouade/";
 
-/// Moves `old` to `new` when only `old` exists, and returns the folder to use: `new`, or `old`
-/// when it could not be moved (in use), in which case the next launch tries again.
+/// Written into a folder moved to its new name: the migration is done.
+const MIGRATED: &str = ".migrated-from-claude-code-manager";
+
+/// What the migrations did, logged once the logger is up (they run before it).
+static NOTES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn take_migration_notes() -> Vec<String> {
+    std::mem::take(&mut *NOTES.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Moves `old` to `new` and returns the folder to use:
+/// - nothing under `old`: `new`;
+/// - `new` already migrated (it holds the marker): `new`, and `old` is a leftover;
+/// - `new` there without the marker (made by a launch that could not move `old`, or by a
+///   development or test run): it is set aside next to it, never deleted, and `old` takes its place;
+/// - `old` cannot be moved (in use): `old`, and the next launch tries again.
 pub fn migrate_dir(
     old: &Path,
     new: &Path,
     rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    notes: &mut Vec<String>,
 ) -> PathBuf {
-    if new.exists() || !old.exists() {
+    if !old.exists() || new.join(MIGRATED).exists() {
         return new.to_path_buf();
     }
-    match rename(old, new) {
-        Ok(()) => new.to_path_buf(),
-        Err(_) => old.to_path_buf(),
+    if new.exists() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let name = new.file_name().unwrap_or_default().to_string_lossy();
+        let aside = new.with_file_name(format!("{name}.before-migration-{stamp}"));
+        if let Err(e) = rename(new, &aside) {
+            notes.push(format!(
+                "{} not moved: {} is in the way ({e})",
+                old.display(),
+                new.display()
+            ));
+            return new.to_path_buf();
+        }
+        notes.push(format!(
+            "{} set aside as {}",
+            new.display(),
+            aside.display()
+        ));
     }
+    match rename(old, new) {
+        Ok(()) => {
+            let _ = std::fs::write(new.join(MIGRATED), old.to_string_lossy().as_bytes());
+            notes.push(format!("{} moved to {}", old.display(), new.display()));
+            new.to_path_buf()
+        }
+        Err(e) => {
+            notes.push(format!("{} not moved yet: {e}", old.display()));
+            old.to_path_buf()
+        }
+    }
+}
+
+/// `rename`, tried `attempts` times `pause` apart: a closing WebView can still hold its files.
+fn retrying(
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    attempts: u32,
+    pause: std::time::Duration,
+) -> impl Fn(&Path, &Path) -> std::io::Result<()> {
+    move |a, b| {
+        let mut result = rename(a, b);
+        for _ in 1..attempts {
+            if result.is_ok() {
+                break;
+            }
+            std::thread::sleep(pause);
+            result = rename(a, b);
+        }
+        result
+    }
+}
+
+fn rename_patiently(a: &Path, b: &Path) -> std::io::Result<()> {
+    retrying(
+        |a, b| std::fs::rename(a, b),
+        10,
+        std::time::Duration::from_millis(300),
+    )(a, b)
 }
 
 /// A sandboxed data folder (end-to-end tests, demos): `$ESCOUADE_DATA_DIR`, or the former
@@ -40,25 +110,38 @@ fn sandbox_dir_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<
         .map(PathBuf::from)
 }
 
+/// The data folder in `home`. A development build never moves the user's data (the installed app
+/// may still be the old one): it uses the folder under the new name if there is one.
+fn data_dir_in(home: &Path, debug: bool, notes: &mut Vec<String>) -> PathBuf {
+    let (old, new) = (home.join(OLD_DATA_DIR_NAME), home.join(DATA_DIR_NAME));
+    if debug {
+        return if new.exists() || !old.exists() {
+            new
+        } else {
+            old
+        };
+    }
+    migrate_dir(&old, &new, rename_patiently, notes)
+}
+
 /// `~/.escouade` (moved from `~/.claude-code-manager`), or the sandboxed folder.
 pub fn default_data_dir() -> PathBuf {
     if let Some(dir) = sandbox_dir() {
         return dir;
     }
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    migrate_dir(
-        &home.join(OLD_DATA_DIR_NAME),
-        &home.join(DATA_DIR_NAME),
-        |a, b| std::fs::rename(a, b),
-    )
+    let mut notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
+    data_dir_in(&home, cfg!(debug_assertions), &mut notes)
 }
 
 /// Moves the WebView and window-state folders, named after the app identifier, to the new
-/// identifier. Runs before the window is created; sandboxed runs leave them alone.
+/// identifier. Runs before the window is created; sandboxed runs and development builds leave
+/// them alone.
 pub fn migrate_app_folders() {
-    if sandbox_dir().is_some() {
+    if sandbox_dir().is_some() || cfg!(debug_assertions) {
         return;
     }
+    let mut notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
     for base in [dirs::data_local_dir(), dirs::config_dir()]
         .into_iter()
         .flatten()
@@ -66,7 +149,8 @@ pub fn migrate_app_folders() {
         migrate_dir(
             &base.join(OLD_IDENTIFIER),
             &base.join(IDENTIFIER),
-            |a, b| std::fs::rename(a, b),
+            rename_patiently,
+            &mut notes,
         );
     }
 }
@@ -160,41 +244,66 @@ mod tests {
         std::fs::rename(a, b)
     }
 
+    fn read(p: &Path) -> String {
+        std::fs::read_to_string(p).unwrap()
+    }
+
     #[test]
-    fn a_folder_under_the_former_name_moves_to_the_new_one() {
+    fn a_folder_under_the_former_name_moves_to_the_new_one_and_is_marked() {
         let d = test_dir("migrate-move");
         let (old, new) = (d.join(".claude-code-manager"), d.join(".escouade"));
         std::fs::create_dir_all(old.join("conversations")).unwrap();
         std::fs::write(old.join("state.json"), "{}").unwrap();
-        assert_eq!(migrate_dir(&old, &new, rename), new);
+        let mut notes = vec![];
+        assert_eq!(migrate_dir(&old, &new, rename, &mut notes), new);
         assert!(!old.exists());
-        assert_eq!(
-            std::fs::read_to_string(new.join("state.json")).unwrap(),
-            "{}"
-        );
+        assert_eq!(read(&new.join("state.json")), "{}");
         assert!(new.join("conversations").is_dir());
+        assert!(new.join(MIGRATED).is_file());
+        assert_eq!(notes.len(), 1, "{notes:?}");
     }
 
     #[test]
-    fn a_folder_already_under_the_new_name_wins_and_the_former_one_stays() {
-        let d = test_dir("migrate-both");
+    fn a_migrated_folder_wins_over_a_leftover_under_the_former_name() {
+        let d = test_dir("migrate-done");
+        let (old, new) = (d.join("old"), d.join("new"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join(MIGRATED), "").unwrap();
+        std::fs::write(old.join("state.json"), "old").unwrap();
+        assert_eq!(migrate_dir(&old, &new, rename, &mut vec![]), new);
+        assert_eq!(read(&old.join("state.json")), "old");
+        assert!(!new.join("state.json").exists());
+    }
+
+    #[test]
+    fn a_new_folder_made_without_migrating_is_set_aside_for_the_former_one() {
+        // A launch that could not move the WebView folder, or a dev or test run, made `new`.
+        let d = test_dir("migrate-aside");
         let (old, new) = (d.join("old"), d.join("new"));
         std::fs::create_dir_all(&old).unwrap();
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(old.join("state.json"), "old").unwrap();
-        assert_eq!(migrate_dir(&old, &new, rename), new);
-        assert_eq!(
-            std::fs::read_to_string(old.join("state.json")).unwrap(),
-            "old"
-        );
-        assert!(!new.join("state.json").exists());
+        std::fs::write(new.join("state.json"), "fresh").unwrap();
+        let mut notes = vec![];
+        assert_eq!(migrate_dir(&old, &new, rename, &mut notes), new);
+        assert_eq!(read(&new.join("state.json")), "old");
+        assert!(!old.exists());
+        let aside: Vec<_> = std::fs::read_dir(&d)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p != &new)
+            .collect();
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        assert_eq!(read(&aside[0].join("state.json")), "fresh");
+        assert_eq!(notes.len(), 2, "{notes:?}");
     }
 
     #[test]
     fn nothing_to_move_on_a_first_run() {
         let d = test_dir("migrate-none");
         let (old, new) = (d.join("old"), d.join("new"));
-        assert_eq!(migrate_dir(&old, &new, rename), new);
+        assert_eq!(migrate_dir(&old, &new, rename, &mut vec![]), new);
         assert!(!old.exists() && !new.exists());
     }
 
@@ -204,8 +313,56 @@ mod tests {
         let (old, new) = (d.join("old"), d.join("new"));
         std::fs::create_dir_all(&old).unwrap();
         let locked = |_: &Path, _: &Path| Err(std::io::Error::other("in use"));
-        assert_eq!(migrate_dir(&old, &new, locked), old);
+        let mut notes = vec![];
+        assert_eq!(migrate_dir(&old, &new, locked, &mut notes), old);
         assert!(old.is_dir() && !new.exists());
+        assert!(notes[0].contains("in use"), "{notes:?}");
+    }
+
+    #[test]
+    fn a_move_is_tried_again_while_the_folder_is_busy() {
+        let tries = std::cell::Cell::new(0);
+        let busy_twice = |_: &Path, _: &Path| {
+            tries.set(tries.get() + 1);
+            if tries.get() < 3 {
+                Err(std::io::Error::other("in use"))
+            } else {
+                Ok(())
+            }
+        };
+        let rename = retrying(busy_twice, 5, std::time::Duration::ZERO);
+        assert!(rename(Path::new("a"), Path::new("b")).is_ok());
+        assert_eq!(tries.get(), 3);
+        let never = retrying(
+            |_: &Path, _: &Path| Err(std::io::Error::other("in use")),
+            4,
+            std::time::Duration::ZERO,
+        );
+        assert!(never(Path::new("a"), Path::new("b")).is_err());
+    }
+
+    #[test]
+    fn a_development_build_never_moves_the_users_data() {
+        let d = test_dir("migrate-debug");
+        let (old, new) = (d.join(".claude-code-manager"), d.join(".escouade"));
+        std::fs::create_dir_all(&old).unwrap();
+        assert_eq!(data_dir_in(&d, true, &mut vec![]), old);
+        assert!(old.is_dir() && !new.exists());
+        std::fs::create_dir_all(&new).unwrap();
+        assert_eq!(data_dir_in(&d, true, &mut vec![]), new);
+        assert!(old.is_dir());
+    }
+
+    #[test]
+    fn a_release_build_moves_the_users_data_once() {
+        let d = test_dir("migrate-release");
+        let old = d.join(".claude-code-manager");
+        std::fs::create_dir_all(&old).unwrap();
+        let new = data_dir_in(&d, false, &mut vec![]);
+        assert_eq!(new, d.join(".escouade"));
+        assert!(!old.exists());
+        // The app asks twice at start-up (log, then data): the second time is a no-op.
+        assert_eq!(data_dir_in(&d, false, &mut vec![]), new);
     }
 
     #[test]

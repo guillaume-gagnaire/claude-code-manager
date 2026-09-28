@@ -131,6 +131,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             init_logging();
+            for note in paths::take_migration_notes() {
+                log::info!("migration: {note}");
+            }
             log::info!("Escouade {} starting", app.package_info().version);
             let (core, git_rx) = Core::load(
                 app.handle().clone(),
