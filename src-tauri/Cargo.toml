@@ -3,6 +3,7 @@ name = "claude-code-manager"
 version = "0.1.2"
 description = "Pilote plusieurs instances de Claude Code en local"
 authors = ["Guillaume Gagnaire"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.82"
 

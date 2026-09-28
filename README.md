@@ -123,3 +123,7 @@ npm run render   # musique + out/presentation.mp4
 - `src/` : interface Svelte 5.
 - `design/` : maquette de référence.
 - `docs/SPEC.md` : spécification.
+
+## Licence
+
+MIT, voir [LICENSE](LICENSE).
