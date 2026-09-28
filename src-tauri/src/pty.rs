@@ -39,62 +39,108 @@ pub struct PtyManager {
     terms: Arc<Mutex<HashMap<String, Term>>>,
 }
 
-fn find_on_path(exe: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|d| d.join(exe))
-        .find(|p| p.is_file())
+/// Where shells are looked for; from the environment in the app, fake folders in tests.
+pub struct ShellRoots {
+    pub path: Vec<PathBuf>,
+    pub program_files: Option<PathBuf>,
+    pub local_app_data: Option<PathBuf>,
+    pub system_root: Option<PathBuf>,
 }
 
-fn first_existing(candidates: &[PathBuf]) -> Option<PathBuf> {
-    candidates.iter().find(|p| p.is_file()).cloned()
+impl ShellRoots {
+    fn from_env() -> Self {
+        let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
+        ShellRoots {
+            path: std::env::var_os("PATH")
+                .map(|p| std::env::split_paths(&p).collect())
+                .unwrap_or_default(),
+            program_files: var("ProgramFiles").or_else(|| Some(PathBuf::from(r"C:\Program Files"))),
+            local_app_data: var("LOCALAPPDATA"),
+            system_root: var("SystemRoot").or_else(|| Some(PathBuf::from(r"C:\Windows"))),
+        }
+    }
+
+    fn on_path(&self, exe: &str) -> Option<PathBuf> {
+        self.path.iter().map(|d| d.join(exe)).find(|p| installed(p))
+    }
+}
+
+/// Also true for the 0-byte "app execution alias" reparse points of Microsoft Store apps.
+fn installed(p: &Path) -> bool {
+    p.is_file()
+}
+
+fn first_installed(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|p| installed(p))
 }
 
 pub fn detect_shells(s: &Settings) -> Vec<ShellInfo> {
+    detect_shells_in(&ShellRoots::from_env(), s)
+}
+
+pub fn detect_shells_in(r: &ShellRoots, s: &Settings) -> Vec<ShellInfo> {
     let mut out = Vec::new();
-    let pwsh = if !s.pwsh_path.is_empty() {
-        Some(PathBuf::from(&s.pwsh_path))
-    } else {
-        find_on_path("pwsh.exe")
-            .or_else(|| first_existing(&[PathBuf::from(r"C:\Program Files\PowerShell\7\pwsh.exe")]))
+    let shell = |id: &str, label: &str, p: PathBuf| ShellInfo {
+        id: id.into(),
+        label: label.into(),
+        path: p.to_string_lossy().into(),
     };
-    if let Some(p) = pwsh.filter(|p| p.is_file()) {
-        out.push(ShellInfo {
-            id: "pwsh".into(),
-            label: "PowerShell".into(),
-            path: p.to_string_lossy().into(),
-        });
+    // PowerShell 7: PATH, Program Files (also when not on the PATH), then the Store's alias.
+    let pwsh = if !s.pwsh_path.is_empty() {
+        Some(PathBuf::from(&s.pwsh_path)).filter(|p| installed(p))
+    } else {
+        r.on_path("pwsh.exe").or_else(|| {
+            let pf = r.program_files.iter().flat_map(|pf| {
+                ["7", "7-preview"].map(|v| pf.join("PowerShell").join(v).join("pwsh.exe"))
+            });
+            let store = r
+                .local_app_data
+                .iter()
+                .map(|d| d.join(r"Microsoft\WindowsApps\pwsh.exe"));
+            first_installed(pf.chain(store))
+        })
+    };
+    match pwsh {
+        Some(p) => out.push(shell("pwsh", "PowerShell", p)),
+        // Windows PowerShell 5.1 ships with every Windows: the fallback when 7 is missing.
+        None => {
+            let builtin = r
+                .system_root
+                .iter()
+                .map(|w| w.join(r"System32\WindowsPowerShell\v1.0\powershell.exe"));
+            if let Some(p) = first_installed(builtin) {
+                out.push(shell("powershell", "Windows PowerShell", p));
+            }
+        }
     }
     let bash = if !s.bash_path.is_empty() {
-        Some(PathBuf::from(&s.bash_path))
+        Some(PathBuf::from(&s.bash_path)).filter(|p| installed(p))
     } else {
-        let from_git = find_on_path("git.exe").and_then(|g| {
+        let from_git = r.on_path("git.exe").and_then(|g| {
             let root = g.parent()?.parent()?.to_path_buf();
-            first_existing(&[
+            first_installed([
                 root.join("bin").join("bash.exe"),
                 root.join("usr").join("bin").join("bash.exe"),
             ])
         });
-        from_git.or_else(|| first_existing(&[PathBuf::from(r"C:\Program Files\Git\bin\bash.exe")]))
+        from_git.or_else(|| {
+            first_installed(
+                r.program_files
+                    .iter()
+                    .map(|pf| pf.join(r"Git\bin\bash.exe")),
+            )
+        })
     };
-    if let Some(p) = bash.filter(|p| p.is_file()) {
-        out.push(ShellInfo {
-            id: "bash".into(),
-            label: "Git Bash".into(),
-            path: p.to_string_lossy().into(),
-        });
+    if let Some(p) = bash {
+        out.push(shell("bash", "Git Bash", p));
     }
-    let wsl = PathBuf::from(r"C:\Windows\System32\wsl.exe");
-    if wsl.is_file() {
+    if let Some(wsl) = first_installed(r.system_root.iter().map(|w| w.join(r"System32\wsl.exe"))) {
         let label = if s.wsl_distro.is_empty() {
             "WSL".to_string()
         } else {
             format!("WSL ({})", s.wsl_distro)
         };
-        out.push(ShellInfo {
-            id: "wsl".into(),
-            label,
-            path: wsl.to_string_lossy().into(),
-        });
+        out.push(shell("wsl", &label, wsl));
     }
     out
 }
@@ -124,7 +170,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell.path);
         match shell.id.as_str() {
-            "pwsh" => cmd.arg("-NoLogo"),
+            "pwsh" | "powershell" => cmd.arg("-NoLogo"),
             "bash" => {
                 cmd.args(["--login", "-i"]);
                 cmd.env("CHERE_INVOKING", "1");
@@ -241,7 +287,82 @@ impl PtyManager {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::time::{Duration, Instant};
+
+    /// Fake system folders under `dir` (PATH entry, Program Files, LocalAppData, Windows).
+    fn roots(dir: &Path) -> ShellRoots {
+        ShellRoots {
+            path: vec![dir.join("bin")],
+            program_files: Some(dir.join("pf")),
+            local_app_data: Some(dir.join("lad")),
+            system_root: Some(dir.join("win")),
+        }
+    }
+
+    fn touch(p: PathBuf) -> PathBuf {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "").unwrap();
+        p
+    }
+
+    fn windows_powershell(dir: &Path) -> PathBuf {
+        touch(dir.join(r"win\System32\WindowsPowerShell\v1.0\powershell.exe"))
+    }
+
+    fn ids(shells: &[ShellInfo]) -> Vec<&str> {
+        shells.iter().map(|s| s.id.as_str()).collect()
+    }
+
+    #[test]
+    fn windows_powershell_is_offered_when_powershell_7_is_not_installed() {
+        let d = crate::paths::test_dir("shells-winps");
+        let exe = windows_powershell(&d);
+        let shells = detect_shells_in(&roots(&d), &Settings::default());
+        assert_eq!(ids(&shells), ["powershell"]);
+        assert_eq!(shells[0].label, "Windows PowerShell");
+        assert_eq!(shells[0].path, exe.to_string_lossy());
+    }
+
+    #[test]
+    fn powershell_7_is_found_off_the_path_and_preferred() {
+        let d = crate::paths::test_dir("shells-pwsh-pf");
+        windows_powershell(&d);
+        let exe = touch(d.join(r"pf\PowerShell\7\pwsh.exe"));
+        let shells = detect_shells_in(&roots(&d), &Settings::default());
+        assert_eq!(ids(&shells), ["pwsh"]);
+        assert_eq!(shells[0].path, exe.to_string_lossy());
+    }
+
+    #[test]
+    fn powershell_7_from_the_microsoft_store_is_found() {
+        let d = crate::paths::test_dir("shells-pwsh-store");
+        windows_powershell(&d);
+        let exe = touch(d.join(r"lad\Microsoft\WindowsApps\pwsh.exe"));
+        let shells = detect_shells_in(&roots(&d), &Settings::default());
+        assert_eq!(ids(&shells), ["pwsh"]);
+        assert_eq!(shells[0].path, exe.to_string_lossy());
+    }
+
+    #[test]
+    fn microsoft_store_app_aliases_count_as_installed() {
+        // Store aliases are 0-byte reparse points: they must still count as installed programs.
+        let Some(apps) = std::env::var_os("LOCALAPPDATA")
+            .map(|d| PathBuf::from(d).join(r"Microsoft\WindowsApps"))
+        else {
+            return;
+        };
+        let Some(alias) = std::fs::read_dir(&apps).ok().and_then(|mut it| {
+            it.find_map(|e| {
+                let e = e.ok()?;
+                (e.path().extension()? == "exe").then(|| e.path())
+            })
+        }) else {
+            eprintln!("no Store alias on this machine: skipped");
+            return;
+        };
+        assert!(installed(&alias), "{}", alias.display());
+    }
 
     /// PIDs of running ping.exe processes.
     fn pings() -> Vec<u32> {
@@ -326,5 +447,72 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(100));
         }
+    }
+}
+
+#[cfg(test)]
+mod windows_powershell_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_windows_powershell_terminal_runs_commands() {
+        let root = std::env::var_os("SystemRoot").map(PathBuf::from);
+        let roots = ShellRoots {
+            path: vec![],
+            program_files: None,
+            local_app_data: None,
+            system_root: root,
+        };
+        let Some(shell) = detect_shells_in(&roots, &Settings::default())
+            .into_iter()
+            .find(|s| s.id == "powershell")
+        else {
+            eprintln!("Windows PowerShell not found: skipped");
+            return;
+        };
+        let pty = PtyManager::default();
+        let out = Arc::new(Mutex::new(String::new()));
+        let (sink, answer) = (out.clone(), pty.clone());
+        let info = TermInfo {
+            id: "wps".into(),
+            project_id: "p".into(),
+            name: "powershell-1".into(),
+            shell: shell.id.clone(),
+        };
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        pty.spawn(
+            info,
+            &shell,
+            "",
+            &cwd,
+            (120, 30),
+            vec![],
+            move |b| {
+                let chunk = String::from_utf8_lossy(&b).to_string();
+                if chunk.contains("\x1b[6n") {
+                    let _ = answer.write("wps", b"\x1b[1;1R");
+                }
+                sink.lock().push_str(&chunk);
+            },
+            |_| {},
+        )
+        .unwrap();
+        let start = Instant::now();
+        let mut sent = false;
+        while !out.lock().contains("ccm-ok-42") {
+            if !sent && out.lock().contains("PS ") {
+                pty.write("wps", b"Write-Output ('ccm-ok-' + 42)\r")
+                    .unwrap();
+                sent = true;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "no output: {}",
+                out.lock()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        pty.kill("wps");
     }
 }

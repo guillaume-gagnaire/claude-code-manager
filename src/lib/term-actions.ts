@@ -3,6 +3,7 @@ import { disposeTerminal, openTerminal } from './terminals';
 
 export const SHELL_GLYPH: Record<string, { glyph: string; c: string }> = {
   pwsh: { glyph: 'PS', c: 'var(--info)' },
+  powershell: { glyph: 'PS', c: 'var(--info)' },
   bash: { glyph: '$_', c: 'var(--ok)' },
   wsl: { glyph: 'λ', c: 'oklch(0.78 0.13 60)' },
 };

@@ -22,7 +22,7 @@ Application Windows pour piloter plusieurs instances de [Claude Code](https://cl
 - Windows 10 ou 11 (WebView2, présent par défaut sur Windows 11).
 - [Claude Code](https://docs.claude.com/claude-code) installé et connecté (`claude` dans le `PATH`, ou chemin indiqué dans les réglages).
 - Git for Windows.
-- Optionnel : PowerShell 7, WSL.
+- Optionnel : PowerShell 7 (à défaut, les terminaux utilisent Windows PowerShell), WSL.
 
 ## Installation
 
