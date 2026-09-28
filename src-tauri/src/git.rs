@@ -585,7 +585,7 @@ pub fn fuzzy_files(files: &[String], query: &str, limit: usize) -> Vec<String> {
             Some((score, f))
         })
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|s| std::cmp::Reverse(s.0));
     scored
         .into_iter()
         .take(limit)

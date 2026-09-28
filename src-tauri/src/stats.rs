@@ -203,7 +203,7 @@ impl Stats {
         view.first_ts = first_ts;
         let sort = |m: HashMap<String, Share>| {
             let mut v: Vec<Share> = m.into_values().collect();
-            v.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+            v.sort_by_key(|s| std::cmp::Reverse(s.tokens));
             v
         };
         view.by_project = sort(by_project);

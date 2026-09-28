@@ -57,7 +57,7 @@ La variable d'environnement `CCM_DATA_DIR` permet d'utiliser un autre dossier (d
 
 ## Développement
 
-Prérequis : Node.js 20.18+ et Rust stable (MSVC).
+Prérequis : Node.js 20.18+ et rustup (MSVC). La version de Rust est épinglée dans `src-tauri/rust-toolchain.toml` (la même qu'en CI) et rustup l'installe automatiquement.
 
 ```powershell
 npm ci
