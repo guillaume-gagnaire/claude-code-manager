@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { addProject, expect, send, test } from './fixture';
@@ -78,6 +79,21 @@ test('the split layout shows the files the agent edits, with their diff, next to
   expect(Math.abs(conv.width - side.width)).toBeLessThan(2);
   await page.keyboard.press('Control+Shift+L');
   await expect(pane).toBeHidden();
+});
+
+test('the history shows the repository’s commits and opens a commit’s diff', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await page.getByRole('button', { name: 'Conversation et fichiers côte à côte' }).click();
+  await page.getByRole('tab', { name: 'Historique' }).click();
+  const pane = page.locator('.panel.docked');
+  await expect(pane).toContainText('init');
+  fs.writeFileSync(path.join(app.repo, 'src', 'app.ts'), 'const a = 2;\n');
+  execFileSync('git', ['-c', 'user.email=e2e@test', '-c', 'user.name=e2e', 'commit', '-qam', 'passe a à 2'], { cwd: app.repo });
+  await expect(pane).toContainText('passe a à 2');
+  await pane.getByText('passe a à 2').click();
+  const diff = page.getByRole('dialog', { name: /passe a à 2/ });
+  await expect(diff).toContainText('const a = 2;');
 });
 
 test('a terminal runs commands in the project folder', async ({ app }) => {

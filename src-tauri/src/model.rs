@@ -192,6 +192,28 @@ pub struct FileChange {
     pub agent_id: Option<String>,
 }
 
+/// One commit of the repository graph.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    /// Author date, Unix seconds.
+    pub time: i64,
+    /// Branches and tags pointing at it ("HEAD", "main", "origin/main", "tag: v1.0").
+    pub refs: Vec<String>,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLog {
+    pub commits: Vec<Commit>,
+    /// The branch the agent works on (its worktree's, else the project's current branch).
+    pub head: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RateWindow {

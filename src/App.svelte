@@ -8,7 +8,7 @@
   import ContextMenu from './components/ContextMenu.svelte';
   import Conversation from './components/Conversation.svelte';
   import DiffModal from './components/DiffModal.svelte';
-  import FilesPanel from './components/FilesPanel.svelte';
+  import SidePanel from './components/SidePanel.svelte';
   import ConfirmModal from './components/modals/ConfirmModal.svelte';
   import NewProjectModal from './components/modals/NewProjectModal.svelte';
   import RenameModal from './components/modals/RenameModal.svelte';
@@ -63,9 +63,9 @@
           <Conversation agent={app.agent} {project} />
         {/key}
         {#if app.split}
-          <FilesPanel {project} agent={app.agent} docked />
+          <SidePanel {project} agent={app.agent} docked />
         {:else if app.filesOpen}
-          <FilesPanel {project} agent={app.agent} />
+          <SidePanel {project} agent={app.agent} />
         {/if}
       {:else}
         <div class="noagent">
@@ -85,7 +85,13 @@
 {:else if app.modal?.kind === 'settings'}
   <SettingsModal />
 {:else if app.modal?.kind === 'diff'}
-  <DiffModal projectId={app.modal.projectId} agentId={app.modal.agentId} paths={app.modal.paths} title={app.modal.title} />
+  <DiffModal
+    projectId={app.modal.projectId}
+    agentId={app.modal.agentId}
+    paths={app.modal.paths}
+    title={app.modal.title}
+    commit={app.modal.commit}
+  />
 {:else if app.modal?.kind === 'confirm'}
   <ConfirmModal {...app.modal} />
 {:else if app.modal?.kind === 'rename'}

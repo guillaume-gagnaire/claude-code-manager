@@ -5,7 +5,14 @@
   import { app } from '../lib/state.svelte';
   import DiffView from './DiffView.svelte';
 
-  let { projectId, agentId, paths, title }: { projectId: string; agentId: string | null; paths: string[]; title: string } = $props();
+  // Uncommitted changes (`paths` of the agent's checkout), or what `commit` changed.
+  let {
+    projectId,
+    agentId,
+    paths,
+    title,
+    commit = null,
+  }: { projectId: string; agentId: string | null; paths: string[]; title: string; commit?: string | null } = $props();
 
   let files = $state<DiffFile[]>([]);
   let current = $state(0);
@@ -13,8 +20,7 @@
   let error = $state<string | null>(null);
 
   $effect(() => {
-    api
-      .gitDiff(projectId, agentId, paths)
+    (commit ? api.gitShow(projectId, commit) : api.gitDiff(projectId, agentId, paths))
       .then((d) => {
         files = parseUnifiedDiff(d);
         loading = false;

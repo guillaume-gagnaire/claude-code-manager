@@ -58,3 +58,15 @@ describe('DiffModal', () => {
     expect(app.modal).toBeNull();
   });
 });
+
+describe('DiffModal for a commit', () => {
+  beforeEach(() => resetApp({ projects: [project()] }));
+
+  it('shows what the commit changed', async () => {
+    const backend = fakeBackend({ git_show: () => DIFF });
+    render(DiffModal, { projectId: 'p1', agentId: null, paths: [], title: 'a1b2c3d ajoute les tests', commit: 'a1b2c3d4' });
+    expect(await screen.findByText('const b = 3;')).toBeInTheDocument();
+    expect(backend.called('git_show')[0].args).toEqual({ projectId: 'p1', hash: 'a1b2c3d4' });
+    expect(backend.called('git_diff')).toHaveLength(0);
+  });
+});

@@ -1,6 +1,6 @@
 //! Git integration through the `git` CLI (always present with Git for Windows).
 
-use crate::model::FileChange;
+use crate::model::{Commit, FileChange};
 use anyhow::{bail, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
@@ -269,6 +269,79 @@ pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
 }
 
 /// Tracked + untracked (non-ignored) files, for @-mention completion.
+const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e";
+
+/// Parses `git log` output in the `LOG_FORMAT` layout.
+pub fn parse_log(out: &[u8]) -> Vec<Commit> {
+    String::from_utf8_lossy(out)
+        .split('\x1e')
+        .filter_map(|rec| {
+            let f: Vec<&str> = rec.trim_start_matches(['\n', '\r']).split('\x1f').collect();
+            let [hash, parents, author, time, refs, subject] = f[..] else {
+                return None;
+            };
+            let refs = refs
+                .split(", ")
+                .filter(|r| !r.is_empty())
+                .flat_map(|r| match r.strip_prefix("HEAD -> ") {
+                    Some(branch) => vec!["HEAD".to_string(), branch.to_string()],
+                    None => vec![r.to_string()],
+                })
+                .collect();
+            Some(Commit {
+                hash: hash.to_string(),
+                parents: parents.split_whitespace().map(str::to_string).collect(),
+                author: author.to_string(),
+                time: time.parse().unwrap_or(0),
+                refs,
+                subject: subject.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// The latest `limit` commits of every branch, remote branch and tag (children before parents).
+pub async fn log(repo: &str, limit: usize) -> Result<Vec<Commit>> {
+    let n = format!("-n{limit}");
+    let out = run(
+        repo,
+        &[
+            "log",
+            "--date-order",
+            "--decorate=short",
+            LOG_FORMAT,
+            &n,
+            "--branches",
+            "--remotes",
+            "--tags",
+            "HEAD",
+        ],
+    )
+    .await?;
+    Ok(parse_log(&out))
+}
+
+/// The patch of one commit (against its first parent for a merge).
+pub async fn show(repo: &str, hash: &str) -> Result<String> {
+    if hash.len() < 4 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("commit invalide : {hash}");
+    }
+    let out = run(
+        repo,
+        &[
+            "show",
+            "--format=",
+            "--patch",
+            "-M",
+            "-m",
+            "--first-parent",
+            hash,
+        ],
+    )
+    .await?;
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
 pub async fn list_files(cwd: &str) -> Result<Vec<String>> {
     let out = run(
         cwd,
@@ -620,6 +693,34 @@ mod tests {
     }
 
     #[test]
+    fn parses_log_records_with_parents_and_refs() {
+        let raw = "a1\x1fb2 c3\x1fAda\x1f1790000000\x1fHEAD -> main, origin/main, tag: v0.1.0\x1fMerge branch 'ccm/x'\x1e\n\
+                   b2\x1fd4\x1fBob\x1f1789990000\x1fccm/x\x1ffix: a | b, c\x1e\n\
+                   d4\x1f\x1fAda\x1f1789980000\x1f\x1finit\x1e\n";
+        let log = parse_log(raw.as_bytes());
+        assert_eq!(
+            log[0],
+            Commit {
+                hash: "a1".into(),
+                parents: vec!["b2".into(), "c3".into()],
+                author: "Ada".into(),
+                time: 1790000000,
+                refs: vec![
+                    "HEAD".into(),
+                    "main".into(),
+                    "origin/main".into(),
+                    "tag: v0.1.0".into()
+                ],
+                subject: "Merge branch 'ccm/x'".into(),
+            }
+        );
+        assert_eq!(log[1].refs, vec!["ccm/x".to_string()]);
+        assert_eq!(log[1].subject, "fix: a | b, c");
+        assert!(log[2].parents.is_empty() && log[2].refs.is_empty());
+        assert_eq!(log.len(), 3);
+    }
+
+    #[test]
     fn parses_numstat_with_renames() {
         let raw = b"3\t1\tsrc/a.ts\0-\t-\timg.png\x005\t0\t\0old.ts\0new.ts\0";
         let m = parse_numstat(raw);
@@ -683,5 +784,49 @@ mod repo_tests {
         assert_eq!((changes[0].add, changes[0].del), (1, 1));
         let d = diff(&r, &[]).await.unwrap();
         assert!(d.contains("+++ b/résumé.md"), "{d}");
+    }
+
+    #[tokio::test]
+    async fn logs_every_branch_and_shows_a_commit_diff() {
+        let r = repo("git-log-branches");
+        let g = |args: &[&str]| {
+            assert!(Command::new("git")
+                .arg("-C")
+                .arg(&r)
+                .args(args)
+                .status()
+                .unwrap()
+                .success())
+        };
+        g(&["checkout", "-qb", "ccm/agent"]);
+        std::fs::write(Path::new(&r).join("a.txt"), "agent\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "agent work"]);
+        g(&["checkout", "-q", "main"]);
+        std::fs::write(Path::new(&r).join("b.txt"), "main\n").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "-qm", "main work"]);
+        g(&["merge", "-q", "--no-ff", "-m", "merge agent", "ccm/agent"]);
+        g(&["stash", "list"]);
+
+        let log = log(&r, 50).await.unwrap();
+        let subjects: Vec<&str> = log.iter().map(|c| c.subject.as_str()).collect();
+        assert_eq!(subjects[0], "merge agent");
+        assert_eq!(log[0].parents.len(), 2);
+        assert!(log[0].refs.contains(&"main".to_string()));
+        assert!(subjects.contains(&"agent work") && subjects.contains(&"main work"));
+        assert_eq!(*subjects.last().unwrap(), "init");
+        let agent = log.iter().find(|c| c.subject == "agent work").unwrap();
+        assert!(agent.refs.contains(&"ccm/agent".to_string()));
+
+        let shown = show(&r, &agent.hash).await.unwrap();
+        assert!(
+            shown.contains("+++ b/a.txt") && shown.contains("+agent"),
+            "{shown}"
+        );
+        // A merge shows what it brought to its first parent.
+        let merged = show(&r, &log[0].hash).await.unwrap();
+        assert!(merged.contains("+++ b/a.txt"), "{merged}");
+        assert!(show(&r, "--output=x").await.is_err());
     }
 }

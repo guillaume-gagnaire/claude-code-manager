@@ -270,6 +270,20 @@ pub async fn git_diff(
         .map_err(err)
 }
 
+#[tauri::command]
+pub async fn git_log(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+) -> Res<GitLog> {
+    core.git_log(&project_id, agent_id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn git_show(core: CoreState<'_>, project_id: String, hash: String) -> Res<String> {
+    core.git_show(&project_id, &hash).await.map_err(err)
+}
+
 #[tauri::command(async)]
 pub fn stats(core: CoreState, range: String) -> StatsView {
     core.stats.query(&range)

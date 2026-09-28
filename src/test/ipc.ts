@@ -101,6 +101,7 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.selectedTerm = {};
   app.filesOpen = false;
   app.filesScope = 'agent';
+  app.panelTab = 'files';
   app.diffSplit = false;
   app.modal = null;
   app.toasts = [];

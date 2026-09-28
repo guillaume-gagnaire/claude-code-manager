@@ -1517,6 +1517,41 @@ impl<R: Runtime> Core<R> {
         git::diff(&root, &paths).await
     }
 
+    /// The repository graph (every branch, agents' worktree branches included) and the branch
+    /// the agent works on.
+    pub async fn git_log(
+        self: &Arc<Self>,
+        project_id: &str,
+        agent_id: Option<String>,
+    ) -> Result<GitLog> {
+        let project = self.project(project_id)?;
+        let root = self
+            .toplevel(&project.path)
+            .await
+            .ok_or_else(|| anyhow!("pas un dépôt git"))?;
+        let worktree = match &agent_id {
+            Some(a) => self.agent(a)?.lock().meta.worktree.clone(),
+            None => None,
+        };
+        let head = match worktree {
+            Some(wt) => Some(wt.branch),
+            None => Some(git::current_branch(&root).await).filter(|b| !b.is_empty() && b != "HEAD"),
+        };
+        Ok(GitLog {
+            commits: git::log(&root, 300).await?,
+            head,
+        })
+    }
+
+    pub async fn git_show(self: &Arc<Self>, project_id: &str, hash: &str) -> Result<String> {
+        let project = self.project(project_id)?;
+        let root = self
+            .toplevel(&project.path)
+            .await
+            .ok_or_else(|| anyhow!("pas un dépôt git"))?;
+        git::show(&root, hash).await
+    }
+
     pub async fn file_suggestions(
         self: &Arc<Self>,
         agent_id: &str,

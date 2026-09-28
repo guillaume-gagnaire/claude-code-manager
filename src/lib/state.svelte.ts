@@ -8,7 +8,7 @@ import type { Agent, GitInfo, Project, Settings, ShellInfo, TermInfo, UiEvent, U
 export type Modal =
   | { kind: 'newProject' }
   | { kind: 'settings' }
-  | { kind: 'diff'; projectId: string; agentId: string | null; paths: string[]; title: string }
+  | { kind: 'diff'; projectId: string; agentId: string | null; paths: string[]; title: string; commit?: string }
   | {
       kind: 'confirm';
       title: string;
@@ -48,6 +48,8 @@ class AppState {
   version = $state('');
   filesOpen = $state(false);
   filesScope = $state<'agent' | 'project'>('agent');
+  /** Tab of the side panel: uncommitted files or the repository history. */
+  panelTab = $state<'files' | 'history'>('files');
   /** Side-by-side diffs (else unified), shared by the diff dialog and the split layout. */
   diffSplit = $state(readPref('ccm.diffSplit') === '1');
   showArchived = $state(false);

@@ -61,6 +61,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 ## Git & fichiers
 
 - Panneau « Non commités » : portée « Cet agent » / « Tout le projet », attribution par worktree (ou par outils Edit/Write de l'agent hors mode worktree).
+- Onglet « Historique » du même panneau : git graph des 300 derniers commits de tout le dépôt (branches locales et distantes, tags, branches `ccm/…` des agents étiquetées de leur nom). La branche de l'agent (son worktree, sinon la branche courante) est mise en avant, le reste atténué. Clic sur un commit → son diff (contre le premier parent pour un merge) dans la vue diff. Rafraîchi à chaque commit, merge ou branche.
 - « Voir le diff » : vue diff plein écran (unifiée / côte à côte ; choix partagé avec le volet de la disposition moitié / moitié et les diffs de la conversation, et mémorisé).
 - « Commit… » : envoie à l'agent une demande de commit de ses changements (il rédige le message).
 - Mode worktree : `<projet>/.claude/worktrees/<agent>`, branche dédiée. Bouton « Merger dans <branche> » (merge ou squash) ; suppression de l'agent → nettoyage worktree + branche.

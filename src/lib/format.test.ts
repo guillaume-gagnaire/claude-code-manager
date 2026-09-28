@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fCountdown, fDur, fTok, fUsd, plural, relPath, tildify } from './format';
+import { basename, dirname, fAgo, fCountdown, fDur, fTok, fUsd, plural, relPath, tildify } from './format';
 
 describe('fTok', () => {
   it.each([
@@ -62,5 +62,22 @@ describe('plural', () => {
   it('agrees with the count', () => {
     expect(plural(1, 'fichier', 'fichiers')).toBe('1 fichier');
     expect(plural(3, 'fichier', 'fichiers')).toBe('3 fichiers');
+  });
+});
+
+describe('fAgo', () => {
+  const now = Date.UTC(2026, 8, 28, 12, 0, 0);
+  const ago = (s: number) => fAgo(now / 1000 - s, now);
+
+  it('says how long ago a commit was made', () => {
+    expect(ago(20)).toBe('à l’instant');
+    expect(ago(5 * 60)).toBe('il y a 5 min');
+    expect(ago(3 * 3600)).toBe('il y a 3 h');
+    expect(ago(30 * 3600)).toBe('hier');
+    expect(ago(4 * 86400)).toBe('il y a 4 j');
+  });
+
+  it('gives the date beyond a month', () => {
+    expect(ago(40 * 86400)).toBe(new Date(now - 40 * 86400e3).toLocaleDateString('fr-FR'));
   });
 });

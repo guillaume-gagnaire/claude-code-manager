@@ -466,6 +466,35 @@ async fn a_clean_squash_merge_lands_one_commit() {
 }
 
 #[tokio::test]
+async fn the_git_log_shows_every_agent_branch_and_which_one_is_the_agents() {
+    let h = harness("git-log");
+    let (p, _r) = h.project(true).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let wt = a.meta.worktree.clone().unwrap();
+    commit_change(Path::new(&wt.path), "const a = 2;\n", "agent change");
+
+    let log = h
+        .core
+        .git_log(&p.id, Some(a.meta.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(log.head.as_deref(), Some(wt.branch.as_str()));
+    let c = log
+        .commits
+        .iter()
+        .find(|c| c.subject == "agent change")
+        .expect("agent commit listed");
+    assert!(c.refs.contains(&wt.branch), "{:?}", c.refs);
+    assert_eq!(
+        h.core.git_log(&p.id, None).await.unwrap().head.as_deref(),
+        Some("main")
+    );
+
+    let patch = h.core.git_show(&p.id, &c.hash).await.unwrap();
+    assert!(patch.contains("+const a = 2;"), "{patch}");
+}
+
+#[tokio::test]
 async fn git_counts_attribute_files_to_the_agent_that_edited_them() {
     let h = harness("git-counts");
     let (p, r) = h.project(false).await;

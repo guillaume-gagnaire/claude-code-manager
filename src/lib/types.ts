@@ -82,6 +82,23 @@ export interface GitInfo {
   agents: Record<string, number>;
 }
 
+export interface Commit {
+  hash: string;
+  parents: string[];
+  author: string;
+  /** Author date, Unix seconds. */
+  time: number;
+  /** Branches and tags pointing at it ("HEAD", "main", "origin/main", "tag: v1.0"). */
+  refs: string[];
+  subject: string;
+}
+
+export interface GitLog {
+  commits: Commit[];
+  /** The branch the agent works on. */
+  head: string | null;
+}
+
 export interface FileChange {
   path: string;
   status: 'M' | 'A' | 'D';

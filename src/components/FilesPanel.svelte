@@ -6,10 +6,19 @@
   import type { Agent, FileChange, Project } from '../lib/types';
   import FileDiff from './FileDiff.svelte';
 
-  // `docked`: right half of the split layout, showing the picked file's diff under the list.
-  let { project, agent, docked = false }: { project: Project; agent: Agent | null; docked?: boolean } = $props();
+  // The side panel's uncommitted files. `docked`: right half of the split layout, showing the
+  // picked file's diff under the list. `count`: number of files listed, for the panel's tab.
+  let {
+    project,
+    agent,
+    docked = false,
+    count = $bindable(0),
+  }: { project: Project; agent: Agent | null; docked?: boolean; count?: number } = $props();
 
   let files = $state<FileChange[]>([]);
+  $effect(() => {
+    count = files.length;
+  });
   let loading = $state(false);
   let error = $state<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -96,13 +105,7 @@
   const currentOwner = $derived(current ? diffOwner(current) : null);
 </script>
 
-<aside class="panel" class:docked>
-  <div class="head">
-    <span class="section-label">Non commités</span>
-    <span class="count">{files.length}</span>
-    <div style="flex:1"></div>
-    {#if !docked}<button class="icon-btn" title="Fermer" onclick={() => (app.filesOpen = false)}>×</button>{/if}
-  </div>
+<div class="files" class:docked>
   <div class="scope">
     <div class="segmented" style="width:100%">
       <button style="flex:1;font-family:var(--ui);font-size:12px" class:on={scope === 'agent'} onclick={() => (app.filesScope = 'agent')}
@@ -173,22 +176,14 @@
       >
     </div>
   {/if}
-</aside>
+</div>
 
 <style>
-  .panel {
-    width: 330px;
-    flex: none;
+  .files {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    background: var(--panel);
-    border-left: 1px solid var(--line);
     min-height: 0;
-  }
-  .panel.docked {
-    width: auto;
-    flex: 1 1 0;
-    min-width: 0;
   }
   .docked .list {
     flex: 0 1 auto;
@@ -196,17 +191,6 @@
   }
   .fill {
     flex: 1;
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 14px 12px 18px;
-  }
-  .count {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--dim);
   }
   .scope {
     padding: 0 14px 12px 18px;

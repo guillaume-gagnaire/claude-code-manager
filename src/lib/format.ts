@@ -20,6 +20,18 @@ export function fDur(ms: number): string {
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(ss).padStart(2, '0')}s`;
 }
 
+/** How long ago `seconds` (Unix time) was, relative to `now` (ms). */
+export function fAgo(seconds: number, now: number): string {
+  const s = Math.max(0, now / 1000 - seconds);
+  if (s < 60) return 'à l’instant';
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  const d = Math.floor(s / 86400);
+  if (d === 1) return 'hier';
+  if (d < 30) return `il y a ${d} j`;
+  return new Date(seconds * 1000).toLocaleDateString('fr-FR');
+}
+
 /** "1h48" style countdown until a timestamp. */
 export function fCountdown(target: number | null, now: number): string {
   if (!target) return '—';
