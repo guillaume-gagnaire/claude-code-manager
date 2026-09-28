@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readPref, writePref } from '../lib/prefs';
   import { fDate, fInt, fTok, fUsd } from '../lib/format';
   import { api } from '../lib/ipc';
   import { displayModel } from '../lib/models';
@@ -13,7 +14,7 @@
     { key: 'output', label: 'Sortie', color: '#d95926' },
   ] as const;
 
-  let range = $state<Range>((localStorage.getItem('ccm.statsRange') as Range) || 'day');
+  let range = $state<Range>((readPref('statsRange') as Range) || 'day');
   let view = $state<StatsView | null>(null);
   let table = $state(false);
   let hover = $state<number | null>(null);
@@ -35,7 +36,7 @@
           .catch((e) => (error = String(e))),
       50,
     );
-    localStorage.setItem('ccm.statsRange', r);
+    writePref('statsRange', r);
   });
 
   const k = $derived(view ? kpis(view) : null);

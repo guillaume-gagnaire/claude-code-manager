@@ -35,7 +35,7 @@ Télécharge l'installeur `.exe` de la [dernière release](https://github.com/gu
 
 ## Données locales
 
-Tout est stocké dans `~/.claude-code-manager/` (nom hérité de l'ancien nom de l'app, gardé pour conserver les données) :
+Tout est stocké dans `~/.escouade/` (anciennement `~/.claude-code-manager/`, déplacé au premier lancement de la 0.1.4) :
 
 | Fichier | Contenu |
 |---|---|
@@ -45,7 +45,7 @@ Tout est stocké dans `~/.claude-code-manager/` (nom hérité de l'ancien nom de
 | `stats.db` | statistiques (SQLite) |
 | `app.log` | journal de l'application |
 
-La variable d'environnement `CCM_DATA_DIR` permet d'utiliser un autre dossier (démonstrations, tests).
+La variable d'environnement `ESCOUADE_DATA_DIR` (l'ancienne `CCM_DATA_DIR` marche encore) permet d'utiliser un autre dossier (démonstrations, tests).
 
 ## Raccourcis
 
@@ -71,10 +71,10 @@ npm ci
 npm run tauri dev
 ```
 
-Pour travailler sans toucher à tes vraies données :
+Pour travailler sans toucher à tes vraies données (une version de développement lancée sans dossier à part déplacerait aussi `~/.claude-code-manager/`) :
 
 ```powershell
-$env:CCM_DATA_DIR = "$env:TEMP\ccm-sandbox"; npm run tauri dev
+$env:ESCOUADE_DATA_DIR = "$env:TEMP\escouade-sandbox"; npm run tauri dev
 ```
 
 ### Tests

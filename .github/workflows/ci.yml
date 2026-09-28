@@ -77,7 +77,7 @@ jobs:
 
       - name: End-to-end tests (Playwright over WebView2)
         env:
-          CCM_E2E_CDP_PORT: 9222
+          ESCOUADE_E2E_CDP_PORT: 9222
         run: npx playwright test
 
       - name: Upload Playwright traces

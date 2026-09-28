@@ -1,6 +1,6 @@
 # Escouade — Spécification v1
 
-Anciennement « Claude Code Manager ». Le nom interne reste celui d'origine là où le changer ferait perdre des données ou casserait les mises à jour : identifiant de l'app, dossier `~/.claude-code-manager/`, variables `CCM_*`, branches `ccm/` des agents.
+Anciennement « Claude Code Manager » (jusqu'à la 0.1.3 pour les noms internes). Au premier lancement de la 0.1.4, ce qui existait sous les anciens noms est déplacé : dossier `~/.claude-code-manager/` → `~/.escouade/`, dossiers de l'identifiant `dev.gagnaire.claude-code-manager` → `dev.gagnaire.escouade` (WebView, taille de fenêtre), préférences `ccm.*` → `escouade.*`. La variable `CCM_DATA_DIR` reste acceptée à côté d'`ESCOUADE_DATA_DIR`. Les nouveaux agents travaillent sur des branches `escouade/` ; ceux d'avant gardent leurs branches `ccm/`. La mise à jour réapplique le nouvel identifiant aux raccourcis, dont Windows se sert pour les notifications.
 
 Application desktop pour piloter plusieurs instances de Claude Code en local, organisées par projet.
 Référence visuelle : `design/Claude Code Manager.dc.html` (source de vérité pour le look & feel).
@@ -14,7 +14,7 @@ Référence visuelle : `design/Claude Code Manager.dc.html` (source de vérité 
 | Frontend | Svelte 5 + TypeScript + Vite |
 | Terminaux | xterm.js (addon WebGL) |
 | Markdown | rendu incrémental en streaming + coloration syntaxique (shiki) |
-| Stockage | `~/.claude-code-manager/` (config JSON + SQLite) |
+| Stockage | `~/.escouade/` (config JSON + SQLite) |
 
 ## Pilotage de Claude Code
 

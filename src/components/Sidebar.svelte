@@ -2,6 +2,7 @@
   import { api } from '../lib/ipc';
   import { fDur, fTok, fUsd, tildify } from '../lib/format';
   import { copyRemoteLink, openRemote, toggleRemote } from '../lib/agent-actions';
+  import { shortBranch } from '../lib/branches';
   import { menu, type MenuItem } from '../lib/menu.svelte';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
@@ -186,8 +187,7 @@
         </div>
         <div class="meta">
           <span>{modelLabel(a.model)}</span><span class="sep">·</span><span>{duration(a)}</span>
-          {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}
-              >⎇ {a.worktree.branch.replace(/^ccm\//, '')}</span
+          {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}>⎇ {shortBranch(a.worktree.branch)}</span
             >{/if}
         </div>
         <div class="meta dim" title={s.estimated ? ESTIMATE_HINT : undefined}>

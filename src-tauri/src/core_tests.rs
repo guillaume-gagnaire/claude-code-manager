@@ -373,6 +373,21 @@ fn process_exists(pid: u32) -> bool {
 }
 
 #[tokio::test]
+async fn a_worktree_agent_works_on_an_escouade_branch() {
+    let h = harness("wt-prefix");
+    let (p, _r) = h.project(true).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let wt = a.meta.worktree.expect("worktree created");
+    let name = wt.branch.strip_prefix("escouade/").expect(&wt.branch);
+    assert!(
+        wt.path
+            .ends_with(&format!("worktrees{}{name}", std::path::MAIN_SEPARATOR)),
+        "{}",
+        wt.path
+    );
+}
+
+#[tokio::test]
 async fn deleting_an_agent_removes_its_worktree_and_branch() {
     let h = harness("delete-wt");
     let (p, r) = h.project(true).await;

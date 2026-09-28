@@ -146,7 +146,7 @@ export const FAQ: Question[] = [
   },
   {
     q: 'Où vont mes données ?',
-    a: 'Nulle part : projets, conversations et statistiques restent sur ta machine, dans ~/.claude-code-manager/. Le réseau ne sert qu’à Claude Code lui-même, à la lecture de tes quotas et aux mises à jour de l’app.',
+    a: 'Nulle part : projets, conversations et statistiques restent sur ta machine, dans ~/.escouade/. Le réseau ne sert qu’à Claude Code lui-même, à la lecture de tes quotas et aux mises à jour de l’app.',
   },
   { q: 'Ça marche sur Mac ou Linux ?', a: 'Pas pour l’instant : Escouade est fait pour Windows 10 et 11.' },
   { q: 'Comment se font les mises à jour ?', a: 'L’app te propose chaque nouvelle version ; un clic, et elle s’installe.' },

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isAgentBranch } from '../lib/branches';
   import { fAgo } from '../lib/format';
   import { branchCommits, layout, type Segment } from '../lib/graph';
   import { api } from '../lib/ipc';
@@ -88,7 +89,7 @@
       .map((r) => {
         if (r.startsWith('tag: ')) return { text: r.slice(5), title: `tag ${r.slice(5)}`, kind: 'tag' };
         const owner = Object.values(app.agents).find((a) => a.projectId === project.id && a.worktree?.branch === r);
-        const kind = r === log?.head ? 'head' : owner ? 'agent' : r.includes('/') && !r.startsWith('ccm/') ? 'remote' : 'branch';
+        const kind = r === log?.head ? 'head' : owner ? 'agent' : r.includes('/') && !isAgentBranch(r) ? 'remote' : 'branch';
         return { text: owner ? owner.name : r, title: owner ? `branche ${r} de l’agent ${owner.name}` : r, kind };
       });
   }

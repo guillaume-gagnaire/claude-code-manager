@@ -442,13 +442,15 @@ pub async fn worktree_add(repo: &str, name: &str) -> Result<(String, String, Str
         bail!("le dépôt n'a pas encore de commit : impossible de créer un worktree");
     }
     ensure_excluded(repo, ".claude/worktrees/").await?;
-    let mut branch = format!("ccm/{name}");
+    let mut branch = format!("{}{name}", crate::paths::BRANCH_PREFIX);
     let mut n = 2;
     while branch_exists(repo, &branch).await {
-        branch = format!("ccm/{name}-{n}");
+        branch = format!("{}{name}-{n}", crate::paths::BRANCH_PREFIX);
         n += 1;
     }
-    let dir_name = branch.trim_start_matches("ccm/").to_string();
+    let dir_name = branch
+        .trim_start_matches(crate::paths::BRANCH_PREFIX)
+        .to_string();
     let path = Path::new(repo)
         .join(".claude")
         .join("worktrees")

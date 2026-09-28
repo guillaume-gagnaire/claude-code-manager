@@ -3,7 +3,7 @@
   "productName": "Escouade",
   "mainBinaryName": "escouade",
   "version": "0.1.3",
-  "identifier": "dev.gagnaire.claude-code-manager",
+  "identifier": "dev.gagnaire.escouade",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

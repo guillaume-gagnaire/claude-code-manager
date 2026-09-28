@@ -34,7 +34,8 @@ struct FileLogger {
 
 impl log::Log for FileLogger {
     fn enabled(&self, m: &log::Metadata) -> bool {
-        m.level() <= log::Level::Info || (cfg!(debug_assertions) && m.target().starts_with("ccm"))
+        m.level() <= log::Level::Info
+            || (cfg!(debug_assertions) && m.target().starts_with("escouade"))
     }
 
     fn log(&self, r: &log::Record) {
@@ -109,10 +110,11 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    paths::migrate_app_folders();
     let mut builder = tauri::Builder::default();
-    // Sandboxed runs (CCM_DATA_DIR: end-to-end tests, demos) must not hand over to an instance
-    // the user already has open.
-    if std::env::var_os("CCM_DATA_DIR").is_none() {
+    // Sandboxed runs (end-to-end tests, demos) must not hand over to an instance the user
+    // already has open.
+    if paths::sandbox_dir().is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             notify::show_main(app)
         }));

@@ -50,7 +50,7 @@ describe('Stats', () => {
     await screen.findAllByText('74,5 k');
     await userEvent.click(screen.getByRole('button', { name: 'Mois' }));
     await waitFor(() => expect(backend.called('stats').at(-1)?.args.range).toBe('month'));
-    expect(localStorage.getItem('ccm.statsRange')).toBe('month');
+    expect(localStorage.getItem('escouade.statsRange')).toBe('month');
   });
 
   it('offers a table view of the buckets', async () => {

@@ -25,7 +25,7 @@ const props = { projectId: 'p1', agentId: 'a1', paths: [], title: 'Modifications
 describe('DiffModal', () => {
   beforeEach(() => {
     resetApp({ projects: [project()] });
-    localStorage.removeItem('ccm.diffSplit');
+    localStorage.removeItem('escouade.diffSplit');
     app.diffSplit = false;
   });
 
@@ -46,7 +46,7 @@ describe('DiffModal', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Côte à côte' }));
     const row = screen.getByText('const b = 2;').closest('.srow')!;
     expect(row).toHaveTextContent('const b = 3;');
-    expect(localStorage.getItem('ccm.diffSplit')).toBe('1');
+    expect(localStorage.getItem('escouade.diffSplit')).toBe('1');
     expect(app.diffSplit).toBe(true);
   });
 

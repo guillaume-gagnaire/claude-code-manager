@@ -153,7 +153,7 @@
       <span>Escouade {app.version}</span>
       <button class="btn small" disabled={checking} onclick={check}>{checking ? 'Recherche…' : 'Rechercher une mise à jour'}</button>
     </div>
-    <p class="note">Données locales : <span class="mono">~/.claude-code-manager/</span></p>
+    <p class="note">Données locales : <span class="mono">~/.escouade/</span></p>
   </section>
 
   {#snippet footer()}

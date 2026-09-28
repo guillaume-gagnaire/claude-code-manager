@@ -2,6 +2,7 @@
 
 import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
+import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
 import type { Agent, GitInfo, LaunchState, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
 
@@ -55,7 +56,7 @@ class AppState {
   /** Tab of the side panel: uncommitted files or the repository history. */
   panelTab = $state<'files' | 'history'>('files');
   /** Side-by-side diffs (else unified), shared by the diff dialog and the split layout. */
-  diffSplit = $state(readPref('ccm.diffSplit') === '1');
+  diffSplit = $state(readPref('diffSplit') === '1');
   showArchived = $state(false);
   modal = $state<Modal | null>(null);
   toasts = $state<Toast[]>([]);
@@ -193,11 +194,7 @@ class AppState {
 
   setDiffSplit(on: boolean) {
     this.diffSplit = on;
-    try {
-      localStorage.setItem('ccm.diffSplit', on ? '1' : '0');
-    } catch {
-      // Storage unavailable: the choice lasts until the app closes.
-    }
+    writePref('diffSplit', on ? '1' : '0');
   }
 
   selectAgent(id: string) {
@@ -283,14 +280,6 @@ class AppState {
       this.toast(String(e), 'error');
       return undefined;
     }
-  }
-}
-
-function readPref(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
   }
 }
 

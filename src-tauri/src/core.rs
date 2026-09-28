@@ -1179,7 +1179,7 @@ impl<R: Runtime> Core<R> {
         self.request_save();
         if let Some(wt) = worktree {
             let project = self.project(&project_id)?;
-            let branch = format!("ccm/{name}");
+            let branch = format!("{}{name}", paths::BRANCH_PREFIX);
             if !git::branch_exists(&project.path, &branch).await
                 && git::rename_current_branch(&wt.path, &branch).await.is_ok()
             {

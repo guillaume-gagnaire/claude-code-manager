@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const EXE = process.env.CCM_E2E_EXE ?? path.join(ROOT, 'src-tauri', 'target', 'debug', 'escouade.exe');
+const EXE = process.env.ESCOUADE_E2E_EXE ?? path.join(ROOT, 'src-tauri', 'target', 'debug', 'escouade.exe');
 const FAKE = path.join(ROOT, 'tests', 'fixtures', 'fake-claude.cmd');
 
 export interface App {
@@ -111,15 +111,15 @@ export const test = base.extend<{ app: App }>({
     const log = path.join(root, 'fake-claude.jsonl');
     // CI runs elevated, where WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: the workflow
     // opens a fixed port through the machine policy instead (tests run one at a time).
-    const port = process.env.CCM_E2E_CDP_PORT
-      ? Number(process.env.CCM_E2E_CDP_PORT)
+    const port = process.env.ESCOUADE_E2E_CDP_PORT
+      ? Number(process.env.ESCOUADE_E2E_CDP_PORT)
       : 9400 + (testInfo.workerIndex * 50 + Math.floor(Math.random() * 50));
     const stderr = path.join(root, 'app-stderr.log');
     const errFd = fs.openSync(stderr, 'w');
     const child: ChildProcess = spawn(EXE, [], {
       env: {
         ...process.env,
-        CCM_DATA_DIR: data,
+        ESCOUADE_DATA_DIR: data,
         FAKE_CLAUDE_LOG: log,
         // Sent "from claude.ai" to an agent once its Remote Control is on.
         FAKE_CLAUDE_REMOTE_MESSAGE: 'Message depuis le téléphone',

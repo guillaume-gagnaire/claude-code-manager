@@ -40,6 +40,16 @@ Var MigratedFromOldName
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; 0.1.4 changed the app identifier, which Windows goes by to show notifications: the shortcuts
+  ; an update keeps get the current one.
+  ${If} $UpdateMode = 1
+    ${If} ${FileExists} "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+      !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+    ${EndIf}
+    ${If} ${FileExists} "$DESKTOP\${PRODUCTNAME}.lnk"
+      !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
+    ${EndIf}
+  ${EndIf}
   ${If} $MigratedFromOldName = 1
   ${AndIf} $UpdateMode = 1
     CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
