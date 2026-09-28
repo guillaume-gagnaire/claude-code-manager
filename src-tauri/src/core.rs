@@ -579,9 +579,9 @@ impl<R: Runtime> Core<R> {
         if let Some(tray) = self.app.tray_by_id("main") {
             let _ = tray.set_icon(notify::tray_icon(&self.app, n));
             let tip = match n {
-                0 => "Claude Code Manager".to_string(),
-                1 => "Claude Code Manager — 1 agent en attente".to_string(),
-                n => format!("Claude Code Manager — {n} agents en attente"),
+                0 => "Escouade".to_string(),
+                1 => "Escouade — 1 agent en attente".to_string(),
+                n => format!("Escouade — {n} agents en attente"),
             };
             let _ = tray.set_tooltip(Some(tip));
         }

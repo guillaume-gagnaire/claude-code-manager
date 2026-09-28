@@ -1,7 +1,7 @@
 [package]
-name = "claude-code-manager"
+name = "escouade"
 version = "0.1.2"
-description = "Pilote plusieurs instances de Claude Code en local"
+description = "Le poste de pilotage de tes agents Claude Code"
 authors = ["Guillaume Gagnaire"]
 license = "MIT"
 edition = "2021"

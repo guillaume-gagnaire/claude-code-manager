@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const EXE = process.env.CCM_E2E_EXE ?? path.join(ROOT, 'src-tauri', 'target', 'debug', 'claude-code-manager.exe');
+const EXE = process.env.CCM_E2E_EXE ?? path.join(ROOT, 'src-tauri', 'target', 'debug', 'escouade.exe');
 const FAKE = path.join(ROOT, 'tests', 'fixtures', 'fake-claude.cmd');
 
 export interface App {

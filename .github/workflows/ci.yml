@@ -73,7 +73,7 @@ jobs:
         run: |
           $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
           New-Item -Path $key -Force | Out-Null
-          New-ItemProperty -Path $key -Name 'claude-code-manager.exe' -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'escouade.exe' -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
 
       - name: End-to-end tests (Playwright over WebView2)
         env:

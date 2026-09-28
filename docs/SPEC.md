@@ -1,4 +1,6 @@
-# Claude Code Manager — Spécification v1
+# Escouade — Spécification v1
+
+Anciennement « Claude Code Manager ». Le nom interne reste celui d'origine là où le changer ferait perdre des données ou casserait les mises à jour : identifiant de l'app, dossier `~/.claude-code-manager/`, variables `CCM_*`, branches `ccm/` des agents.
 
 Application desktop pour piloter plusieurs instances de Claude Code en local, organisées par projet.
 Référence visuelle : `design/Claude Code Manager.dc.html` (source de vérité pour le look & feel).
@@ -103,7 +105,7 @@ Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Wind
 ## Livraison
 
 - UI en français.
-- Installeur Windows (NSIS) + auto-update via GitHub Releases (`guillaume-gagnaire/claude-code-manager`).
+- Installeur Windows (NSIS) + auto-update via GitHub Releases (`guillaume-gagnaire/escouade`).
 - CI/CD GitHub Actions :
   - `ci.yml` (push / PR) : lint + typecheck + tests frontend, `cargo fmt --check`, `clippy`, `cargo test`, build de vérification.
   - `release.yml` (tag `v*`) : `tauri-action` → build Windows, signature des artefacts de mise à jour (secret `TAURI_SIGNING_PRIVATE_KEY`), publication de la release GitHub avec l'installeur et `latest.json` consommé par l'updater.

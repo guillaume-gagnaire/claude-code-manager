@@ -26,7 +26,7 @@ describe('TitleBar', () => {
   it('shows the app’s logo', () => {
     fakeBackend();
     render(TitleBar);
-    expect(screen.getByRole('img', { name: 'Claude Code Manager' })).toHaveAttribute('src', '/logo.svg');
+    expect(screen.getByRole('img', { name: 'Escouade' })).toHaveAttribute('src', '/logo.svg');
   });
 
   it('shows one tab per project with its waiting badge and git counter', () => {

@@ -5,7 +5,7 @@
 <div class="welcome">
   <div class="card">
     <span class="mark">C</span>
-    <h1>Claude Code Manager</h1>
+    <h1>Escouade</h1>
     <p>Ajoute un projet pour y lancer des agents Claude Code, suivre leurs questions et ouvrir des terminaux.</p>
     {#if !app.claudeFound}
       <p class="warn">

@@ -80,7 +80,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
     let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Claude Code Manager")
+        .tooltip("Escouade")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -129,10 +129,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             init_logging();
-            log::info!(
-                "Claude Code Manager {} starting",
-                app.package_info().version
-            );
+            log::info!("Escouade {} starting", app.package_info().version);
             let (core, git_rx) = Core::load(
                 app.handle().clone(),
                 paths::DataDir::new(paths::default_data_dir()),

@@ -56,7 +56,7 @@ pub async fn fetch_oauth(settings: &Settings) -> Result<Windows> {
         .get("https://api.anthropic.com/api/oauth/usage")
         .bearer_auth(token)
         .header("anthropic-beta", "oauth-2025-04-20")
-        .header("User-Agent", "claude-code-manager")
+        .header("User-Agent", "escouade")
         .send()
         .await?
         .error_for_status()?

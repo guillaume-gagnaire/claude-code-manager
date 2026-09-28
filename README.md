@@ -1,8 +1,10 @@
-# Claude Code Manager
+# Escouade
 
-Application Windows pour piloter plusieurs instances de [Claude Code](https://claude.com/claude-code) en local : un onglet par projet, autant d'agents que nécessaire, des terminaux intégrés, des notifications quand Claude attend une réponse, les quotas de ton abonnement et des statistiques de consommation.
+Le poste de pilotage de tes agents [Claude Code](https://claude.com/claude-code) : une application Windows pour piloter plusieurs instances de Claude Code en local, avec un onglet par projet, autant d'agents que nécessaire, des terminaux intégrés, des notifications quand Claude attend une réponse, les quotas de ton abonnement et des statistiques de consommation.
 
-Site : [guillaume-gagnaire.github.io/claude-code-manager](https://guillaume-gagnaire.github.io/claude-code-manager/)
+Site : [guillaume-gagnaire.github.io/escouade](https://guillaume-gagnaire.github.io/escouade/)
+
+Escouade s'appelait auparavant « Claude Code Manager » : la mise à jour remplace l'ancienne installation et garde tes réglages et tes conversations. Projet indépendant, non affilié à Anthropic ; Claude et Claude Code sont des marques d'Anthropic.
 
 ## Fonctionnalités
 
@@ -29,11 +31,11 @@ Site : [guillaume-gagnaire.github.io/claude-code-manager](https://guillaume-gagn
 
 ## Installation
 
-Télécharge l'installeur `.exe` de la [dernière release](https://github.com/guillaume-gagnaire/claude-code-manager/releases/latest). Les versions suivantes s'installent depuis l'application (barre de statut → « Mise à jour disponible »).
+Télécharge l'installeur `.exe` de la [dernière release](https://github.com/guillaume-gagnaire/escouade/releases/latest). Les versions suivantes s'installent depuis l'application (barre de statut → « Mise à jour disponible »).
 
 ## Données locales
 
-Tout est stocké dans `~/.claude-code-manager/` :
+Tout est stocké dans `~/.claude-code-manager/` (nom hérité de l'ancien nom de l'app, gardé pour conserver les données) :
 
 | Fichier | Contenu |
 |---|---|

@@ -105,7 +105,7 @@
 
 <header class="bar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
-    <img class="mark" src="/logo.svg" alt="Claude Code Manager" draggable="false" />
+    <img class="mark" src="/logo.svg" alt="Escouade" draggable="false" />
   </div>
   <nav class="tabs" data-tauri-drag-region>
     {#each app.projects as p, i (p.id)}

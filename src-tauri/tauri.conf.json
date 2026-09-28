@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Claude Code Manager",
-  "mainBinaryName": "claude-code-manager",
+  "productName": "Escouade",
+  "mainBinaryName": "escouade",
   "version": "0.1.2",
   "identifier": "dev.gagnaire.claude-code-manager",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claude Code Manager",
+        "title": "Escouade",
         "width": 1440,
         "height": 900,
         "minWidth": 1000,
@@ -46,7 +46,8 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/installer-hooks.nsh"
       }
     }
   },
@@ -54,7 +55,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU3NzMxM0UzRTI4MkZDRjYKUldUMi9JTGk0eE56Vi93TCs0dEUyL1hBOXEwOEU0RmYvUFgrbWpHa0tWNVFLR1lLdVltRXNvaHYK",
       "endpoints": [
-        "https://github.com/guillaume-gagnaire/claude-code-manager/releases/latest/download/latest.json"
+        "https://github.com/guillaume-gagnaire/escouade/releases/latest/download/latest.json"
       ]
     }
   }

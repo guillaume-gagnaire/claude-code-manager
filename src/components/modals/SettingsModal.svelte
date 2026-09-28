@@ -150,7 +150,7 @@
   <section>
     <h3>À propos</h3>
     <div class="toggle">
-      <span>Claude Code Manager {app.version}</span>
+      <span>Escouade {app.version}</span>
       <button class="btn small" disabled={checking} onclick={check}>{checking ? 'Recherche…' : 'Rechercher une mise à jour'}</button>
     </div>
     <p class="note">Données locales : <span class="mono">~/.claude-code-manager/</span></p>

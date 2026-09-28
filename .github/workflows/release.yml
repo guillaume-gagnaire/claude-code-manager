@@ -33,7 +33,7 @@ jobs:
           gh release view "$TAG" > /dev/null 2>&1 && exit 0
           flags=()
           [[ "$TAG" == *-* ]] && flags+=(--prerelease)
-          gh release create "$TAG" --verify-tag --title "Claude Code Manager $TAG" \
+          gh release create "$TAG" --verify-tag --title "Escouade $TAG" \
             --notes "Voir les commits depuis la version précédente." "${flags[@]}"
 
       - uses: actions/setup-node@v7
@@ -66,7 +66,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Claude Code Manager ${{ github.ref_name }}
+          releaseName: Escouade ${{ github.ref_name }}
           releaseBody: Voir les commits depuis la version précédente.
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
