@@ -10,7 +10,8 @@
       <span class="chip">🖼 {item.images} image{item.images > 1 ? 's' : ''}</span>
     {/if}
     {item.text}
-    {#if item.queued}<span class="queued">en file d'attente</span>{/if}
+    <!-- Sent while Claude worked: the CLI takes it at the turn's next step (after the running tool). -->
+    {#if item.queued}<span class="queued" title="Claude en tient compte dès sa prochaine étape">transmis pendant le tour</span>{/if}
   </div>
 </div>
 
@@ -44,6 +45,6 @@
     margin-top: 6px;
     font-family: var(--mono);
     font-size: 10.5px;
-    color: var(--wait);
+    color: var(--dim);
   }
 </style>

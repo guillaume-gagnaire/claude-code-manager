@@ -429,11 +429,13 @@
       </button>
       <button
         class="btn primary"
-        title="Entrée pour envoyer · Maj+Entrée pour aller à la ligne"
+        title={busy && !pendingItem
+          ? 'Claude en tiendra compte dès sa prochaine étape · Entrée pour envoyer'
+          : 'Entrée pour envoyer · Maj+Entrée pour aller à la ligne'}
         disabled={sending || (!text.trim() && !images.length)}
         onclick={send}
       >
-        {busy && !pendingItem ? 'Mettre en file' : 'Envoyer'}
+        Envoyer
       </button>
     </div>
   </div>

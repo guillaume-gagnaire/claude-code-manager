@@ -277,6 +277,7 @@ describe('Composer in a narrow column (split layout)', () => {
     const stop = screen.getByRole('button', { name: 'Stop' });
     expect(stop).toHaveTextContent('■');
     expect(stop).not.toHaveTextContent('Stop');
-    expect(screen.getByRole('button', { name: 'Mettre en file' })).toBeInTheDocument();
+    // Claude takes a message sent during a turn at its next step: it is sent, not queued.
+    expect(screen.getByRole('button', { name: 'Envoyer' })).toBeInTheDocument();
   });
 });
