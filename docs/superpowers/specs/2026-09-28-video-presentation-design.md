@@ -2,7 +2,7 @@
 
 ## But
 
-Une vidéo YouTube qui montre en 1 min 20 tout ce que fait Claude Code Manager, pour donner envie de l'installer. Pas de voix off : textes animés, interface recréée en animation, musique dynamique.
+Une vidéo YouTube qui montre en 1 min 20 tout ce que fait **CCM - Claude Code Manager**, pour donner envie de l'installer. Pas de voix off : textes animés, interface recréée en animation, musique dynamique.
 
 Ce qui a été choisi :
 
@@ -19,7 +19,7 @@ Ce qui a été choisi :
 
 | Mesures | Temps | Plan                                                                                                                                                  | Texte à l'écran                                                         |
 | ------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 0–3     | 0:00  | Le logo se construit (les fenêtres s'empilent, l'étincelle s'allume), puis le titre                                                                   | « Claude Code Manager » · « Tous tes Claude Code, dans une seule fenêtre. » |
+| 0–3     | 0:00  | Le logo se construit (les fenêtres s'empilent, l'étincelle s'allume), puis le titre                                                                   | « CCM - Claude Code Manager » · « Tous tes Claude Code, dans une seule fenêtre. » |
 | 3–6     | 0:06  | Des fenêtres de terminal `claude` s'empilent jusqu'à couvrir l'écran, puis sont aspirées dans la fenêtre de l'app                                      | « 5 projets. 12 agents. 30 terminaux ? »                                |
 | 6–11    | 0:12  | **Drop.** Les onglets de projets apparaissent (couleurs, compteurs), la barre latérale se remplit d'agents aux statuts vivants                        | « Un onglet par projet. Autant d'agents que tu veux. »                  |
 | 11–16   | 0:22  | Chat : une réponse markdown s'écrit, des appels d'outils se replient, une carte de question reçoit sa réponse en un clic                              | « Un vrai chat. Des questions en un clic. »                             |
@@ -28,7 +28,7 @@ Ce qui a été choisi :
 | 25–29   | 0:50  | Section Lancement : « Tout lancer », les statuts passent en cours, une commande plante (code 1) et le dit ; le log défile                               | « Lance ton projet d'un clic. Vois quand ça plante. »                   |
 | 29–33   | 0:58  | Coût qui monte en direct (≈), barres de quota qui se remplissent, graphique des stats                                                                 | « Tokens, coût, quotas : en direct. »                                   |
 | 33–37   | 1:06  | Un téléphone affiche la même conversation sur claude.ai, un message envoyé depuis le téléphone apparaît dans l'app                                   | « Et depuis ton téléphone. »                                            |
-| 37–41   | 1:14  | Retour du logo, lien GitHub, fondu                                                                                                                    | « Gratuit, open source, pour Windows. » · `github.com/guillaume-gagnaire/claude-code-manager` |
+| 37–41   | 1:14  | Retour du logo et du nom « CCM - Claude Code Manager », lien GitHub, fondu                                                                                                                    | « Gratuit, open source, pour Windows. » · `github.com/guillaume-gagnaire/claude-code-manager` |
 
 Les données affichées sont fictives (projets `demo-api`, `studio-web`, `mobile-app`… ; agents `refacto-auth`, `tests-e2e`…).
 
