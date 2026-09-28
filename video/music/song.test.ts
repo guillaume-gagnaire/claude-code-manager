@@ -12,7 +12,9 @@ describe('score', () => {
   const sc = score();
 
   it('kicks on every beat of both drops, and never while the notifications breathe', () => {
-    expect(sc.kicks).toEqual(expect.arrayContaining([...beatsOf(barOf('projects'), barOf('notify')), ...beatsOf(barOf('git'), barOf('outro'))]));
+    expect(sc.kicks).toEqual(
+      expect.arrayContaining([...beatsOf(barOf('projects'), barOf('notify')), ...beatsOf(barOf('git'), barOf('outro'))]),
+    );
     expect(within(sc.kicks, barOf('notify'), barOf('git'))).toEqual([]);
   });
 
