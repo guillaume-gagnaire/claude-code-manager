@@ -2,6 +2,8 @@
 
 Application Windows pour piloter plusieurs instances de [Claude Code](https://claude.com/claude-code) en local : un onglet par projet, autant d'agents que nécessaire, des terminaux intégrés, des notifications quand Claude attend une réponse, les quotas de ton abonnement et des statistiques de consommation.
 
+Site : [guillaume-gagnaire.github.io/claude-code-manager](https://guillaume-gagnaire.github.io/claude-code-manager/)
+
 ## Fonctionnalités
 
 - **Projets en onglets** : compteur de modifications git non commitées, pastille quand un agent attend une réponse, couleur par projet (qui teinte toute l'interface), réordonnables par glisser-déposer.
@@ -112,6 +114,20 @@ npm install
 npm run studio   # aperçu
 npm run render   # musique + out/presentation.mp4
 ```
+
+### Site
+
+Le dossier `website/` contient le site de présentation (Nuxt, généré en statique), publié sur GitHub Pages à chaque push qui le touche. Il demande Node 22.19 ou plus récent :
+
+```powershell
+cd website
+npm install
+npm run dev        # aperçu
+npm run generate   # site statique dans .output/public
+npm test           # vérifie le site généré
+```
+
+Ses images et sa vidéo viennent de `video/` : `npm run render`, puis `npm run site-images`.
 
 ## Architecture
 
