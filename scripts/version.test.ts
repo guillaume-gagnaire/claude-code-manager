@@ -25,6 +25,27 @@ describe('version script', () => {
     expect(fs.readFileSync(path.join(root, 'src-tauri', 'Cargo.toml'), 'utf8')).toContain('serde = { version = "1" }');
   });
 
+  it('keeps the lockfiles’ own entry of the app in step, and only that one', () => {
+    const root = fixture();
+    const npmLock = path.join(root, 'package-lock.json');
+    const cargoLock = path.join(root, 'src-tauri', 'Cargo.lock');
+    fs.writeFileSync(
+      npmLock,
+      JSON.stringify(
+        { name: 'x', version: '0.1.0', packages: { '': { name: 'x', version: '0.1.0' }, 'node_modules/y': { version: '0.1.0' } } },
+        null,
+        2,
+      ) + '\n',
+    );
+    fs.writeFileSync(cargoLock, '[[package]]\nname = "serde"\nversion = "0.1.0"\n\n[[package]]\nname = "x"\nversion = "0.1.0"\n');
+    setVersion(root, '1.2.3');
+    const lock = JSON.parse(fs.readFileSync(npmLock, 'utf8'));
+    expect([lock.version, lock.packages[''].version, lock.packages['node_modules/y'].version]).toEqual(['1.2.3', '1.2.3', '0.1.0']);
+    expect(fs.readFileSync(cargoLock, 'utf8')).toBe(
+      '[[package]]\nname = "serde"\nversion = "0.1.0"\n\n[[package]]\nname = "x"\nversion = "1.2.3"\n',
+    );
+  });
+
   it('accepts a v-prefixed tag and rejects non-semver input', () => {
     const root = fixture();
     setVersion(root, 'v2.0.0-beta.1');

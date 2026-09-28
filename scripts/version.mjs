@@ -36,6 +36,20 @@ export function setVersion(root, input) {
   }
   const cargo = fs.readFileSync(f.cargo, 'utf8');
   fs.writeFileSync(f.cargo, cargo.replace(CARGO_VERSION, `$1${version}$3`));
+  // The lockfiles record the app's own version too: keep them in step (dependencies untouched).
+  const npmLock = path.join(root, 'package-lock.json');
+  if (fs.existsSync(npmLock)) {
+    const lock = JSON.parse(fs.readFileSync(npmLock, 'utf8'));
+    lock.version = version;
+    if (lock.packages?.['']) lock.packages[''].version = version;
+    fs.writeFileSync(npmLock, JSON.stringify(lock, null, 2) + '\n');
+  }
+  const cargoLock = path.join(root, 'src-tauri', 'Cargo.lock');
+  const name = cargo.match(/^\[package\][\s\S]*?\nname\s*=\s*"([^"]+)"/)?.[1];
+  if (name && fs.existsSync(cargoLock)) {
+    const entry = new RegExp(`(\\nname = "${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\nversion = ")[^"]+(")`);
+    fs.writeFileSync(cargoLock, fs.readFileSync(cargoLock, 'utf8').replace(entry, `$1${version}$2`));
+  }
   return version;
 }
 
