@@ -1,0 +1,121 @@
+@import '@fontsource/hanken-grotesk/400.css';
+@import '@fontsource/hanken-grotesk/500.css';
+@import '@fontsource/hanken-grotesk/600.css';
+@import '@fontsource/hanken-grotesk/700.css';
+@import '@fontsource/hanken-grotesk/800.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
+/* The app's colours and fonts. */
+:root {
+  --bg: #1b1917;
+  --panel: #211f1c;
+  --elev: #2a2724;
+  --line: rgba(255, 236, 214, 0.08);
+  --line2: rgba(255, 236, 214, 0.15);
+  --text: #ede7df;
+  --muted: #a8a095;
+  --dim: #6f685f;
+  --spark: #d97757;
+  --ink: #1b1512;
+  --ui: 'Hanken Grotesk', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--ui);
+  font-size: 18px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+img,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+.wrap {
+  width: min(1160px, 100% - 32px);
+  margin-inline: auto;
+}
+
+.section {
+  padding: 96px 0;
+}
+
+.section h2 {
+  margin: 0 0 12px;
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--spark);
+}
+
+.lead {
+  max-width: 680px;
+  margin: 0 0 40px;
+  color: var(--muted);
+  font-size: 19px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: 1px solid var(--line2);
+  background: var(--elev);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
+}
+
+.btn:hover {
+  border-color: var(--spark);
+}
+
+.btn.primary {
+  background: var(--spark);
+  border-color: var(--spark);
+  color: var(--ink);
+}
+
+.btn.primary:hover {
+  transform: translateY(-1px);
+}
+
+:focus-visible {
+  outline: 2px solid var(--spark);
+  outline-offset: 3px;
+}

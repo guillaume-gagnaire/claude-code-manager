@@ -1,0 +1,23 @@
+{
+  "name": "ccm-website",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "test": "vitest run",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@fontsource/hanken-grotesk": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "nuxt": "4.5.2",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
+  }
+}

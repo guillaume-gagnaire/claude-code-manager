@@ -7,3 +7,5 @@ test-results
 playwright-report
 *.md
 video/out
+website/.nuxt
+website/.output
