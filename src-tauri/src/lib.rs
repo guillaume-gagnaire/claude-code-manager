@@ -187,6 +187,7 @@ pub fn run() {
             commands::refresh_usage,
             commands::open_in_editor,
             commands::term_spawn,
+            commands::run_start,
             commands::term_write,
             commands::term_resize,
             commands::term_kill,

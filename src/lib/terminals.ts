@@ -16,6 +16,8 @@ export interface XTerm {
   fit: FitAddon;
   search: SearchAddon;
   host: HTMLDivElement;
+  /** A log: no input, no cursor. */
+  readOnly?: boolean;
 }
 
 const xterms = new Map<string, XTerm>();
@@ -46,11 +48,12 @@ export function resolveColor(css: string): string {
   return '#' + [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-export function terminalTheme(): ITheme {
+export function terminalTheme(readOnly = false): ITheme {
+  const background = resolveColor('var(--term)');
   return {
-    background: resolveColor('var(--term)'),
+    background,
     foreground: '#ede7df',
-    cursor: resolveColor('var(--accent)'),
+    cursor: readOnly ? background : resolveColor('var(--accent)'),
     cursorAccent: '#1b1512',
     selectionBackground: resolveColor('color-mix(in oklch, var(--accent) 35%, transparent)') + '99',
     black: '#2a2724',
@@ -72,15 +75,23 @@ export function terminalTheme(): ITheme {
   };
 }
 
-export async function openTerminal(projectId: string, shell: string, name: string): Promise<TermInfo> {
+const SCROLL_KEYS = new Set(['PageUp', 'PageDown', 'Home', 'End']);
+
+/** A parked xterm.js instance; a read-only one takes no input (launch command logs). */
+function createXTerm(readOnly: boolean): XTerm {
   const term = new Terminal({
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
     fontSize: 12.5,
     lineHeight: 1.2,
-    cursorBlink: true,
+    cursorBlink: !readOnly,
+    cursorInactiveStyle: readOnly ? 'none' : 'outline',
+    disableStdin: readOnly,
     allowProposedApi: true,
     scrollback: 10000,
-    theme: terminalTheme(),
+    theme: terminalTheme(readOnly),
+    // Rows added by a resize stay blank at the bottom, as in the pseudo-console, which repaints
+    // its screen at absolute positions: pulling scrollback down would shift the log under it.
+    windowsPty: { backend: 'conpty' },
   });
   const host = document.createElement('div');
   host.style.cssText = 'width:100%;height:100%;';
@@ -101,18 +112,6 @@ export async function openTerminal(projectId: string, shell: string, name: strin
     // Falls back to the DOM renderer.
   }
   fit.fit();
-
-  let info: TermInfo;
-  try {
-    info = await api.termSpawn({ projectId, shell, name, cols: term.cols, rows: term.rows }, (buf) => term.write(new Uint8Array(buf)));
-  } catch (e) {
-    // Nothing to attach to: free the xterm instance, its WebGL context and its host.
-    term.dispose();
-    host.remove();
-    throw e;
-  }
-  term.onData((d) => api.termWrite(info.id, d).catch(() => {}));
-  term.onResize(({ cols, rows }) => api.termResize(info.id, cols, rows).catch(() => {}));
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     // Navigation shortcuts go to the app (the event keeps bubbling to its window handler).
@@ -128,10 +127,57 @@ export async function openTerminal(projectId: string, shell: string, name: strin
       if (term.hasSelection()) navigator.clipboard.writeText(term.getSelection());
       return false;
     }
-    return true;
+    // A log only scrolls (Shift+PageUp…): every other key goes on to the app's shortcuts.
+    return !readOnly || (e.shiftKey && SCROLL_KEYS.has(e.key));
   });
-  xterms.set(info.id, { term, fit, search, host });
+  return { term, fit, search, host, readOnly };
+}
+
+function free(x: XTerm) {
+  x.term.dispose();
+  x.host.remove();
+}
+
+export async function openTerminal(projectId: string, shell: string, name: string): Promise<TermInfo> {
+  const x = createXTerm(false);
+  const { term } = x;
+  let info: TermInfo;
+  try {
+    info = await api.termSpawn({ projectId, shell, name, cols: term.cols, rows: term.rows }, (buf) => term.write(new Uint8Array(buf)));
+  } catch (e) {
+    // Nothing to attach to: free the xterm instance, its WebGL context and its host.
+    free(x);
+    throw e;
+  }
+  term.onData((d) => api.termWrite(info.id, d).catch(() => {}));
+  term.onResize(({ cols, rows }) => api.termResize(info.id, cols, rows).catch(() => {}));
+  xterms.set(info.id, x);
   return info;
+}
+
+/** Key of a launch command's log among the terminals. */
+export const logKey = (commandId: string) => `run:${commandId}`;
+
+/**
+ * The read-only log of a launch command, kept across its runs.
+ * `onResize` gets the new size so the running process can follow it.
+ */
+export function launchLog(commandId: string, onResize: (cols: number, rows: number) => void): XTerm {
+  const key = logKey(commandId);
+  let x = xterms.get(key);
+  if (!x) {
+    x = createXTerm(true);
+    x.term.onResize(({ cols, rows }) => onResize(cols, rows));
+    xterms.set(key, x);
+  }
+  return x;
+}
+
+export function disposeLog(commandId: string) {
+  const x = xterms.get(logKey(commandId));
+  if (!x) return;
+  free(x);
+  xterms.delete(logKey(commandId));
 }
 
 export function getXTerm(id: string): XTerm | undefined {
@@ -144,7 +190,7 @@ export function mountTerminal(id: string, container: HTMLElement | null) {
   if (!x) return;
   (container ?? parkingLot()).appendChild(x.host);
   if (container) {
-    x.term.options.theme = terminalTheme();
+    x.term.options.theme = terminalTheme(x.readOnly);
     requestAnimationFrame(() => {
       try {
         x.fit.fit();
@@ -159,8 +205,7 @@ export function mountTerminal(id: string, container: HTMLElement | null) {
 export function disposeTerminal(id: string) {
   const x = xterms.get(id);
   if (!x) return;
-  x.term.dispose();
-  x.host.remove();
+  free(x);
   xterms.delete(id);
   api.termKill(id).catch(() => {});
 }

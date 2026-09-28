@@ -4,6 +4,7 @@
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
   import { app } from '../lib/state.svelte';
+  import { expectStops, forgetLaunches } from '../lib/launch-actions';
   import { closeTerminal } from '../lib/term-actions';
   import type { Project } from '../lib/types';
 
@@ -47,6 +48,12 @@
         hint: 'nouveaux agents',
         onClick: () => save({ ...p, worktreePerAgent: !p.worktreePerAgent }),
       },
+      {
+        label: 'Commandes de lancement…',
+        onClick: () => {
+          app.modal = { kind: 'runConfig', projectId: p.id };
+        },
+      },
       { label: 'Ouvrir le dossier', onClick: () => openPath(p.path).catch((err) => app.toast(String(err), 'error')) },
       { label: '', separator: true },
       {
@@ -60,9 +67,13 @@
             confirm: 'Fermer le projet',
             danger: true,
             onConfirm: async () => {
+              // The backend kills its launch commands: not crashes.
+              const runs = p.runCommands.map((c) => c.id);
+              const undo = expectStops(runs);
               // Only forget the project once the backend removed it.
               const removed = await app.run(api.removeProject(p.id).then(() => true));
-              if (!removed) return;
+              if (!removed) return undo();
+              forgetLaunches(runs);
               for (const t of app.terminals.filter((x) => x.projectId === p.id)) closeTerminal(t.id);
               app.projects = app.projects.filter((x) => x.id !== p.id);
               if (app.ui.activeProject === p.id) app.ui.activeProject = app.projects[0]?.id ?? null;

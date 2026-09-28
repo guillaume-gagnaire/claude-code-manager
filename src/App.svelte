@@ -12,7 +12,9 @@
   import ConfirmModal from './components/modals/ConfirmModal.svelte';
   import NewProjectModal from './components/modals/NewProjectModal.svelte';
   import RenameModal from './components/modals/RenameModal.svelte';
+  import RunConfigModal from './components/modals/RunConfigModal.svelte';
   import SettingsModal from './components/modals/SettingsModal.svelte';
+  import RunView from './components/RunView.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Stats from './components/Stats.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -56,7 +58,9 @@
     {:else if app.project}
       {@const project = app.project}
       <Sidebar {project} />
-      {#if app.term}
+      {#if app.runCommand}
+        <RunView cmd={app.runCommand} {project} />
+      {:else if app.term}
         <TerminalView term={app.term} {project} />
       {:else if app.agent}
         {#key app.agent.id}
@@ -96,6 +100,8 @@
   <ConfirmModal {...app.modal} />
 {:else if app.modal?.kind === 'rename'}
   <RenameModal title={app.modal.title} value={app.modal.value} onSubmit={app.modal.onSubmit} />
+{:else if app.modal?.kind === 'runConfig'}
+  <RunConfigModal projectId={app.modal.projectId} />
 {/if}
 
 <ContextMenu />

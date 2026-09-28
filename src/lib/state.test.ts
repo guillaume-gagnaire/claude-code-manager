@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { agent, fakeBackend, project, SETTINGS } from '../test/ipc';
 import { conversationOf } from './conversations.svelte';
 import { app } from './state.svelte';
-import type { InitialState, UiEvent } from './types';
+import type { InitialState, LaunchState, UiEvent } from './types';
 
 /** Starts the app against a fake backend and returns a function pushing backend events. */
 async function start(over: Partial<InitialState> = {}) {
@@ -153,5 +153,49 @@ describe('AppState start-up', () => {
     });
     await init;
     expect(app.agents.a1).toMatchObject({ status: 'running', tokens: 500 });
+  });
+});
+
+describe('AppState launch commands', () => {
+  const running = (over: Partial<LaunchState> = {}): LaunchState => ({
+    status: 'running',
+    ptyId: 't9',
+    name: 'Front',
+    stopping: false,
+    code: null,
+    startedAt: 1,
+    ...over,
+  });
+
+  it('marks a command that exits with an error as crashed, and says so', async () => {
+    const { emit } = await start();
+    app.launches.c1 = running();
+    emit({ type: 'terminalExit', id: 't9', code: 2 });
+    expect(app.launches.c1).toMatchObject({ status: 'crashed', code: 2, ptyId: null });
+    expect(app.toasts.at(-1)).toMatchObject({ kind: 'error', text: expect.stringContaining('Front') });
+  });
+
+  it('does not call a stopped or finished command a crash', async () => {
+    const { emit } = await start();
+    app.launches.c1 = running({ stopping: true });
+    app.launches.c2 = running({ ptyId: 't10', name: 'Build' });
+    const toasts = app.toasts.length;
+    emit({ type: 'terminalExit', id: 't9', code: 1 });
+    emit({ type: 'terminalExit', id: 't10', code: 0 });
+    expect(app.launches.c1.status).toBe('stopped');
+    expect(app.launches.c2).toMatchObject({ status: 'done', code: 0 });
+    expect(app.toasts.length).toBe(toasts);
+  });
+
+  it('shows one thing at a time in the main area: an agent, a terminal or a launch command', async () => {
+    await start();
+    app.selectLaunch('c1');
+    expect(app.selectedLaunch.p1).toBe('c1');
+    app.selectTerm('t1');
+    expect(app.selectedLaunch.p1).toBeNull();
+    app.selectLaunch('c1');
+    expect(app.selectedTerm.p1).toBeNull();
+    app.selectAgent('a1');
+    expect(app.selectedLaunch.p1).toBeNull();
   });
 });

@@ -51,6 +51,7 @@ export function project(over: Partial<Project> = {}): Project {
     color: 'oklch(0.72 0.12 48)',
     worktreePerAgent: false,
     createdAt: 1,
+    runCommands: [],
     ...over,
   };
 }
@@ -102,6 +103,8 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.shells = [];
   app.terminals = [];
   app.exitedTerms = {};
+  app.launches = {};
+  app.selectedLaunch = {};
   app.selectedTerm = {};
   app.filesOpen = false;
   app.filesScope = 'agent';

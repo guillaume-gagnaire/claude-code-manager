@@ -728,3 +728,26 @@ async fn a_deleted_agent_is_never_sent_back_to_the_ui() {
         "agent sent again after its removal: {late:?}"
     );
 }
+
+#[tokio::test]
+async fn launch_commands_are_saved_with_the_project() {
+    let h = harness("run-config");
+    let (p, _) = h.project(false).await;
+    let cmd = RunCommand {
+        id: "c1".into(),
+        name: "Front".into(),
+        command: "npm run dev".into(),
+        shell: "pwsh".into(),
+        cwd: "web".into(),
+    };
+    h.core
+        .update_project(Project {
+            run_commands: vec![cmd.clone()],
+            ..p.clone()
+        })
+        .unwrap();
+    assert_eq!(h.core.project(&p.id).unwrap().run_commands, vec![cmd]);
+    h.core.save_now();
+    let saved = std::fs::read_to_string(h.dir.join("data").join("state.json")).unwrap();
+    assert!(saved.contains("npm run dev"), "{saved}");
+}

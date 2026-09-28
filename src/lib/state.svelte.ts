@@ -3,7 +3,7 @@
 import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
 import { applyTheme } from './theme';
-import type { Agent, GitInfo, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
+import type { Agent, GitInfo, LaunchState, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
 
 export type Modal =
   | { kind: 'newProject' }
@@ -18,7 +18,8 @@ export type Modal =
       option?: { label: string; value: boolean };
       onConfirm: (option: boolean) => void | Promise<void>;
     }
-  | { kind: 'rename'; title: string; value: string; onSubmit: (v: string) => void | Promise<void> };
+  | { kind: 'rename'; title: string; value: string; onSubmit: (v: string) => void | Promise<void> }
+  | { kind: 'runConfig'; projectId: string };
 
 export interface Toast {
   id: number;
@@ -43,6 +44,9 @@ class AppState {
   shells = $state<ShellInfo[]>([]);
   terminals = $state<TermInfo[]>([]);
   exitedTerms = $state<Record<string, number | null>>({});
+  /** Launch commands' latest runs, by command id. */
+  launches = $state<Record<string, LaunchState>>({});
+  selectedLaunch = $state<Record<string, string | null>>({});
   selectedTerm = $state<Record<string, string | null>>({});
   claudeFound = $state(true);
   version = $state('');
@@ -97,6 +101,14 @@ class AppState {
     return this.terminals.find((t) => t.id === id) ?? null;
   });
 
+  /** The launch command whose log fills the main area, if any. */
+  runCommand = $derived.by(() => {
+    const p = this.project;
+    if (!p) return null;
+    const id = this.selectedLaunch[p.id];
+    return p.runCommands.find((c) => c.id === id) ?? null;
+  });
+
   private uiTimer: ReturnType<typeof setTimeout> | undefined;
   /** Events received while the initial snapshot is in flight (newer than the snapshot). */
   private early: UiEvent[] | null = null;
@@ -149,6 +161,7 @@ class AppState {
         break;
       case 'terminalExit':
         this.exitedTerms[e.id] = e.code;
+        this.onLaunchExit(e.id, e.code);
         break;
     }
   }
@@ -194,13 +207,45 @@ class AppState {
     this.ui.view = 'project';
     this.ui.selectedAgent[a.projectId] = id;
     this.selectedTerm[a.projectId] = null;
+    this.selectedLaunch[a.projectId] = null;
     this.persistUi();
     this.focusComposer++;
   }
 
   selectTerm(id: string | null) {
     const p = this.project;
-    if (p) this.selectedTerm[p.id] = id;
+    if (!p) return;
+    this.selectedTerm[p.id] = id;
+    if (id) this.selectedLaunch[p.id] = null;
+  }
+
+  selectLaunch(commandId: string | null) {
+    const p = this.project;
+    if (!p) return;
+    this.selectedLaunch[p.id] = commandId;
+    if (commandId) this.selectedTerm[p.id] = null;
+  }
+
+  /** A launch command's process is up; it may have ended, or been stopped, in the meantime. */
+  launchStarted(commandId: string, ptyId: string) {
+    const l = this.launches[commandId];
+    if (!l || l.stopping) api.termKill(ptyId).catch(() => {});
+    if (!l) {
+      delete this.exitedTerms[ptyId];
+      return;
+    }
+    l.ptyId = ptyId;
+    if (ptyId in this.exitedTerms) this.onLaunchExit(ptyId, this.exitedTerms[ptyId]);
+  }
+
+  /** A launch command's process ended: stopped on purpose, finished, or crashed. */
+  private onLaunchExit(ptyId: string, code: number | null) {
+    const l = Object.values(this.launches).find((x) => x.ptyId === ptyId);
+    if (!l) return;
+    delete this.exitedTerms[ptyId];
+    const status = l.stopping ? 'stopped' : code === 0 ? 'done' : 'crashed';
+    Object.assign(l, { status, code, ptyId: null, stopping: false });
+    if (status === 'crashed') this.toast(`« ${l.name} » s'est arrêté en erreur (code ${code ?? '?'})`, 'error');
   }
 
   async newAgent(projectId = this.ui.activeProject) {

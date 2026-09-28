@@ -1,5 +1,6 @@
 //! Integrated terminals: real pseudo-consoles (ConPTY) streamed to xterm.js.
 
+use crate::job::Job;
 use crate::model::Settings;
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
@@ -32,6 +33,9 @@ struct Term {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    /// A launch command's whole process tree, including what it starts outside its console:
+    /// killed when the terminal goes.
+    _job: Option<Job>,
 }
 
 #[derive(Default, Clone)]
@@ -145,7 +149,39 @@ pub fn detect_shells_in(r: &ShellRoots, s: &Settings) -> Vec<ShellInfo> {
     out
 }
 
+/// PowerShell script running `command` then ending with its exit code: on its own, PowerShell
+/// ends with 1 for any failure, whatever the failing program's code.
+fn with_exit_code(command: &str) -> String {
+    format!("{command}\nif (-not $?) {{ if ($LASTEXITCODE) {{ exit $LASTEXITCODE }} exit 1 }}")
+}
+
+/// A job holding `child` and everything it starts, killed with it.
+#[cfg(windows)]
+fn tree_job(child: &dyn portable_pty::Child) -> Option<Job> {
+    let job = Job::new()?;
+    job.assign_handle(child.as_raw_handle()?).then_some(job)
+}
+
+#[cfg(not(windows))]
+fn tree_job(_child: &dyn portable_pty::Child) -> Option<Job> {
+    None
+}
+
+/// Working folder of a launch command: the project's, or one of its folders.
+pub fn run_cwd(project: &str, sub: &str) -> Result<String> {
+    let sub = sub.trim();
+    if sub.is_empty() {
+        return Ok(project.to_string());
+    }
+    let dir = Path::new(project).join(sub);
+    if !dir.is_dir() {
+        anyhow::bail!("Le dossier « {sub} » n'existe pas dans le projet");
+    }
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 impl PtyManager {
+    /// An interactive shell.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         &self,
@@ -155,6 +191,63 @@ impl PtyManager {
         cwd: &str,
         size: (u16, u16),
         env: Vec<(String, String)>,
+        on_data: impl Fn(Vec<u8>) + Send + 'static,
+        on_exit: impl FnOnce(Option<u32>) + Send + 'static,
+    ) -> Result<()> {
+        self.spawn_inner(
+            info, shell, wsl_distro, cwd, size, env, None, on_data, on_exit,
+        )
+    }
+
+    /// A launch command run by `shell`: the terminal ends with it and reports its exit code.
+    /// Its log is read-only, so the terminal answers the pseudo-console's cursor position query
+    /// itself (ConPTY waits for it before running anything), with `cursor_row`, the log's row
+    /// where the command starts: ConPTY then leaves the lines above alone, even when it repaints.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_command(
+        &self,
+        info: TermInfo,
+        shell: &ShellInfo,
+        wsl_distro: &str,
+        cwd: &str,
+        size: (u16, u16),
+        env: Vec<(String, String)>,
+        cursor_row: u16,
+        command: &str,
+        on_data: impl Fn(Vec<u8>) + Send + 'static,
+        on_exit: impl FnOnce(Option<u32>) + Send + 'static,
+    ) -> Result<()> {
+        let (me, id) = (self.clone(), info.id.clone());
+        let answer = format!("\x1b[{};1R", cursor_row.max(1));
+        let on_data = move |b: Vec<u8>| {
+            if b.windows(4).any(|w| w == b"\x1b[6n") {
+                let _ = me.write(&id, answer.as_bytes());
+            }
+            on_data(b);
+        };
+        self.spawn_inner(
+            info,
+            shell,
+            wsl_distro,
+            cwd,
+            size,
+            env,
+            Some(command),
+            on_data,
+            on_exit,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_inner(
+        &self,
+        info: TermInfo,
+        shell: &ShellInfo,
+        wsl_distro: &str,
+        cwd: &str,
+        size: (u16, u16),
+        env: Vec<(String, String)>,
+        command: Option<&str>,
         on_data: impl Fn(Vec<u8>) + Send + 'static,
         on_exit: impl FnOnce(Option<u32>) + Send + 'static,
     ) -> Result<()> {
@@ -169,17 +262,27 @@ impl PtyManager {
             .map_err(|e| anyhow!("{e}"))?;
 
         let mut cmd = CommandBuilder::new(&shell.path);
-        match shell.id.as_str() {
-            "pwsh" | "powershell" => cmd.arg("-NoLogo"),
-            "bash" => {
-                cmd.args(["--login", "-i"]);
+        match (shell.id.as_str(), command) {
+            ("pwsh" | "powershell", None) => cmd.arg("-NoLogo"),
+            ("pwsh" | "powershell", Some(c)) => {
+                cmd.args(["-NoLogo", "-Command", &with_exit_code(c)])
+            }
+            ("bash", run) => {
+                match run {
+                    None => cmd.args(["--login", "-i"]),
+                    Some(c) => cmd.args(["--login", "-c", c]),
+                }
+                // Git Bash stays in the working directory instead of going home.
                 cmd.env("CHERE_INVOKING", "1");
             }
-            "wsl" => {
+            ("wsl", run) => {
                 if !wsl_distro.is_empty() {
                     cmd.args(["-d", wsl_distro]);
                 }
                 cmd.args(["--cd", cwd]);
+                if let Some(c) = run {
+                    cmd.args(["--", "bash", "-lc", c]);
+                }
             }
             _ => {}
         }
@@ -199,6 +302,7 @@ impl PtyManager {
             .context("lancement du shell")?;
         drop(pair.slave);
         let killer = child.clone_killer();
+        let job = command.and_then(|_| tree_job(child.as_ref()));
         let mut reader = pair.master.try_clone_reader().map_err(|e| anyhow!("{e}"))?;
         let writer = pair.master.take_writer().map_err(|e| anyhow!("{e}"))?;
         let id = info.id.clone();
@@ -209,6 +313,7 @@ impl PtyManager {
                 master: pair.master,
                 writer,
                 killer,
+                _job: job,
             },
         );
 
@@ -225,8 +330,10 @@ impl PtyManager {
         let terms = self.terms.clone();
         std::thread::spawn(move || {
             let code = child.wait().ok().map(|s| s.exit_code());
-            // Dropping the master closes the pseudo-console, which ends the reader thread.
-            terms.lock().remove(&id);
+            // Dropping the master closes the pseudo-console, which ends the reader thread (and the
+            // job, what the command left running). Outside the lock: see kill.
+            let term = terms.lock().remove(&id);
+            drop(term);
             on_exit(code);
         });
         Ok(())
@@ -254,7 +361,10 @@ impl PtyManager {
     }
 
     pub fn kill(&self, id: &str) {
-        if let Some(mut t) = self.terms.lock().remove(id) {
+        // Dropped outside the lock: closing the pseudo-console may wait for its reader, which
+        // takes the lock to answer a cursor position query. Dropping its job kills the rest.
+        let term = self.terms.lock().remove(id);
+        if let Some(mut t) = term {
             let _ = t.killer.kill();
         }
     }
@@ -364,6 +474,9 @@ mod tests {
         assert!(installed(&alias), "{}", alias.display());
     }
 
+    /// Tests spotting "the new ping.exe" run one at a time, or they could see each other's.
+    static PINGS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// PIDs of running ping.exe processes.
     fn pings() -> Vec<u32> {
         let out = std::process::Command::new("tasklist")
@@ -424,6 +537,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         std::thread::sleep(Duration::from_millis(1500));
+        let _one_at_a_time = PINGS.lock().unwrap_or_else(|e| e.into_inner());
         let before = pings();
         pty.write("t1", b"ping -n 60 127.0.0.1\r").unwrap();
         let pid = loop {
@@ -448,12 +562,254 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+
+    /// Stops the launch command `command`, which starts a ping: the ping must die with it.
+    fn stop_kills_its_ping(id: &str, command: &str) {
+        let _one_at_a_time = PINGS.lock().unwrap_or_else(|e| e.into_inner());
+        let pty = PtyManager::default();
+        let Some(shell) = detect_shells(&Settings::default())
+            .into_iter()
+            .find(|s| s.id == "pwsh" || s.id == "powershell")
+        else {
+            eprintln!("PowerShell not installed: skipped");
+            return;
+        };
+        let info = TermInfo {
+            id: id.into(),
+            project_id: "p".into(),
+            name: "serveur".into(),
+            shell: shell.id.clone(),
+        };
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        let before = pings();
+        pty.spawn_command(
+            info,
+            &shell,
+            "",
+            &cwd,
+            (120, 30),
+            vec![],
+            1,
+            command,
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        let start = Instant::now();
+        let pid = loop {
+            if let Some(p) = pings().into_iter().find(|p| !before.contains(p)) {
+                break p;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "ping did not start"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        pty.kill(id);
+        let start = Instant::now();
+        while alive(pid) {
+            if start.elapsed() > Duration::from_secs(5) {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F"])
+                    .output();
+                panic!("ping {pid} survived its launch command");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn stopping_a_launch_command_kills_the_programs_it_started() {
+        stop_kills_its_ping("run1", "ping -n 60 127.0.0.1");
+    }
+
+    #[test]
+    fn stopping_a_launch_command_also_kills_programs_started_outside_its_console() {
+        stop_kills_its_ping(
+            "run2",
+            "Start-Process ping -ArgumentList '-n','60','127.0.0.1' -WindowStyle Hidden; Start-Sleep 60",
+        );
+    }
 }
 
 #[cfg(test)]
 mod windows_powershell_tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    fn windows_powershell() -> Option<ShellInfo> {
+        let roots = ShellRoots {
+            path: vec![],
+            program_files: None,
+            local_app_data: None,
+            system_root: std::env::var_os("SystemRoot").map(PathBuf::from),
+        };
+        detect_shells_in(&roots, &Settings::default())
+            .into_iter()
+            .find(|s| s.id == "powershell")
+    }
+
+    /// Runs `command` as a launch command; returns its output and exit code.
+    fn launch(command: &str) -> Option<(String, Option<u32>)> {
+        let shell = windows_powershell()?;
+        let pty = PtyManager::default();
+        let out = Arc::new(Mutex::new(String::new()));
+        let exit = Arc::new(Mutex::new(None));
+        let (sink, done) = (out.clone(), exit.clone());
+        let info = TermInfo {
+            id: new_test_id(),
+            project_id: "p".into(),
+            name: "run".into(),
+            shell: shell.id.clone(),
+        };
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        pty.spawn_command(
+            info,
+            &shell,
+            "",
+            &cwd,
+            (120, 30),
+            vec![],
+            1,
+            command,
+            move |b| sink.lock().push_str(&String::from_utf8_lossy(&b)),
+            move |code| *done.lock() = Some(code),
+        )
+        .unwrap();
+        let start = Instant::now();
+        while exit.lock().is_none() {
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "did not end: {}",
+                out.lock()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // Let the reader drain what the pseudo-console still holds.
+        std::thread::sleep(Duration::from_millis(300));
+        let code = exit.lock().unwrap();
+        let text = out.lock().clone();
+        Some((text, code))
+    }
+
+    fn new_test_id() -> String {
+        format!(
+            "run-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+
+    #[test]
+    fn a_launch_command_runs_to_its_end_and_reports_its_exit_code() {
+        let Some((out, code)) = launch("Write-Output ('lancement-' + 'ok'); exit 3") else {
+            return;
+        };
+        assert!(out.contains("lancement-ok"), "{out}");
+        assert_eq!(code, Some(3));
+    }
+
+    #[test]
+    fn a_resized_launch_command_leaves_the_lines_above_its_start_alone() {
+        let Some(shell) = windows_powershell() else {
+            return;
+        };
+        let pty = PtyManager::default();
+        let out = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let sink = out.clone();
+        let info = TermInfo {
+            id: new_test_id(),
+            project_id: "p".into(),
+            name: "run".into(),
+            shell: shell.id.clone(),
+        };
+        let id = info.id.clone();
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        // The log already holds four lines: the command starts on the fifth.
+        pty.spawn_command(
+            info,
+            &shell,
+            "",
+            &cwd,
+            (80, 20),
+            vec![],
+            5,
+            "Write-Output pret; Start-Sleep 20",
+            move |b| sink.lock().extend(b),
+            |_| {},
+        )
+        .unwrap();
+        let text = |from: usize| String::from_utf8_lossy(&out.lock()[from..]).to_string();
+        let start = Instant::now();
+        while !text(0).contains("pret") {
+            assert!(start.elapsed() < Duration::from_secs(30), "no output");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let n = out.lock().len();
+        pty.resize(&id, 100, 25).unwrap();
+        // The pseudo-console repaints its screen from where the command started, not from the top.
+        let start = Instant::now();
+        while !text(n).contains("pret") && start.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        pty.kill(&id);
+        let repaint = text(n);
+        assert!(
+            screen_writes(&repaint).iter().all(|&row| row >= 5),
+            "{repaint:?}"
+        );
+    }
+
+    /// Rows `out` moves the cursor to, or erases from (1 for an erase of the screen).
+    fn screen_writes(out: &str) -> Vec<u32> {
+        out.split("\x1b[")
+            .skip(1)
+            .filter_map(|seq| {
+                let end = seq.find(|c: char| c.is_ascii_alphabetic())?;
+                let first = seq[..end].split(';').next()?.parse().unwrap_or(1);
+                match (&seq[end..end + 1], first) {
+                    ("H" | "f", row) => Some(row),
+                    ("J", 1..=3) => Some(1),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_launch_command_reports_the_exit_code_of_the_program_that_failed() {
+        let Some((out, code)) = launch("cmd /c exit 5") else {
+            return;
+        };
+        assert_eq!(code, Some(5), "{out}");
+    }
+
+    #[test]
+    fn a_launch_command_whose_last_cmdlet_fails_ends_in_error() {
+        let Some((out, code)) = launch(r"Get-Item C:\ccm-introuvable-42") else {
+            return;
+        };
+        assert_eq!(code, Some(1), "{out}");
+    }
+
+    #[test]
+    fn a_launch_command_that_recovers_from_a_failure_ends_with_code_0() {
+        let Some((out, code)) = launch("cmd /c exit 5; Write-Output repris") else {
+            return;
+        };
+        assert_eq!(code, Some(0), "{out}");
+    }
+
+    #[test]
+    fn a_launch_command_that_succeeds_ends_with_code_0() {
+        let Some((_, code)) = launch("Write-Output fini") else {
+            return;
+        };
+        assert_eq!(code, Some(0));
+    }
 
     #[test]
     fn a_windows_powershell_terminal_runs_commands() {
@@ -514,5 +870,25 @@ mod windows_powershell_tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         pty.kill("wps");
+    }
+}
+
+#[cfg(test)]
+mod run_cwd_tests {
+    use super::*;
+
+    #[test]
+    fn a_launch_command_runs_in_the_project_or_one_of_its_folders() {
+        let d = crate::paths::test_dir("run-cwd");
+        std::fs::create_dir_all(d.join("web")).unwrap();
+        let root = d.to_string_lossy().to_string();
+        assert_eq!(run_cwd(&root, "").unwrap(), root);
+        assert_eq!(run_cwd(&root, "  ").unwrap(), root);
+        assert_eq!(
+            run_cwd(&root, "web").unwrap(),
+            d.join("web").to_string_lossy()
+        );
+        let err = run_cwd(&root, "api").unwrap_err().to_string();
+        assert!(err.contains("api"), "{err}");
     }
 }

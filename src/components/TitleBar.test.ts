@@ -50,6 +50,43 @@ describe('TitleBar', () => {
     expect(app.projects.map((p) => p.id)).toEqual(['p1']);
   });
 
+  it('stops the launch commands of a closed project without calling it a crash', async () => {
+    const run = { id: 'c9', name: 'Front', command: 'npm run dev', shell: 'pwsh', cwd: '' };
+    resetApp({ projects: [project(), project({ id: 'p2', name: 'studio-web', runCommands: [run] })] });
+    app.launches.c9 = { status: 'running', ptyId: 't9', name: 'Front', stopping: false, code: null, startedAt: 1 };
+    let stoppingDuringRemoval = false;
+    const backend = fakeBackend({ remove_project: () => void (stoppingDuringRemoval = app.launches.c9.stopping) });
+    render(TitleBar);
+    await closeProjectFromMenu('studio-web');
+    // The backend kills them while removing the project: their exits are expected.
+    expect(stoppingDuringRemoval).toBe(true);
+    expect(backend.called('term_kill')[0].args).toEqual({ id: 't9' });
+    expect(app.launches.c9).toBeUndefined();
+  });
+
+  it('leaves the launch commands alone when the project could not be closed', async () => {
+    const run = { id: 'c9', name: 'Front', command: 'npm run dev', shell: 'pwsh', cwd: '' };
+    resetApp({ projects: [project(), project({ id: 'p2', name: 'studio-web', runCommands: [run] })] });
+    app.launches.c9 = { status: 'running', ptyId: 't9', name: 'Front', stopping: false, code: null, startedAt: 1 };
+    const backend = fakeBackend({
+      remove_project: () => {
+        throw new Error('projet verrouillé');
+      },
+    });
+    render(TitleBar);
+    await closeProjectFromMenu('studio-web');
+    expect(backend.called('term_kill')).toHaveLength(0);
+    expect(app.launches.c9).toMatchObject({ status: 'running', stopping: false });
+  });
+
+  it('opens the launch commands of a project from its tab menu', async () => {
+    fakeBackend();
+    render(TitleBar);
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /studio-web/ }));
+    menu.open!.items.find((i) => i.label === 'Commandes de lancement…')!.onClick!();
+    expect(app.modal).toEqual({ kind: 'runConfig', projectId: 'p2' });
+  });
+
   it('keeps the project when the backend could not remove it', async () => {
     fakeBackend({
       remove_project: () => {

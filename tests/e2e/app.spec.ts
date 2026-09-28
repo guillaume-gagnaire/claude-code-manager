@@ -165,6 +165,56 @@ test('a terminal runs commands in the project folder', async ({ app }) => {
   await expect.poll(() => fs.existsSync(path.join(app.repo, 'e2e-terminal.txt')), { timeout: 20_000 }).toBe(true);
 });
 
+test('launch commands run in their own terminals, with their status live', async ({ app }) => {
+  const { page } = app;
+  const marker = path.join(app.repo, 'web', 'serveur.txt');
+  fs.mkdirSync(path.dirname(marker));
+  await addProject(page, app.repo);
+
+  await page.getByRole('button', { name: 'Configurer', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '+ Ajouter une commande' }).click();
+  const serveurCfg = dialog.getByRole('group').nth(0);
+  await serveurCfg.getByLabel('Nom').fill('Serveur');
+  await serveurCfg.getByLabel('Commande').fill('Set-Content serveur.txt ok; Start-Sleep 600');
+  await serveurCfg.getByLabel(/Sous-dossier/).fill('web');
+  await dialog.getByRole('button', { name: '+ Ajouter une commande' }).click();
+  const buildCfg = dialog.getByRole('group').nth(1);
+  await buildCfg.getByLabel('Nom').fill('Build');
+  await buildCfg.getByLabel('Commande').fill('exit 2');
+  await dialog.getByRole('button', { name: 'Enregistrer' }).click();
+
+  const serveur = page.locator('.run', { hasText: 'Serveur' });
+  const build = page.locator('.run', { hasText: 'Build' });
+  await expect(serveur).toContainText('prêt');
+  await page.getByRole('button', { name: 'Tout lancer', exact: true }).click();
+  await expect(serveur).toContainText('en cours');
+  await expect(build).toContainText('planté (code 2)', { timeout: 30_000 });
+  await expect(page.getByText("« Build » s'est arrêté en erreur (code 2)")).toBeVisible();
+  // Run in its subfolder.
+  await expect.poll(() => fs.existsSync(marker), { timeout: 30_000 }).toBe(true);
+
+  // Its log replaces the conversation; stopping it is not a crash.
+  await serveur.click();
+  const view = page.locator('main.rv');
+  await expect(view.locator('.xterm')).toBeVisible();
+  await expect(view).toContainText('en cours');
+  await view.getByRole('button', { name: 'Stopper' }).click();
+  await expect(serveur).toContainText('arrêté', { timeout: 15_000 });
+  await expect(page.getByText("« Serveur » s'est arrêté en erreur")).toHaveCount(0);
+
+  fs.rmSync(marker);
+  await view.getByRole('button', { name: 'Relancer' }).click();
+  await expect(serveur).toContainText('en cours');
+  await expect.poll(() => fs.existsSync(marker), { timeout: 30_000 }).toBe(true);
+  await page.getByRole('button', { name: 'Tout arrêter', exact: true }).click();
+  await expect(serveur).toContainText('arrêté', { timeout: 15_000 });
+
+  // Back to the agent.
+  await page.locator('.card').first().click();
+  await expect(view).toHaveCount(0);
+});
+
 test('stats record the turns of the app’s agents', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

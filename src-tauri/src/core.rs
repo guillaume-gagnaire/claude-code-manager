@@ -1394,6 +1394,7 @@ impl<R: Runtime> Core<R> {
             color: color.to_string(),
             worktree_per_agent,
             created_at: now_ms(),
+            run_commands: Vec::new(),
         };
         self.projects.write().push(project.clone());
         {
@@ -1418,6 +1419,7 @@ impl<R: Runtime> Core<R> {
         cur.name = p.name;
         cur.color = p.color;
         cur.worktree_per_agent = p.worktree_per_agent;
+        cur.run_commands = p.run_commands;
         drop(projects);
         self.request_save();
         Ok(())

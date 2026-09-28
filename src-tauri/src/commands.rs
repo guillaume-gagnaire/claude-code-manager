@@ -360,6 +360,68 @@ pub fn term_spawn(
     Ok(info)
 }
 
+/// Runs one of the project's launch commands in its own terminal; it ends with the command
+/// (TerminalExit carries its exit code). Stopped with term_kill, like a terminal.
+/// `cursor_row` is the row of its log where it starts.
+#[tauri::command(async)]
+pub fn run_start(
+    core: CoreState,
+    project_id: String,
+    command_id: String,
+    cols: u16,
+    rows: u16,
+    cursor_row: Option<u16>,
+    output: Channel<InvokeResponseBody>,
+) -> Res<TermInfo> {
+    let project = core.project(&project_id).map_err(err)?;
+    let run = project
+        .run_commands
+        .iter()
+        .find(|c| c.id == command_id)
+        .ok_or("commande de lancement introuvable")?;
+    let settings = core.settings.read().clone();
+    let shells = pty::detect_shells(&settings);
+    let sh = shells
+        .iter()
+        .find(|s| s.id == run.shell)
+        .ok_or_else(|| format!("shell « {} » introuvable", run.shell))?;
+    let cwd = pty::run_cwd(&project.path, &run.cwd).map_err(err)?;
+    let info = TermInfo {
+        id: new_id(),
+        project_id,
+        name: run.name.clone(),
+        shell: sh.id.clone(),
+    };
+    let env = if settings.proxy_terminals {
+        settings.proxy_env()
+    } else {
+        Vec::new()
+    };
+    let hub_core = Arc::downgrade(core.inner());
+    let id = info.id.clone();
+    core.pty
+        .spawn_command(
+            info.clone(),
+            sh,
+            &settings.wsl_distro,
+            &cwd,
+            (cols, rows),
+            env,
+            cursor_row.unwrap_or(1),
+            &run.command,
+            move |bytes| {
+                let _ = output.send(InvokeResponseBody::Raw(bytes));
+            },
+            move |code| {
+                if let Some(c) = hub_core.upgrade() {
+                    c.hub.emit(UiEvent::TerminalExit { id, code });
+                }
+            },
+        )
+        .map_err(err)?;
+    Ok(info)
+}
+
 #[tauri::command]
 pub fn term_write(core: CoreState, id: String, data: String) -> Res<()> {
     core.pty.write(&id, data.as_bytes()).map_err(err)

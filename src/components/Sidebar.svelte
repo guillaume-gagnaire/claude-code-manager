@@ -9,6 +9,7 @@
   import { closeTerminal, newTerminal, SHELL_GLYPH } from '../lib/term-actions';
   import { PROJECT_COLORS } from '../lib/theme';
   import type { Agent, Project } from '../lib/types';
+  import RunsSection from './RunsSection.svelte';
   import StatusDot from './StatusDot.svelte';
 
   let { project }: { project: Project } = $props();
@@ -30,6 +31,8 @@
   const terms = $derived(app.terminals.filter((t) => t.projectId === project.id));
   const selectedAgentId = $derived(app.agent?.id);
   const termSelected = $derived(app.selectedTerm[project.id] ?? null);
+  /** Another view (terminal, launch log) fills the main area: no agent is highlighted. */
+  const otherView = $derived(!!termSelected || !!app.runCommand);
 
   function duration(a: Agent) {
     return fDur(a.activeMs + (a.activeSince ? app.now - a.activeSince : 0));
@@ -130,7 +133,7 @@
 
   <div class="list">
     {#each app.projectAgents as a (a.id)}
-      {@const sel = a.id === selectedAgentId && !termSelected}
+      {@const sel = a.id === selectedAgentId && !otherView}
       {@const s = spent(a)}
       <div
         class="card"
@@ -206,7 +209,7 @@
         {#each app.archivedAgents as a (a.id)}
           <div
             class="card archived"
-            class:sel={a.id === selectedAgentId && !termSelected}
+            class:sel={a.id === selectedAgentId && !otherView}
             role="button"
             tabindex="0"
             onclick={() => app.selectAgent(a.id)}
@@ -222,6 +225,8 @@
       {/if}
     {/if}
   </div>
+
+  <RunsSection {project} />
 
   <div class="terms">
     <div class="head small">

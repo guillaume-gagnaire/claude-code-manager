@@ -33,7 +33,7 @@ Référence visuelle : `design/Claude Code Manager.dc.html` (source de vérité 
 
 - Un onglet par projet : pastille couleur, nom, point vert si un agent tourne, compteur `Δ n` (fichiers non commités, worktrees des agents inclus), pastille pulsante = nombre d'agents en attente.
 - `+` ouvre la modale « Nouveau projet ». Onglet « Stats » à droite.
-- Défauts : onglets réordonnables par glisser ; clic droit → renommer, couleur, fermer le projet (retire de l'app, ne touche pas au disque).
+- Défauts : onglets réordonnables par glisser ; clic droit → renommer, couleur, commandes de lancement, fermer le projet (retire de l'app, ne touche pas au disque).
 
 ## Modale « Nouveau projet »
 
@@ -45,6 +45,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 - Nom créé en `agent-N`, puis renommé automatiquement en slug par Haiku après le premier message. Renommable (double-clic).
 - Clic droit : Renommer, Archiver (historique du projet, réouvrable), Supprimer (arrête le process, supprime le worktree après confirmation si non mergé).
 - **Remote control** (clic droit, par agent, désactivé par défaut) : la session de l'agent devient accessible depuis claude.ai et l'app Claude mobile, sous le nom « projet · agent » (requête de contrôle `remote_control`). Son process reste lancé (démarré avec l'app, jamais arrêté pour inactivité) et retrouve la même session distante après un redémarrage (`reattach_session_id`, `keep_session_on_exit`), donc le lien reste valable. Les messages envoyés depuis claude.ai s'affichent dans l'app (« depuis claude.ai ») grâce à `--replay-user-messages` ; l'écho des messages envoyés depuis l'app est écarté par son uuid. Icône sur la carte (connecté / en attente) ; clic droit : Ouvrir sur claude.ai, Copier le lien. Archiver ou supprimer l'agent met fin à sa session distante.
+- **Lancement** (entre Agents et Terminaux) : les commandes qui lancent le projet, configurées via ⚙ ou le clic droit sur l'onglet (nom, ligne de commande, shell parmi ceux détectés, sous-dossier optionnel ; enregistrées avec le projet). Chacune tourne dans son propre terminal ConPTY (`pwsh -Command …`, `bash --login -c …`, `wsl -- bash -lc …`), sans saisie : un clic sur la commande affiche son log dans la zone principale (xterm.js en lecture seule, gardé d'un lancement à l'autre avec un séparateur « relancé à HH:MM »). Statut en direct : prêt, en cours, arrêté (stoppé depuis l'app), terminé (code 0), planté (code N, avec une notification). Lancer ▶, relancer ⟳, stopper ■ (arrête aussi les programmes lancés par la commande), « Tout lancer » / « Tout arrêter ». Fermer le projet arrête ses commandes ; elles ne survivent pas à un redémarrage.
 - **Terminaux** : menu `+` → PowerShell 7 (cherché dans le PATH, Program Files et l'alias du Microsoft Store ; à défaut, Windows PowerShell 5.1), Git Bash, WSL (Ubuntu). Vrai terminal (ConPTY via portable-pty + xterm.js WebGL) : autocomplétion native du shell (Tab / PSReadLine / bash-completion), historique, Ctrl+R, couleurs ANSI, programmes plein écran (vim, less, htop), redimensionnement, copier/coller, liens cliquables, recherche. Les terminaux ne survivent pas à un redémarrage.
 - **Pied** : chemin, branche, `~ modifiés / + ajoutés / − supprimés`, sélecteur de couleur.
 

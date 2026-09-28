@@ -81,6 +81,21 @@ pub struct Project {
     pub worktree_per_agent: bool,
     #[serde(default)]
     pub created_at: i64,
+    /// Commands that launch the project (dev servers, watchers…), each in its own read-only terminal.
+    #[serde(default)]
+    pub run_commands: Vec<RunCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RunCommand {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    /// Shell id ("pwsh", "powershell", "bash", "wsl").
+    pub shell: String,
+    /// Folder relative to the project's, empty for the project itself.
+    pub cwd: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -370,5 +385,28 @@ mod tests {
         assert_eq!(serde_json::to_value(&ui).unwrap()["layout"], "split");
         let old: UiState = serde_json::from_value(json!({ "view": "project" })).unwrap();
         assert_eq!(serde_json::to_value(&old).unwrap()["layout"], "");
+    }
+}
+
+#[cfg(test)]
+mod run_command_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn projects_saved_before_launch_commands_still_load() {
+        let p: Project = serde_json::from_value(json!({
+            "id": "p1", "name": "demo", "path": "C:/demo", "color": "red"
+        }))
+        .unwrap();
+        assert!(p.run_commands.is_empty());
+        let with = json!({ "id": "p1", "name": "demo", "path": "C:/demo", "color": "red",
+            "runCommands": [{ "id": "c1", "name": "Front", "command": "npm run dev", "shell": "pwsh", "cwd": "web" }] });
+        let p: Project = serde_json::from_value(with.clone()).unwrap();
+        assert_eq!(p.run_commands[0].cwd, "web");
+        assert_eq!(
+            serde_json::to_value(&p).unwrap()["runCommands"],
+            with["runCommands"]
+        );
     }
 }

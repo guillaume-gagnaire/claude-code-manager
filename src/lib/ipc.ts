@@ -61,6 +61,14 @@ export const api = {
     output.onmessage = onData;
     return invoke<TermInfo>('term_spawn', { ...a, output });
   },
+  runStart: (
+    a: { projectId: string; commandId: string; cols: number; rows: number; cursorRow: number },
+    onData: (d: ArrayBuffer) => void,
+  ) => {
+    const output = new Channel<ArrayBuffer>();
+    output.onmessage = onData;
+    return invoke<TermInfo>('run_start', { ...a, output });
+  },
   termWrite: (id: string, data: string) => invoke<void>('term_write', { id, data }),
   termResize: (id: string, cols: number, rows: number) => invoke<void>('term_resize', { id, cols, rows }),
   termKill: (id: string) => invoke<void>('term_kill', { id }),

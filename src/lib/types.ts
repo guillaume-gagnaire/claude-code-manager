@@ -26,6 +26,32 @@ export interface Project {
   color: string;
   worktreePerAgent: boolean;
   createdAt: number;
+  /** Commands that launch the project, each in its own read-only terminal. */
+  runCommands: RunCommand[];
+}
+
+export interface RunCommand {
+  id: string;
+  name: string;
+  command: string;
+  /** Shell id: pwsh, powershell, bash, wsl. */
+  shell: string;
+  /** Folder relative to the project's, empty for the project itself. */
+  cwd: string;
+}
+
+export type LaunchStatus = 'running' | 'stopped' | 'done' | 'crashed';
+
+/** A launch command's latest run (none before its first launch). */
+export interface LaunchState {
+  status: LaunchStatus;
+  /** Terminal of the running process. */
+  ptyId: string | null;
+  name: string;
+  /** Stopped on purpose: its exit is not a crash. */
+  stopping: boolean;
+  code: number | null;
+  startedAt: number;
 }
 
 export interface Worktree {

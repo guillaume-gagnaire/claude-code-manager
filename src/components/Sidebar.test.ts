@@ -63,6 +63,19 @@ describe('Sidebar', () => {
   });
 });
 
+describe('Sidebar launch commands', () => {
+  it('no longer highlights the agent while a launch command’s log is shown', async () => {
+    const p = project({ runCommands: [{ id: 'c1', name: 'Front', command: 'npm run dev', shell: 'pwsh', cwd: '' }] });
+    resetApp({ projects: [p], agents: [agent()] });
+    fakeBackend();
+    render(Sidebar, { project: p });
+    const card = screen.getByRole('button', { name: /refacto-auth/ });
+    expect(card).toHaveClass('sel');
+    await userEvent.click(screen.getByRole('button', { name: /^Front/ }));
+    expect(card).not.toHaveClass('sel');
+  });
+});
+
 describe('Sidebar agent card', () => {
   it('shows the tokens and the estimated cost of the running turn', () => {
     resetApp({ projects: [project()], agents: [agent({ status: 'running', tokens: 1000, cost: 0.2, liveTokens: 500, liveCost: 0.1 })] });

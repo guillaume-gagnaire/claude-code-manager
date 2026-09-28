@@ -18,6 +18,7 @@ export async function newTerminal(projectId: string, shell = app.shells[0]?.id) 
   if (!info) return;
   app.terminals.push(info);
   app.selectedTerm[projectId] = info.id;
+  app.selectedLaunch[projectId] = null;
 }
 
 export function closeTerminal(id: string) {
