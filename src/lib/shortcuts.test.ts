@@ -17,6 +17,15 @@ describe('handleShortcut', () => {
     expect(handleShortcut(key('9'))).toBe(false);
   });
 
+  it('switches project with Ctrl+digit on a French (AZERTY) keyboard too', () => {
+    fakeBackend();
+    // AZERTY: the digit row types & é " ' … without Shift; the physical key is still DigitN.
+    expect(handleShortcut(key('é', { code: 'Digit2' }))).toBe(true);
+    expect(app.project?.id).toBe('p2');
+    expect(handleShortcut(key('&', { code: 'Digit1' }))).toBe(true);
+    expect(app.project?.id).toBe('p1');
+  });
+
   it('creates an agent with Ctrl+N', () => {
     const backend = fakeBackend({ create_agent: () => agent({ id: 'a3', createdAt: 3 }) });
     expect(handleShortcut(key('n'))).toBe(true);
@@ -73,6 +82,7 @@ describe('handleShortcut', () => {
 describe('isAppShortcut', () => {
   it('lets navigation shortcuts through the terminal but leaves shell keys to the shell', () => {
     expect(isAppShortcut(key('3'))).toBe(true);
+    expect(isAppShortcut(key('"', { code: 'Digit3' }))).toBe(true);
     expect(isAppShortcut(key('Tab'))).toBe(true);
     expect(isAppShortcut(key('j'))).toBe(true);
     expect(isAppShortcut(key(','))).toBe(true);
