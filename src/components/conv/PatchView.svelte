@@ -1,18 +1,24 @@
 <script lang="ts">
   import type { DiffLine } from '../../lib/diff';
+  import { app } from '../../lib/state.svelte';
+  import DiffView from '../DiffView.svelte';
 
   let { lines, max = 400 }: { lines: DiffLine[]; max?: number } = $props();
   const shown = $derived(lines.slice(0, max));
 </script>
 
 <div class="patch">
-  {#each shown as l, i (i)}
-    <div class="l {l.kind}">
-      <span class="no">{l.kind === 'meta' ? '' : (l.newNo ?? l.oldNo ?? '')}</span>
-      <span class="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}</span>
-      <span class="t">{l.text}</span>
-    </div>
-  {/each}
+  {#if app.diffSplit}
+    <DiffView lines={shown} split />
+  {:else}
+    {#each shown as l, i (i)}
+      <div class="l {l.kind}">
+        <span class="no">{l.kind === 'meta' ? '' : (l.newNo ?? l.oldNo ?? '')}</span>
+        <span class="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}</span>
+        <span class="t">{l.text}</span>
+      </div>
+    {/each}
+  {/if}
   {#if lines.length > max}
     <div class="more">… {lines.length - max} lignes de plus</div>
   {/if}

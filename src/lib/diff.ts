@@ -78,6 +78,11 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
 }
 
 /** Converts structuredPatch hunks (from Claude's Edit/Write results) to display lines. */
+/** The lines of a parsed file, each hunk preceded by its header. */
+export function fileLines(file: DiffFile): DiffLine[] {
+  return file.hunks.flatMap((h) => [{ kind: 'meta', text: h.header, oldNo: null, newNo: null } as DiffLine, ...h.lines]);
+}
+
 export function patchLines(hunks: { oldStart: number; newStart: number; lines: string[] }[]): DiffLine[] {
   const out: DiffLine[] = [];
   for (const h of hunks) {

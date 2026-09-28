@@ -1,16 +1,11 @@
 <script lang="ts">
-  import { splitRows, type DiffFile, type DiffLine } from '../lib/diff';
+  import { splitRows, type DiffLine } from '../lib/diff';
 
-  let { file, split }: { file: DiffFile; split: boolean } = $props();
-
-  const lines = $derived<DiffLine[]>(
-    file.hunks.flatMap((h) => [{ kind: 'meta', text: h.header, oldNo: null, newNo: null } as DiffLine, ...h.lines]),
-  );
+  // Diff lines, unified (merged, red and green lines) or side by side.
+  let { lines, split }: { lines: DiffLine[]; split: boolean } = $props();
 </script>
 
-{#if file.binary}
-  <div class="msg">Fichier binaire.</div>
-{:else if split}
+{#if split}
   <!-- Side by side wraps long lines so both columns stay aligned in narrow panes. -->
   <div class="rows">
     {#each splitRows(lines) as r, i (i)}
@@ -38,11 +33,6 @@
 {/if}
 
 <style>
-  .msg {
-    padding: 40px;
-    text-align: center;
-    color: var(--muted);
-  }
   .rows {
     font-family: var(--mono);
     font-size: 12px;

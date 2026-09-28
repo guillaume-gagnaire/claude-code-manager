@@ -51,7 +51,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 
 - En-tête : nom, statut, projet / branche ; modèle, tokens, coût, « Fichiers ▸ » (ouvre le panneau), durée ; sélecteur de disposition. Quand la colonne est étroite, tokens et durée (puis coût et fichiers) s'effacent : la carte de l'agent les affiche aussi.
 - **Disposition** (globale, mémorisée dans `state.json`, `Ctrl+Maj+L`) : classique (panneau des fichiers à ouvrir) ou **moitié / moitié** : conversation à gauche, à droite le panneau « Non commités » toujours visible avec, sous la liste, le diff du fichier sélectionné (premier fichier par défaut, rafraîchi pendant que l'agent édite).
-- Messages : utilisateur (bulle à droite), assistant (markdown), lignes d'outils compactes **dépliables** (diff pour Edit/Write, sortie pour Bash…), réflexion repliée dépliable.
+- Messages : utilisateur (bulle à droite), assistant (markdown), lignes d'outils compactes **dépliables** (diff pour Edit/Write, unifié ou côte à côte selon le style choisi dans les vues de diff ; sortie pour Bash…), réflexion repliée dépliable.
 - Carte question (AskUserQuestion / permission) : options en boutons, réponse libre possible dans le composer ; carte répondue grisée « → réponse ».
 - Carte « Tâche terminée » : durée, tokens, coût, fichiers ; « Revoir les fichiers », « Commit… ».
 - Indicateur « Claude travaille… » + bouton Stop (interrompre).
@@ -61,7 +61,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 ## Git & fichiers
 
 - Panneau « Non commités » : portée « Cet agent » / « Tout le projet », attribution par worktree (ou par outils Edit/Write de l'agent hors mode worktree).
-- « Voir le diff » : vue diff plein écran (unifiée / côte à côte ; choix partagé avec le volet de la disposition moitié / moitié et mémorisé).
+- « Voir le diff » : vue diff plein écran (unifiée / côte à côte ; choix partagé avec le volet de la disposition moitié / moitié et les diffs de la conversation, et mémorisé).
 - « Commit… » : envoie à l'agent une demande de commit de ses changements (il rédige le message).
 - Mode worktree : `<projet>/.claude/worktrees/<agent>`, branche dédiée. Bouton « Merger dans <branche> » (merge ou squash) ; suppression de l'agent → nettoyage worktree + branche.
 - Compteurs git rafraîchis par watcher de fichiers (debounce), pas par polling.

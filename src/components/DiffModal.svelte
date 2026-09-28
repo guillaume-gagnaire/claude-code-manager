@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { parseUnifiedDiff, type DiffFile } from '../lib/diff';
+  import { fileLines, parseUnifiedDiff, type DiffFile } from '../lib/diff';
   import { api } from '../lib/ipc';
   import { trapFocus } from '../lib/focus';
   import { app } from '../lib/state.svelte';
@@ -64,7 +64,11 @@
           <div class="msg">Aucune différence.</div>
         {:else}
           <div class="fhead mono">{file.path} <span class="add">+{file.add}</span> <span class="del">−{file.del}</span></div>
-          <DiffView {file} split={app.diffSplit} />
+          {#if file.binary}
+            <div class="msg">Fichier binaire.</div>
+          {:else}
+            <DiffView lines={fileLines(file)} split={app.diffSplit} />
+          {/if}
         {/if}
       </div>
     </div>

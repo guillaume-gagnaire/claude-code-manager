@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseUnifiedDiff, patchLines, splitRows } from './diff';
+import { fileLines, parseUnifiedDiff, patchLines, splitRows } from './diff';
 
 const DIFF = `diff --git a/src/auth.ts b/src/auth.ts
 index 1111111..2222222 100644
@@ -54,6 +54,20 @@ describe('parseUnifiedDiff', () => {
   it('handles CRLF line endings', () => {
     const f = parseUnifiedDiff(DIFF.replace(/\n/g, '\r\n'));
     expect(f[0].hunks[0].lines[1]).toMatchObject({ kind: 'del', text: 'const b = 2;' });
+  });
+});
+
+describe('fileLines', () => {
+  it('puts each hunk header before the hunk’s lines', () => {
+    const [file] = parseUnifiedDiff(DIFF);
+    expect(fileLines(file).map((l) => [l.kind, l.text])).toEqual([
+      ['meta', '@@ -10,3 +10,4 @@ export function x() {'],
+      ['ctx', 'const a = 1;'],
+      ['del', 'const b = 2;'],
+      ['add', 'const b = 3;'],
+      ['add', 'const c = 4;'],
+      ['ctx', 'return a;'],
+    ]);
   });
 });
 

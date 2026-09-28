@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { app } from '../../lib/state.svelte';
 import type { ToolItem } from '../../lib/types';
 import ToolRow from './ToolRow.svelte';
 
@@ -24,6 +25,24 @@ describe('ToolRow', () => {
     await userEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.getByText('new line')).toBeInTheDocument();
     expect(screen.getByText('old line')).toBeInTheDocument();
+  });
+
+  it('shows an edit side by side when that diff style is chosen', async () => {
+    app.diffSplit = true;
+    try {
+      render(ToolRow, {
+        item: tool({
+          name: 'Edit',
+          input: { file_path: 'C:\\code\\app\\src\\auth.ts' },
+          result: { isError: false, add: 1, del: 1, patch: [{ oldStart: 4, newStart: 4, lines: ['-old line', '+new line'] }] },
+        }),
+        cwd: CWD,
+      });
+      await userEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getByText('old line').closest('.srow')).toHaveTextContent('new line');
+    } finally {
+      app.diffSplit = false;
+    }
   });
 
   it('shows the command output of a Bash call when expanded', async () => {

@@ -138,3 +138,16 @@ describe('FilesPanel docked in the split layout', () => {
     expect(screen.queryByText('ancien')).not.toBeInTheDocument();
   });
 });
+
+describe('FilesPanel docked with a binary file', () => {
+  beforeEach(() => resetApp({ projects: [project()], agents: [agent()] }));
+
+  it('says the file is binary instead of showing an empty diff', async () => {
+    fakeBackend({
+      git_files: () => [change('logo.png', 'a1')],
+      git_diff: () => 'diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n',
+    });
+    render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
+    expect(await screen.findByText('Fichier binaire.')).toBeInTheDocument();
+  });
+});
