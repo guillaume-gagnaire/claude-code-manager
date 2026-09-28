@@ -704,3 +704,27 @@ async fn remote_agents_are_started_with_the_app() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_deleted_agent_is_never_sent_back_to_the_ui() {
+    let h = harness("delete-late");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.turn(&id, "Bonjour").await;
+    h.core.delete_agent(&id, false).await.unwrap();
+    // The killed process exits afterwards: that must not bring the agent back.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let events = h.events.lock();
+    let removed = events
+        .iter()
+        .position(|e| e["type"] == "agentRemoved" && e["id"] == id.as_str())
+        .expect("removal sent");
+    let late: Vec<&Value> = events[removed..]
+        .iter()
+        .filter(|e| e["type"] == "agent" && e["agent"]["id"] == id.as_str())
+        .collect();
+    assert!(
+        late.is_empty(),
+        "agent sent again after its removal: {late:?}"
+    );
+}

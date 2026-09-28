@@ -135,6 +135,23 @@ test('scrolling up slowly from the bottom of a conversation is never pulled back
   expect(tops.at(-1)!, JSON.stringify({ bottom, tops })).toBeLessThan(bottom - 60);
 });
 
+test('a deleted agent leaves the list for good', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await send(page, 'Bonjour');
+  await expect(page.getByText('Bonjour, tu as dit : Bonjour')).toBeVisible();
+  await page.getByRole('button', { name: '+ Nouvel agent' }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.locator('.card').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Supprimer…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  // Its process exits (and its naming may end) after the removal: it must not come back.
+  await page.waitForTimeout(1500);
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .name')).toHaveText('agent-2');
+});
+
 test('a terminal runs commands in the project folder', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

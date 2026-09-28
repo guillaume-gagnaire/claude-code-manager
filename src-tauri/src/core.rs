@@ -362,8 +362,16 @@ impl<R: Runtime> Core<R> {
             .collect()
     }
 
+    /// Late work on a deleted agent (naming, remote control…) must not bring it back in the UI.
+    fn is_registered(&self, id: &str) -> bool {
+        self.agents.read().contains_key(id)
+    }
+
     fn emit_agent(&self, h: &AgentHandle) {
         let view = h.lock().view();
+        if !self.is_registered(&view.meta.id) {
+            return;
+        }
         self.hub.emit(UiEvent::Agent { agent: view });
         self.update_tray();
     }
@@ -433,7 +441,7 @@ impl<R: Runtime> Core<R> {
             self.emit_conv(id, fx.ops);
         }
         let changed = view.is_some();
-        if let Some(v) = view {
+        if let Some(v) = view.filter(|_| self.is_registered(id)) {
             self.hub.emit(UiEvent::Agent { agent: v });
         }
         if !fx.turns.is_empty() {
@@ -495,6 +503,10 @@ impl<R: Runtime> Core<R> {
                 "agent {}: claude exited (code {code:?}, current process: {current})",
                 rt.meta.id
             );
+            if !current {
+                // A replaced, stopped or deleted agent's process: nothing to report.
+                return;
+            }
             rt.on_exit(gen, code, &stderr, &mut fx);
             (
                 rt.meta.id.clone(),
