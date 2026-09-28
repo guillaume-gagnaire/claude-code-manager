@@ -57,6 +57,15 @@ jobs:
       - name: Build the app for end-to-end tests
         run: npx tauri build --debug --no-bundle
 
+      # Surfaced as an annotation: the end-to-end tests need the Evergreen WebView2 runtime.
+      - name: WebView2 runtime
+        shell: pwsh
+        run: |
+          $id = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $keys = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$id", "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$id", "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$id"
+          $v = $keys | ForEach-Object { (Get-ItemProperty $_ -ErrorAction SilentlyContinue).pv } | Where-Object { $_ } | Select-Object -First 1
+          if ($v) { "::notice::WebView2 runtime $v" } else { "::warning::WebView2 runtime not found" }
+
       - name: End-to-end tests (Playwright over WebView2)
         run: npx playwright test
 

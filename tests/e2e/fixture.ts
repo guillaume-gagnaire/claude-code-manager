@@ -38,8 +38,17 @@ function makeRepo(root: string): string {
   return repo;
 }
 
-async function connect(port: number): Promise<{ browser: Browser; page: Page }> {
+/** Last lines of a log file, for failure messages (CI annotations are all we get there). */
+function tail(file: string, lines = 40): string {
+  if (!fs.existsSync(file)) return `(no ${path.basename(file)})`;
+  const text = fs.readFileSync(file, 'utf8').trimEnd();
+  return text ? text.split('\n').slice(-lines).join('\n') : `(${path.basename(file)} is empty)`;
+}
+
+async function connect(port: number, stopped: () => string | null): Promise<{ browser: Browser; page: Page }> {
   for (let i = 0; i < 120; i++) {
+    const status = stopped();
+    if (status) throw new Error(`the app stopped before exposing its WebView2 DevTools endpoint (${status})`);
     try {
       const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
       const page = browser.contexts()[0]?.pages()[0];
@@ -66,6 +75,8 @@ export const test = base.extend<{ app: App }>({
     const repo = makeRepo(root);
     const log = path.join(root, 'fake-claude.jsonl');
     const port = 9400 + (testInfo.workerIndex * 50 + Math.floor(Math.random() * 50));
+    const stderr = path.join(root, 'app-stderr.log');
+    const errFd = fs.openSync(stderr, 'w');
     const child: ChildProcess = spawn(EXE, [], {
       env: {
         ...process.env,
@@ -74,29 +85,44 @@ export const test = base.extend<{ app: App }>({
         WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'),
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
       },
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', errFd],
     });
-    const { browser, page } = await connect(port);
-    await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
-    const launches = () =>
-      fs.existsSync(log)
-        ? fs
-            .readFileSync(log, 'utf8')
-            .trim()
-            .split('\n')
-            .filter(Boolean)
-            .map((l) => JSON.parse(l))
-        : [];
-    await use({ page, repo, data, launches });
-    await browser.close().catch(() => {});
-    if (child.pid) {
+    fs.closeSync(errFd);
+    let stopped: string | null = null;
+    child.on('exit', (code, signal) => {
+      stopped = signal ? `killed by ${signal}` : `exit code ${code} (0x${((code ?? 0) >>> 0).toString(16)})`;
+    });
+    child.on('error', (e) => (stopped = `could not start: ${e.message}`));
+    let browser: Browser | null = null;
+    try {
+      let page: Page;
       try {
-        execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-      } catch {
-        // already gone
+        ({ browser, page } = await connect(port, () => stopped));
+      } catch (e) {
+        throw new Error(`${(e as Error).message}\n--- app.log ---\n${tail(path.join(data, 'app.log'))}\n--- stderr ---\n${tail(stderr)}`);
       }
+      await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
+      const launches = () =>
+        fs.existsSync(log)
+          ? fs
+              .readFileSync(log, 'utf8')
+              .trim()
+              .split('\n')
+              .filter(Boolean)
+              .map((l) => JSON.parse(l))
+          : [];
+      await use({ page, repo, data, launches });
+    } finally {
+      await browser?.close().catch(() => {});
+      if (child.pid) {
+        try {
+          execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+        } catch {
+          // already gone
+        }
+      }
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
     }
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   },
 });
 
