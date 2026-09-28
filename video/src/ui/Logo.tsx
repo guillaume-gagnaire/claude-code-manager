@@ -18,7 +18,7 @@ export const Logo: FC<{ size: number; stack?: [number, number, number]; spark?: 
         height="66"
         rx="14"
         fill="none"
-        stroke={C.spark}
+        stroke={C.brand}
         strokeOpacity={0.35 * Math.min(1, back)}
         strokeWidth="5"
         transform={`translate(${(1 - back) * -18} ${(1 - back) * 18})`}
@@ -30,7 +30,7 @@ export const Logo: FC<{ size: number; stack?: [number, number, number]; spark?: 
         height="66"
         rx="14"
         fill="none"
-        stroke={C.spark}
+        stroke={C.brand}
         strokeOpacity={0.6 * Math.min(1, mid)}
         strokeWidth="5"
         transform={`translate(${(1 - mid) * -9} ${(1 - mid) * 9})`}
@@ -42,14 +42,14 @@ export const Logo: FC<{ size: number; stack?: [number, number, number]; spark?: 
         height="66"
         rx="14"
         fill="#1b1512"
-        stroke={C.spark}
+        stroke={C.brand}
         strokeWidth="5"
         opacity={Math.min(1, front)}
         transform={`translate(41 59) scale(${0.6 + 0.4 * front}) translate(-41 -59)`}
       />
       <g
         transform={`translate(41 59) rotate(${(1 - spark) * -120 + spin}) scale(${Math.max(0, spark)})`}
-        stroke={C.spark}
+        stroke={C.brand}
         strokeLinecap="round"
       >
         <path d="M0 -20V20M-20 0H20" strokeWidth="6.2" />

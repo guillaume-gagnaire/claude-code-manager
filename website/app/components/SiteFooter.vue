@@ -5,7 +5,7 @@ import { REPO } from '~/data/site';
 <template>
   <footer class="foot">
     <div class="wrap bar">
-      <div class="brand"><LogoMark :size="22" /> CCM - Claude Code Manager</div>
+      <div class="brand"><LogoMark :size="22" /> Escouade</div>
       <div class="links">
         <a :href="REPO">GitHub</a>
         <a :href="`${REPO}/blob/main/LICENSE`">Licence MIT</a>

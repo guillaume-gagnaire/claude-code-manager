@@ -6,7 +6,7 @@ const asset = useAsset();
   <section id="video" class="video">
     <div class="wrap">
       <video class="player" controls preload="none" playsinline width="1920" height="1080" :poster="asset('images/poster.jpg')">
-        <source :src="asset('ccm.mp4')" type="video/mp4" />
+        <source :src="asset('escouade.mp4')" type="video/mp4" />
       </video>
     </div>
   </section>

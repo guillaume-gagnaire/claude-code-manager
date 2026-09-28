@@ -20,6 +20,8 @@ export const C = {
   muted: '#a8a095',
   dim: '#6f685f',
   spark: '#D97757',
+  /** Escouade's own colour: its logo and name. */
+  brand: '#35C1BD',
   ok: 'oklch(0.76 0.12 150)',
   wait: 'oklch(0.82 0.13 80)',
   del: 'oklch(0.72 0.14 25)',

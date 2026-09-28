@@ -1,9 +1,9 @@
 // Everything the site says.
 
-export const REPO = 'https://github.com/guillaume-gagnaire/claude-code-manager';
+export const REPO = 'https://github.com/guillaume-gagnaire/escouade';
 export const DOWNLOAD = `${REPO}/releases/latest`;
 /** Public address of the site, for links shared on social networks. */
-export const SITE = 'https://guillaume-gagnaire.github.io/claude-code-manager/';
+export const SITE = 'https://guillaume-gagnaire.github.io/escouade/';
 
 export interface Feature {
   id: string;
@@ -26,7 +26,7 @@ export const FEATURES: Feature[] = [
       'Un worktree git par agent, si tu veux',
     ],
     image: 'images/agents.jpg',
-    alt: 'La fenêtre de CCM : les projets en onglets, la liste des agents et la conversation de l’un d’eux',
+    alt: 'La fenêtre d’Escouade : les projets en onglets, la liste des agents et la conversation de l’un d’eux',
   },
   {
     id: 'chat',
@@ -43,7 +43,7 @@ export const FEATURES: Feature[] = [
   {
     id: 'notifications',
     title: 'Tu sais quand on t’attend',
-    text: 'Quand un agent pose une question ou termine, CCM le signale : pastille sur l’onglet, carillon, notification Windows cliquable, barre des tâches qui clignote.',
+    text: 'Quand un agent pose une question ou termine, Escouade le signale : pastille sur l’onglet, carillon, notification Windows cliquable, barre des tâches qui clignote.',
     points: ['Ctrl+J saute au prochain agent qui attend', 'Badge dans la zone de notification', 'Rien à surveiller : tu es prévenu'],
     image: 'images/notifications.jpg',
     alt: 'Un agent en attente de réponse et la notification Windows correspondante',
@@ -83,14 +83,14 @@ export const FEATURES: Feature[] = [
   {
     id: 'remote',
     title: 'Et depuis ton téléphone',
-    text: 'Active le remote control sur un agent : sa session s’ouvre sur claude.ai et dans l’app Claude sur mobile. Ce que tu y envoies s’affiche aussi dans CCM.',
+    text: 'Active le remote control sur un agent : sa session s’ouvre sur claude.ai et dans l’app Claude sur mobile. Ce que tu y envoies s’affiche aussi dans Escouade.',
     points: [
       'Au cas par cas, d’un clic droit sur l’agent',
       'Même session après un redémarrage',
-      'L’agent reste joignable tant que CCM tourne',
+      'L’agent reste joignable tant que Escouade tourne',
     ],
     image: 'images/remote.jpg',
-    alt: 'Un téléphone sur claude.ai et CCM qui affichent la même conversation',
+    alt: 'Un téléphone sur claude.ai et Escouade qui affichent la même conversation',
   },
 ];
 
@@ -104,7 +104,7 @@ export const CARDS: Card[] = [
   { title: 'Un worktree par agent', text: 'Chaque agent sur sa branche, sans marcher sur les autres ; merge ou squash quand c’est prêt.' },
   {
     title: 'Toujours là',
-    text: 'Fermer la fenêtre ne coupe pas les agents : CCM reste dans la zone de notification et reprend chaque session au redémarrage.',
+    text: 'Fermer la fenêtre ne coupe pas les agents : Escouade reste dans la zone de notification et reprend chaque session au redémarrage.',
   },
   { title: 'Derrière un proxy', text: 'Proxy HTTP(S) pour Claude, les quotas, les mises à jour et, si tu veux, les terminaux.' },
   { title: 'Mises à jour automatiques', text: 'Les nouvelles versions, signées, s’installent depuis l’app.' },
@@ -120,11 +120,11 @@ export interface Step {
 export const STEPS: Step[] = [
   {
     title: 'Installe Claude Code',
-    text: 'CCM pilote le Claude Code installé sur ta machine : installe-le et connecte-toi une fois, avec ton abonnement Claude ou une clé API.',
+    text: 'Escouade pilote le Claude Code installé sur ta machine : installe-le et connecte-toi une fois, avec ton abonnement Claude ou une clé API.',
     link: { label: 'Documentation de Claude Code', href: 'https://code.claude.com/docs/fr/overview' },
   },
   {
-    title: 'Installe CCM',
+    title: 'Installe Escouade',
     text: 'Télécharge l’installeur de la dernière version et lance-le. Il te faut Windows 10 ou 11 et Git for Windows.',
     link: { label: 'Dernière version', href: DOWNLOAD },
   },
@@ -142,16 +142,16 @@ export interface Question {
 export const FAQ: Question[] = [
   {
     q: 'C’est gratuit ?',
-    a: 'Oui, et open source, sous licence MIT. CCM utilise ton propre Claude Code : ton abonnement Claude ou ta clé API, sans intermédiaire.',
+    a: 'Oui, et open source, sous licence MIT. Escouade utilise ton propre Claude Code : ton abonnement Claude ou ta clé API, sans intermédiaire.',
   },
   {
     q: 'Où vont mes données ?',
     a: 'Nulle part : projets, conversations et statistiques restent sur ta machine, dans ~/.claude-code-manager/. Le réseau ne sert qu’à Claude Code lui-même, à la lecture de tes quotas et aux mises à jour de l’app.',
   },
-  { q: 'Ça marche sur Mac ou Linux ?', a: 'Pas pour l’instant : CCM est fait pour Windows 10 et 11.' },
+  { q: 'Ça marche sur Mac ou Linux ?', a: 'Pas pour l’instant : Escouade est fait pour Windows 10 et 11.' },
   { q: 'Comment se font les mises à jour ?', a: 'L’app te propose chaque nouvelle version ; un clic, et elle s’installe.' },
   {
     q: 'C’est un produit Anthropic ?',
-    a: 'Non. CCM est un projet indépendant, non affilié à Anthropic. Claude et Claude Code sont des marques d’Anthropic.',
+    a: 'Non. Escouade est un projet indépendant, non affilié à Anthropic. Claude et Claude Code sont des marques d’Anthropic.',
   },
 ];

@@ -42,12 +42,12 @@ export const Intro: FC = () => {
             transform: `translateY(${(1 - title) * 40}px)`,
           }}
         >
-          CCM
+          Escouade
         </div>
         <div
           style={{ fontSize: 46, fontWeight: 500, color: C.muted, opacity: Math.min(1, sub), transform: `translateY(${(1 - sub) * 30}px)` }}
         >
-          Claude Code Manager
+          Le poste de pilotage de tes agents Claude Code
         </div>
       </div>
       <Caption text={captionOf('intro')} delay={100} top={860} />

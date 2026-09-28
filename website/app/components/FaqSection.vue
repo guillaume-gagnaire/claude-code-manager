@@ -37,7 +37,7 @@ summary::-webkit-details-marker {
 }
 summary::after {
   content: '+';
-  color: var(--spark);
+  color: var(--brand);
   font-family: var(--mono);
 }
 .item[open] summary::after {

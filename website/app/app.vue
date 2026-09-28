@@ -2,12 +2,12 @@
 import { FEATURES, SITE } from '~/data/site';
 
 const description =
-  'Tous tes Claude Code, dans une seule fenêtre : une app Windows gratuite et open source pour piloter plusieurs agents Claude Code en parallèle.';
+  'Escouade, le poste de pilotage de tes agents Claude Code : une app Windows gratuite et open source pour piloter plusieurs agents en parallèle, dans une seule fenêtre.';
 
 useSeoMeta({
-  title: 'CCM - Claude Code Manager',
+  title: 'Escouade — le poste de pilotage de tes agents Claude Code',
   description,
-  ogTitle: 'CCM - Claude Code Manager',
+  ogTitle: 'Escouade — le poste de pilotage de tes agents Claude Code',
   ogDescription: description,
   ogType: 'website',
   ogUrl: SITE,

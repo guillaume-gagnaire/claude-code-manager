@@ -45,7 +45,7 @@ import { STEPS } from '~/data/site';
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: var(--spark);
+  background: var(--brand);
   color: var(--ink);
   font-family: var(--mono);
   font-weight: 600;
@@ -60,7 +60,7 @@ p {
   font-size: 16px;
 }
 a {
-  color: var(--spark);
+  color: var(--brand);
   font-weight: 600;
   font-size: 15px;
   text-decoration: none;

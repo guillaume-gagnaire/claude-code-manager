@@ -16,7 +16,8 @@
   --text: #ede7df;
   --muted: #a8a095;
   --dim: #8a8276;
-  --spark: #d97757;
+  /* Escouade's colour (its logo); the app itself keeps its warm accent. */
+  --brand: #35c1bd;
   --ink: #1b1512;
   --ui: 'Hanken Grotesk', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -74,7 +75,7 @@ video {
   font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--spark);
+  color: var(--brand);
 }
 
 .lead {
@@ -102,12 +103,12 @@ video {
 }
 
 .btn:hover {
-  border-color: var(--spark);
+  border-color: var(--brand);
 }
 
 .btn.primary {
-  background: var(--spark);
-  border-color: var(--spark);
+  background: var(--brand);
+  border-color: var(--brand);
   color: var(--ink);
 }
 
@@ -116,6 +117,6 @@ video {
 }
 
 :focus-visible {
-  outline: 2px solid var(--spark);
+  outline: 2px solid var(--brand);
   outline-offset: 3px;
 }

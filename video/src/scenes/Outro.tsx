@@ -29,8 +29,10 @@ export const Outro: FC = () => {
           }}
         >
           <Logo size={210} stack={[e, e, e]} spark={e} spin={frame * 0.5} />
-          <div style={{ fontSize: 130, fontWeight: 800, letterSpacing: -5, lineHeight: 1, opacity: Math.min(1, name) }}>CCM</div>
-          <div style={{ fontSize: 42, fontWeight: 500, color: C.muted, opacity: Math.min(1, name) }}>Claude Code Manager</div>
+          <div style={{ fontSize: 130, fontWeight: 800, letterSpacing: -5, lineHeight: 1, opacity: Math.min(1, name) }}>Escouade</div>
+          <div style={{ fontSize: 42, fontWeight: 500, color: C.muted, opacity: Math.min(1, name) }}>
+            Le poste de pilotage de tes agents Claude Code
+          </div>
         </div>
         <Caption text={captionOf('outro')} delay={36} top={760} />
         <div
@@ -42,12 +44,12 @@ export const Outro: FC = () => {
             textAlign: 'center',
             fontFamily: MONO,
             fontSize: 30,
-            color: C.spark,
+            color: C.brand,
             opacity: Math.min(1, link),
             transform: `translateY(${(1 - link) * 20}px)`,
           }}
         >
-          github.com/guillaume-gagnaire/claude-code-manager
+          github.com/guillaume-gagnaire/escouade
         </div>
       </div>
     </Stage>

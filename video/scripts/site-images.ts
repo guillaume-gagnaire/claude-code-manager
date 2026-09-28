@@ -29,5 +29,5 @@ for (const s of SHOTS) {
   still(['Shot', `${SITE}/images/${s.name}.jpg`, `--frame=${s.frame}`, `--props=out/props-${s.name}.json`]);
 }
 still(['Presentation', `${SITE}/images/poster.jpg`, '--frame=170']);
-copyFileSync('out/presentation.mp4', `${SITE}/ccm.mp4`);
+copyFileSync('out/presentation.mp4', `${SITE}/escouade.mp4`);
 copyFileSync('../public/logo.svg', `${SITE}/logo.svg`);

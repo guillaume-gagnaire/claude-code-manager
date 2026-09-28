@@ -5,7 +5,7 @@ import { REPO } from '~/data/site';
 <template>
   <header class="top">
     <div class="wrap bar">
-      <a class="brand" href="#top"><LogoMark :size="28" /><span>CCM</span></a>
+      <a class="brand" href="#top"><LogoMark :size="28" /><span>Escouade</span></a>
       <nav class="nav" aria-label="Sections">
         <a href="#video">Vidéo</a>
         <a href="#fonctionnalites">Fonctionnalités</a>

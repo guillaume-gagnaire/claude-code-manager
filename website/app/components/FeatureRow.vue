@@ -59,7 +59,7 @@ li::before {
   width: 8px;
   height: 8px;
   border-radius: 2px;
-  background: var(--spark);
+  background: var(--brand);
 }
 .shot {
   width: 100%;

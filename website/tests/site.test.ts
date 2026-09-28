@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { CARDS, FAQ, FEATURES, STEPS } from '../app/data/site';
 
 const OUT = new URL('../.output/public/', import.meta.url);
-const BASE = '/claude-code-manager/';
+const BASE = '/escouade/';
 const VERSION = (JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8')) as { version: string })
   .version;
 
@@ -19,24 +19,27 @@ beforeAll(() => {
 
 describe('generated site', () => {
   it('is named and described for search engines and social networks', () => {
-    expect(html).toContain('<title>CCM - Claude Code Manager</title>');
+    expect(html).toContain('<title>Escouade — le poste de pilotage de tes agents Claude Code</title>');
     expect(html).toMatch(/<html[^>]*lang="fr"/);
     expect(html).toMatch(/<meta[^>]*name="description"[^>]*content="[^"]{40,}"/);
-    expect(html).toMatch(
-      /<meta[^>]*og:image[^>]*content="https:\/\/guillaume-gagnaire\.github\.io\/claude-code-manager\/images\/poster\.jpg"/,
-    );
+    expect(html).toMatch(/<meta[^>]*og:image[^>]*content="https:\/\/guillaume-gagnaire\.github\.io\/escouade\/images\/poster\.jpg"/);
   });
 
   it('presents every feature, the install steps and the questions', () => {
     const texts = [...FEATURES.map((f) => f.title), ...CARDS.map((c) => c.title), ...STEPS.map((s) => s.title), ...FAQ.map((f) => f.q)];
     for (const t of texts) expect(html, t).toContain(escape(t));
-    expect(html).toContain('CCM - Claude Code Manager');
     expect(html).toContain('non affilié à Anthropic');
   });
 
+  it('goes by its own name, Escouade, and no longer by the old one', () => {
+    expect(html).toContain('>Escouade<');
+    expect(html).not.toContain('Claude Code Manager');
+    expect(html).not.toMatch(/\bCCM\b/);
+  });
+
   it('downloads the latest release, links to the code and shows the version', () => {
-    expect(html).toContain('href="https://github.com/guillaume-gagnaire/claude-code-manager/releases/latest"');
-    expect(html).toContain('href="https://github.com/guillaume-gagnaire/claude-code-manager"');
+    expect(html).toContain('href="https://github.com/guillaume-gagnaire/escouade/releases/latest"');
+    expect(html).toContain('href="https://github.com/guillaume-gagnaire/escouade"');
     expect(html).toContain(`Version ${VERSION}`);
   });
 
@@ -56,7 +59,7 @@ describe('generated site', () => {
   });
 
   it('plays the presentation video on demand, with its poster', () => {
-    expect(html).toContain(`src="${BASE}ccm.mp4"`);
+    expect(html).toContain(`src="${BASE}escouade.mp4"`);
     expect(html).toContain(`poster="${BASE}images/poster.jpg"`);
     expect(html).toMatch(/<video[^>]*preload="none"/);
   });

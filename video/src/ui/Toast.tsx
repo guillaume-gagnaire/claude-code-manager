@@ -21,7 +21,7 @@ export const WinToast: FC<{ title: string; body: string; enter: number }> = ({ t
     }}
   >
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#bbbbbb' }}>
-      <Logo size={18} /> CCM - Claude Code Manager
+      <Logo size={18} /> Escouade
     </div>
     <div style={{ marginTop: 10, fontSize: 18, fontWeight: 700 }}>{title}</div>
     <div style={{ marginTop: 4, fontSize: 15, color: '#dddddd' }}>{body}</div>

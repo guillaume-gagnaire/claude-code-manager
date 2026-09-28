@@ -8,11 +8,11 @@ const { version } = useRuntimeConfig().public;
   <section id="top" class="hero">
     <div class="wrap inner">
       <LogoMark :size="104" class="logo" />
-      <h1><span class="ccm">CCM</span> - Claude Code Manager</h1>
-      <p class="tag">Tous tes Claude Code, dans une seule fenêtre.</p>
+      <h1>Escouade</h1>
+      <p class="tag">Le poste de pilotage de tes agents Claude Code.</p>
       <p class="pitch">
-        Une app Windows pour piloter plusieurs agents Claude Code en parallèle : projets en onglets, chat natif, git, terminaux et
-        statistiques, au même endroit.
+        Tous tes Claude Code dans une seule fenêtre : une app Windows pour piloter plusieurs agents en parallèle, avec projets en onglets,
+        chat natif, git, terminaux et statistiques.
       </p>
       <div class="cta">
         <a class="btn primary" :href="DOWNLOAD">Télécharger pour Windows</a>
@@ -27,7 +27,7 @@ const { version } = useRuntimeConfig().public;
 .hero {
   padding: 88px 0 56px;
   text-align: center;
-  background: radial-gradient(900px 480px at 50% 0%, color-mix(in oklch, var(--spark) 16%, var(--bg)), var(--bg) 70%);
+  background: radial-gradient(900px 480px at 50% 0%, color-mix(in oklch, var(--brand) 16%, var(--bg)), var(--bg) 70%);
 }
 .inner {
   display: flex;
@@ -43,9 +43,6 @@ h1 {
   font-weight: 800;
   line-height: 1.08;
   letter-spacing: -0.03em;
-}
-.ccm {
-  color: var(--spark);
 }
 .tag {
   margin: 18px 0 0;
