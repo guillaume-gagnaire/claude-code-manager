@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { conversationOf } from '../lib/conversations.svelte';
 import { app } from '../lib/state.svelte';
 import { agent, fakeBackend, resetApp } from '../test/ipc';
@@ -24,10 +24,41 @@ function setup(over: Parameters<typeof agent>[0] = {}, items: unknown[] = []) {
 describe('Composer', () => {
   beforeEach(() => resetApp());
 
-  it('offers the xhigh effort level and applies it to the agent', async () => {
+  it('offers the xhigh effort level in the effort menu and applies it to the agent', async () => {
     const { a, backend } = setup({ model: 'opus', effort: 'high' });
-    await userEvent.click(screen.getByRole('button', { name: 'Très élevé' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Effort : Élevé' }));
+    expect(screen.getByRole('menuitemradio', { name: /^Élevé/ })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Très élevé/ }));
     expect(backend.called('set_agent_options').at(-1)?.args).toMatchObject({ id: a.id, effort: 'xhigh' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('picks the model from a menu rather than a row of buttons', async () => {
+    const { a, backend } = setup({ model: 'sonnet' });
+    expect(screen.queryByRole('button', { name: 'Opus' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Modèle : Sonnet' }));
+    expect(screen.getByRole('menuitemradio', { name: /Sonnet/ })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Opus/ }));
+    expect(backend.called('set_agent_options').at(-1)?.args).toMatchObject({ id: a.id, model: 'opus' });
+    expect(screen.getByRole('button', { name: 'Modèle : Opus' })).toBeInTheDocument();
+  });
+
+  it('keeps a single menu open at a time', async () => {
+    setup({ model: 'sonnet', mode: 'auto' });
+    await userEvent.click(screen.getByRole('button', { name: /^Modèle/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Mode/ }));
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menuitemradio', { name: /Plan/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Mode/ }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('closes an open menu with Escape without interrupting Claude', async () => {
+    const { backend } = setup({ status: 'running' });
+    await userEvent.click(screen.getByRole('button', { name: /^Effort/ }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(backend.called('interrupt')).toHaveLength(0);
   });
 
   it('keeps what is being typed when the agent is updated by the backend', async () => {
@@ -171,7 +202,7 @@ describe('Composer', () => {
 
   it('switches the permission mode from the mode menu', async () => {
     const { a, backend } = setup({ mode: 'auto' });
-    await userEvent.click(screen.getByRole('button', { name: /Mode\s*Auto/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Mode : Auto' }));
     expect(screen.getByRole('menuitemradio', { name: /Auto/ })).toHaveAttribute('aria-checked', 'true');
     await userEvent.click(screen.getByRole('menuitemradio', { name: /Plan/ }));
     expect(backend.called('set_agent_options').at(-1)?.args).toMatchObject({ id: a.id, mode: 'plan' });
@@ -180,18 +211,55 @@ describe('Composer', () => {
 
   it('shows the ask-every-time mode Claude falls back to after a plan', async () => {
     const { a, backend } = setup({ mode: 'default' });
-    await userEvent.click(screen.getByRole('button', { name: /Mode\s*Demander/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Mode : Demander' }));
     expect(screen.getByRole('menuitemradio', { name: /Demander/ })).toHaveAttribute('aria-checked', 'true');
     await userEvent.click(screen.getByRole('menuitemradio', { name: /Auto/ }));
     expect(backend.called('set_agent_options').at(-1)?.args).toMatchObject({ id: a.id, mode: 'auto' });
   });
 
-  it('disables effort levels and auto mode for Haiku', async () => {
+  it('disables the effort and the auto mode for Haiku', async () => {
     setup({ model: 'haiku', mode: 'acceptEdits' });
-    expect(screen.getByRole('button', { name: 'Élevé' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Opus' })).toBeEnabled();
-    await userEvent.click(screen.getByRole('button', { name: /Mode/ }));
+    expect(screen.getByRole('button', { name: /^Effort/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: /^Modèle/ }));
+    expect(screen.getByRole('menuitemradio', { name: /Opus/ })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: /^Mode/ }));
     expect(screen.getByRole('menuitemradio', { name: /Auto/ })).toBeDisabled();
     expect(screen.getByRole('menuitemradio', { name: /Plan/ })).toBeEnabled();
+  });
+});
+
+describe('Composer in a narrow column (split layout)', () => {
+  const Real = globalThis.ResizeObserver;
+  beforeEach(() => {
+    resetApp();
+    // The composer reports a 400 px width, as in half of a small window.
+    globalThis.ResizeObserver = class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() {
+        this.cb([{ contentRect: { width: 400 } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+  });
+  afterEach(() => {
+    globalThis.ResizeObserver = Real;
+  });
+
+  it('drops the menu captions to keep the send button on the same line', () => {
+    setup({ model: 'sonnet', effort: 'medium', mode: 'auto' });
+    const model = screen.getByRole('button', { name: 'Modèle : Sonnet' });
+    expect(model).toHaveTextContent('Sonnet');
+    expect(model).not.toHaveTextContent('Modèle');
+    expect(screen.getByRole('button', { name: 'Mode : Auto' })).not.toHaveTextContent('Mode');
+    expect(screen.getByRole('button', { name: 'Envoyer' })).toBeInTheDocument();
+  });
+
+  it('shrinks the stop button to its icon while Claude works', () => {
+    setup({ status: 'running' });
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    expect(stop).toHaveTextContent('■');
+    expect(stop).not.toHaveTextContent('Stop');
+    expect(screen.getByRole('button', { name: 'Mettre en file' })).toBeInTheDocument();
   });
 });

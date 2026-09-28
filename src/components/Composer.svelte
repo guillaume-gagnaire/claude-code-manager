@@ -16,8 +16,10 @@
   import { basename, dirname } from '../lib/format';
   import { api } from '../lib/ipc';
   import { EFFORTS, MODELS, MODES, supportsAuto, supportsEffort } from '../lib/models';
+  import { observeWidth } from '../lib/resize';
   import { app } from '../lib/state.svelte';
   import type { Agent, QuestionItem } from '../lib/types';
+  import Dropdown from './Dropdown.svelte';
 
   let { agent }: { agent: Agent } = $props();
 
@@ -33,7 +35,8 @@
   let sel = $state(0);
   let sending = $state(false);
   let dragOver = $state(false);
-  let modeOpen = $state(false);
+  let menu = $state<'model' | 'effort' | 'mode' | null>(null);
+  let width = $state(0);
   let fileInput = $state<HTMLInputElement>();
   let reqSeq = 0;
 
@@ -41,7 +44,20 @@
   const pendingItem = $derived(agent.pending.length ? conv.items.find((i) => i.id === agent.pending[0]) : undefined);
   const busy = $derived(agent.status === 'running' || agent.status === 'waiting');
   const effortOk = $derived(supportsEffort(agent.model));
-  const currentMode = $derived(MODES.find((m) => m.value === agent.mode));
+  const modeOptions = $derived(
+    MODES.map((md) => {
+      const unavailable = md.value === 'auto' && !supportsAuto(agent.model);
+      return {
+        value: md.value,
+        label: md.label,
+        detail: unavailable ? 'indisponible avec Haiku' : md.title,
+        title: unavailable ? "Le mode Auto n'est pas disponible avec Haiku" : md.title,
+        disabled: unavailable,
+      };
+    }),
+  );
+  // Keeps the send button on the same line in a narrow column (split layout): drop the captions.
+  const tight = $derived(width > 0 && width < (busy ? 590 : 480));
   const placeholder = $derived(
     pendingItem
       ? pendingItem.kind === 'permission'
@@ -261,6 +277,15 @@
     app.run(api.interrupt(agent.id));
   }
 
+  function toggleMenu(m: 'model' | 'effort' | 'mode') {
+    menu = menu === m ? null : m;
+  }
+
+  function pick(o: { model?: string; effort?: string; mode?: string }) {
+    menu = null;
+    setOption(o);
+  }
+
   function setOption(o: { model?: string; effort?: string; mode?: string }) {
     const a = app.agents[agent.id];
     if (a) Object.assign(a, o);
@@ -329,61 +354,42 @@
       onpaste={onPaste}
       onblur={() => setTimeout(() => (suggestions = []), 120)}
     ></textarea>
-    <div class="bar">
-      <div class="segmented" title="Modèle">
-        {#each MODELS as m (m.value)}
-          <button class:on={agent.model === m.value} onclick={() => setOption({ model: m.value })}>{m.label}</button>
-        {/each}
-      </div>
-      <div class="segmented labeled" title={effortOk ? 'Effort de réflexion' : "Haiku ne gère pas l'effort"}>
-        <span class="lab">Effort</span>
-        {#each EFFORTS as ef (ef.value)}
-          <button
-            class="accent"
-            class:on={effortOk && agent.effort === ef.value}
-            title={ef.title}
-            disabled={!effortOk}
-            onclick={() => setOption({ effort: ef.value })}>{ef.label}</button
-          >
-        {/each}
-      </div>
-      <div class="mode-wrap">
-        <button
-          class="mode"
-          class:bypass={agent.mode === 'bypassPermissions'}
-          aria-haspopup="menu"
-          aria-expanded={modeOpen}
-          onclick={() => (modeOpen = !modeOpen)}
-        >
-          <span class="lab">Mode</span>{currentMode?.label ?? agent.mode}<span class="chev">▾</span>
-        </button>
-        {#if modeOpen}
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="mode-backdrop" onclick={() => (modeOpen = false)}></div>
-          <div class="mode-menu" role="menu">
-            {#each MODES as md (md.value)}
-              {@const unavailable = md.value === 'auto' && !supportsAuto(agent.model)}
-              <button
-                role="menuitemradio"
-                aria-checked={agent.mode === md.value}
-                disabled={unavailable}
-                title={unavailable ? "Le mode Auto n'est pas disponible avec Haiku" : md.title}
-                onclick={() => {
-                  modeOpen = false;
-                  setOption({ mode: md.value });
-                }}
-              >
-                <span class="check">{agent.mode === md.value ? '✓' : ''}</span>
-                <span class="ml">{md.label}</span>
-                <span class="md">{unavailable ? 'indisponible avec Haiku' : md.title}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
+    <div class="bar" use:observeWidth={(w) => (width = w)}>
+      <Dropdown
+        caption="Modèle"
+        value={agent.model}
+        options={MODELS}
+        open={menu === 'model'}
+        showCaption={!tight}
+        onToggle={() => toggleMenu('model')}
+        onPick={(v) => pick({ model: v })}
+      />
+      <Dropdown
+        caption="Effort"
+        value={effortOk ? agent.effort : ''}
+        options={EFFORTS.map((ef) => ({ value: ef.value, label: ef.label, detail: ef.title }))}
+        open={menu === 'effort'}
+        showCaption={!tight}
+        disabled={!effortOk}
+        title={effortOk ? 'Effort de réflexion' : "Haiku ne gère pas l'effort"}
+        onToggle={() => toggleMenu('effort')}
+        onPick={(v) => pick({ effort: v })}
+      />
+      <Dropdown
+        caption="Mode"
+        value={agent.mode}
+        options={modeOptions}
+        open={menu === 'mode'}
+        showCaption={!tight}
+        danger={agent.mode === 'bypassPermissions'}
+        onToggle={() => toggleMenu('mode')}
+        onPick={(v) => pick({ mode: v })}
+      />
       <div style="flex:1"></div>
       {#if busy}
-        <button class="btn ghost stop" onclick={stop} title="Interrompre (Échap)">■ Stop</button>
+        <button class="btn ghost stop" class:icon={tight} onclick={stop} title="Interrompre (Échap)" aria-label="Stop"
+          >{tight ? '■' : '■ Stop'}</button
+        >
       {/if}
       <input
         bind:this={fileInput}
@@ -465,101 +471,20 @@
   }
   .bar {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     padding: 8px 10px 10px 14px;
+    min-width: 0;
   }
-  .labeled {
-    align-items: center;
-    padding-left: 8px;
-  }
-  .lab {
-    font-size: 11px;
-    color: var(--dim);
-    margin-right: 4px;
+  .bar > :global(button) {
+    flex: none;
   }
   .stop {
     height: 30px;
     color: var(--del);
   }
-  .mode-wrap {
-    position: relative;
-  }
-  .mode {
-    height: 30px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 8px;
-    border-radius: var(--r-sm);
-    border: 1px solid var(--line);
-    background: var(--panel);
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .mode:hover {
-    border-color: var(--line2);
-  }
-  .mode.bypass {
-    border-color: color-mix(in oklch, var(--del) 55%, transparent);
-    color: var(--del);
-  }
-  .chev {
-    color: var(--dim);
-    font-size: 9px;
-  }
-  .mode-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 29;
-  }
-  .mode-menu {
-    position: absolute;
-    left: 0;
-    bottom: calc(100% + 6px);
-    z-index: 30;
-    width: 330px;
-    display: flex;
-    flex-direction: column;
-    padding: 5px;
-    border-radius: var(--r);
-    border: 1px solid var(--line2);
-    background: var(--elev);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-  }
-  .mode-menu button {
-    display: grid;
-    grid-template-columns: 16px auto;
-    column-gap: 6px;
-    padding: 7px 10px;
-    border: none;
-    border-radius: var(--r-sm);
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-  }
-  .mode-menu button:hover:not(:disabled) {
-    background: var(--elev2);
-  }
-  .mode-menu button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .check {
-    grid-row: span 2;
-    color: var(--accent);
-    font-size: 12px;
-  }
-  .ml {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .md {
-    font-size: 11.5px;
-    color: var(--dim);
+  .stop.icon {
+    padding: 0 10px;
   }
   .imgs {
     display: flex;

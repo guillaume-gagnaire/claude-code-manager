@@ -54,7 +54,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 - Carte question (AskUserQuestion / permission) : options en boutons, réponse libre possible dans le composer ; carte répondue grisée « → réponse ».
 - Carte « Tâche terminée » : durée, tokens, coût, fichiers ; « Revoir les fichiers », « Commit… ».
 - Indicateur « Claude travaille… » + bouton Stop (interrompre).
-- Composer : Modèle (Fable · Opus · Sonnet · Haiku, alias CLI), Effort (Bas · Moyen · Élevé · Max), Mode (Auto · Plan · Édits auto · Bypass ; **Auto par défaut**), Envoyer (↵). Bordure jaune si une question attend.
+- Composer : menus déroulants ouverts vers le haut — Modèle (Fable · Opus · Sonnet · Haiku, alias CLI), Effort (Bas · Moyen · Élevé · Très élevé · Max), Mode (Auto · Demander · Plan · Édits auto · Bypass ; **Auto par défaut**) — puis Envoyer (↵), toujours sur une seule ligne : dans une colonne étroite, les libellés des menus s'effacent et Stop se réduit à ■. Bordure jaune si une question attend.
 - Composer v1 : images (coller / glisser), autocomplétion `@fichier`, slash commands (intégrées + `.claude/commands` + skills), file d'attente de messages pendant que Claude travaille.
 
 ## Git & fichiers
