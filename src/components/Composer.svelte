@@ -57,7 +57,7 @@
     }),
   );
   // Keeps the send button on the same line in a narrow column (split layout): drop the captions.
-  const tight = $derived(width > 0 && width < (busy ? 590 : 480));
+  const tight = $derived(width > 0 && width < (busy ? 640 : 540));
   const placeholder = $derived(
     pendingItem
       ? pendingItem.kind === 'permission'
@@ -284,7 +284,13 @@
   function pick(o: { model?: string; effort?: string; mode?: string }) {
     menu = null;
     setOption(o);
+    ta?.focus();
   }
+
+  // A dialog opening over an open menu would leave it hidden, still catching Escape.
+  $effect(() => {
+    if (app.modal) menu = null;
+  });
 
   function setOption(o: { model?: string; effort?: string; mode?: string }) {
     const a = app.agents[agent.id];

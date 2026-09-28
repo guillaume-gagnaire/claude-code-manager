@@ -21,6 +21,12 @@
   const projectId = $derived(project.id);
   const SC: Record<string, string> = { A: 'var(--add)', M: 'var(--wait)', D: 'var(--del)' };
 
+  // Which list `files` holds: until the list of a newly selected agent / scope arrives, the old one
+  // must not be paired with the new owner to load a diff.
+  const listKey = (pid: string, aid: string | null, agentScope: boolean) => `${pid}|${agentScope ? aid : '*'}`;
+  let listFor = $state<string | null>(null);
+  const wanted = $derived(listKey(projectId, agentId, scope === 'agent'));
+
   $effect(() => {
     void app.gitTick;
     const pid = projectId;
@@ -28,26 +34,34 @@
     const agentScope = scope === 'agent';
     clearTimeout(timer);
     timer = setTimeout(() => load(pid, aid, agentScope), 120);
+    return () => clearTimeout(timer);
   });
 
   async function load(pid: string, aid: string | null, agentScope: boolean) {
     const mine = ++seq;
     if (agentScope && !aid) {
-      files = [];
+      setFiles([], listKey(pid, aid, agentScope));
       return;
     }
     loading = true;
     try {
       const result = await api.gitFiles(pid, aid);
       if (mine !== seq) return; // superseded by a newer request
-      files = result;
+      setFiles(result, listKey(pid, aid, agentScope));
       error = null;
     } catch (e) {
       if (mine !== seq) return;
       error = String(e);
-      files = [];
+      setFiles([], listKey(pid, aid, agentScope));
     }
     loading = false;
+  }
+
+  function setFiles(list: FileChange[], key: string) {
+    files = list;
+    listFor = key;
+    // Pin the file shown (the first one by default): a file sorting before it must not take its place.
+    if (!list.some((f) => keyOf(f) === picked)) picked = list[0] ? keyOf(list[0]) : null;
   }
 
   const hint = $derived(
@@ -75,8 +89,8 @@
   }
 
   let picked = $state<string | null>(null);
-  // The picked file while it is still listed, else the first one.
-  const current = $derived(docked ? (files.find((f) => keyOf(f) === picked) ?? files[0] ?? null) : null);
+  // The picked file (kept listed by setFiles), once the list matches the selected agent and scope.
+  const current = $derived(docked && listFor === wanted ? (files.find((f) => keyOf(f) === picked) ?? null) : null);
   // Primitives, so that a list refresh returning the same file does not reload its diff twice.
   const currentPath = $derived(current?.path ?? null);
   const currentOwner = $derived(current ? diffOwner(current) : null);

@@ -50,7 +50,7 @@ La variable d'environnement `CCM_DATA_DIR` permet d'utiliser un autre dossier (d
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | agent suivant / précédent |
 | `Ctrl+J` | prochain agent en attente de réponse |
 | `Ctrl+T` | nouveau terminal |
-| `Ctrl+Shift+B` | panneau des fichiers non commités |
+| `Ctrl+Shift+B` | panneau des fichiers non commités (disposition classique ; toujours affiché dans l'autre) |
 | `Ctrl+Shift+L` | disposition classique / conversation et fichiers côte à côte |
 | `Ctrl+,` | réglages |
 | `Échap` (dans le champ de saisie) | interrompre Claude |

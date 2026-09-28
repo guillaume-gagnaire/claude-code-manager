@@ -53,12 +53,29 @@ describe('Composer', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('closes an open menu with Escape without interrupting Claude', async () => {
-    const { backend } = setup({ status: 'running' });
+  it('closes an open menu with Escape without interrupting Claude, even from the text field', async () => {
+    const { backend, textarea } = setup({ status: 'running' });
     await userEvent.click(screen.getByRole('button', { name: /^Effort/ }));
+    textarea.focus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(backend.called('interrupt')).toHaveLength(0);
+    await userEvent.keyboard('{Escape}');
+    expect(backend.called('interrupt')).toHaveLength(1);
+  });
+
+  it('gives the focus back to the text field after a pick', async () => {
+    const { textarea } = setup({ model: 'sonnet' });
+    await userEvent.click(screen.getByRole('button', { name: /^Modèle/ }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Opus/ }));
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it('closes an open menu when a dialog opens over it', async () => {
+    setup();
+    await userEvent.click(screen.getByRole('button', { name: /^Mode/ }));
+    app.modal = { kind: 'settings' };
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
   });
 
   it('keeps what is being typed when the agent is updated by the backend', async () => {

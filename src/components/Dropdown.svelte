@@ -54,7 +54,7 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label="{caption} : {shown}"
-    {title}
+    title={title ?? `${caption} : ${shown}`}
     {disabled}
     onclick={onToggle}
   >

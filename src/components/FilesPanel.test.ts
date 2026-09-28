@@ -151,3 +151,33 @@ describe('FilesPanel docked with a binary file', () => {
     expect(await screen.findByText('Fichier binaire.')).toBeInTheDocument();
   });
 });
+
+describe('FilesPanel docked: the file being read stays put', () => {
+  beforeEach(() => resetApp({ projects: [project()], agents: [agent(), agent({ id: 'a2', name: 'tests-e2e' })] }));
+
+  it('keeps showing the default file when the agent touches one that sorts before it', async () => {
+    let files = [change('src/z.ts', 'a1')];
+    fakeBackend({ git_files: () => files, git_diff: (a: any) => diffOf(a.paths[0], `diff de ${a.paths[0]}`) });
+    render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
+    expect(await screen.findByText('diff de src/z.ts')).toBeInTheDocument();
+    files = [change('src/a.ts', 'a1'), change('src/z.ts', 'a1')];
+    app.gitTick++;
+    expect(await screen.findByRole('button', { name: /a\.ts/ })).toBeInTheDocument();
+    await settle();
+    expect(screen.getByText('diff de src/z.ts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /z\.ts/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('never asks for another agent’s file when switching agents', async () => {
+    const backend = fakeBackend({
+      git_files: (a: any) => [change(a.agentId === 'a1' ? 'src/one.ts' : 'src/two.ts', a.agentId)],
+      git_diff: (a: any) => diffOf(a.paths[0], `diff de ${a.paths[0]}`),
+    });
+    const { rerender } = render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
+    expect(await screen.findByText('diff de src/one.ts')).toBeInTheDocument();
+    await rerender({ project: project(), agent: app.agents.a2, docked: true });
+    expect(await screen.findByText('diff de src/two.ts')).toBeInTheDocument();
+    const pairs = backend.called('git_diff').map((c) => `${c.args.agentId}:${c.args.paths[0]}`);
+    expect(pairs).not.toContain('a2:src/one.ts');
+  });
+});
