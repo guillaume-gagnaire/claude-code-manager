@@ -47,7 +47,7 @@ export function score(): Score {
     const part = partOf(bar);
     const beats = [0, 1, 2, 3].map((b) => t0 + b * BEAT);
 
-    if (part !== 'end' || bar < END + 3) s.pads.push([t0, SECONDS_PER_BAR, chord.tones]);
+    s.pads.push([t0, SECONDS_PER_BAR, chord.tones]);
 
     if (part !== 'end' || bar === END) {
       const cutoff = part === 'intro' || part === 'build' ? 500 + bar * 500 : part === 'calm' ? 1800 : part === 'end' ? 1500 : 3400;
@@ -80,14 +80,16 @@ const PAD: Voice = { wave: 'saw', attack: 0.5, decay: 1, sustain: 0.8, release: 
 export function render(sc: Score = score()): Mix {
   const m = mix(TOTAL_BARS * SECONDS_PER_BAR);
   const rnd = noise(7);
-  for (const t of sc.kicks) kick(m, t);
+  // Lighter before the drop, so that it hits.
+  for (const t of sc.kicks) kick(m, t, t < DROP * SECONDS_PER_BAR ? 0.5 : 0.95);
   for (const t of sc.claps) clap(m, t, rnd);
   for (const [t, gain] of sc.hats) hat(m, t, rnd, gain);
-  for (const [t, d, n, cutoff] of sc.bass) note(m, t, d, midiHz(n), 0.34, { ...BASS, cutoff });
+  for (const [t, d, n, cutoff] of sc.bass) note(m, t, d, midiHz(n), t < DROP * SECONDS_PER_BAR ? 0.2 : 0.34, { ...BASS, cutoff });
   for (const [t, d, n, cutoff] of sc.arp) note(m, t, d, midiHz(n), 0.1, { ...ARP, cutoff });
   for (const [t, d, tones] of sc.pads) for (const n of tones) note(m, t, d, midiHz(n), 0.08, PAD);
   for (const [t, d] of sc.risers) riser(m, t, d, rnd);
   for (const t of sc.crashes) crash(m, t, rnd);
-  master(m);
+  // The pads fade out with the picture over the last two bars.
+  master(m, 0.89, 2 * SECONDS_PER_BAR);
   return m;
 }

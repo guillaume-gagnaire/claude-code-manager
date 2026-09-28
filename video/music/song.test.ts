@@ -52,6 +52,18 @@ describe('render', () => {
     expect(peak).toBeGreaterThan(0.85);
   });
 
+  const rmsAt = (from: number, to: number) => rms(from / SECONDS_PER_BAR, to / SECONDS_PER_BAR);
+
+  it('fades out with the picture instead of stopping before it', () => {
+    const end = TOTAL_BARS * SECONDS_PER_BAR;
+    expect(rmsAt(end - 0.5, end)).toBeGreaterThan(0.001);
+    expect(rmsAt(end - 0.5, end)).toBeLessThan(rmsAt(end - 1, end - 0.5));
+  });
+
+  it('hits on the drop: at least 4 dB over the build', () => {
+    expect(rms(barOf('projects'), barOf('projects') + 1)).toBeGreaterThan(1.6 * rms(barOf('chaos'), barOf('chaos') + 2));
+  });
+
   it('is much louder after the drop than in the intro', () => {
     expect(rms(barOf('projects'), barOf('projects') + 2)).toBeGreaterThan(2 * rms(0, 2));
   });

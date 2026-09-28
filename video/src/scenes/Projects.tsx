@@ -8,33 +8,23 @@ import { Shell } from '../ui/Shell';
 import { AgentsSidebar } from '../ui/Sidebar';
 import { AppWindow, Caption, Stage } from '../ui/Stage';
 
-/** Project tabs, then agents fill the sidebar; one of them ends up with a question. */
+/** Project tabs, then agents fill the sidebar. */
 export const Projects: FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const asks = frame >= 210;
   const tabs = TABS.map((t, i) => ({
     ...t,
     enter: pop(frame, fps, 4 + i * 10),
     delta: Math.round((t.delta ?? 0) * ramp(frame, 40, 50)),
-    waiting: asks && i === 0 ? 1 : 0,
   }));
-  const agents = AGENTS.map((a) => (asks && a.name === 'tests-e2e' ? { ...a, status: 'waiting' as const } : a));
   return (
     <Stage>
       <Caption text={captionOf('projects')} />
       <AppWindow>
         <Shell
           tabs={tabs}
-          status={{ ...STATUS, active: asks ? 2 : 3, waiting: asks ? 1 : 0 }}
-          sidebar={
-            <AgentsSidebar
-              agents={agents}
-              selected="refacto-auth"
-              enters={agents.map((_, i) => pop(frame, fps, 40 + i * 14))}
-              ring={asks ? 'tests-e2e' : undefined}
-            />
-          }
+          status={STATUS}
+          sidebar={<AgentsSidebar agents={AGENTS} selected="refacto-auth" enters={AGENTS.map((_, i) => pop(frame, fps, 40 + i * 14))} />}
         >
           <ConvHeader name="refacto-auth" status="running" sub="demo-api / main" />
           <Conversation>
