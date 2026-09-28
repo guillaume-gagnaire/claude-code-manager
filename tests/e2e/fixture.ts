@@ -166,7 +166,13 @@ export const test = base.extend<{ app: App }>({
           // already gone
         }
       }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+      // Windows releases the handles of killed processes (a terminal's shell sits in the repo)
+      // with a delay: a temporary folder left behind must not fail the test.
+      try {
+        fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+      } catch (e) {
+        console.warn(`could not remove ${root}: ${(e as Error).message}`);
+      }
     }
   },
 });
