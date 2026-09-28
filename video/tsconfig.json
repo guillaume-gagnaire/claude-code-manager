@@ -4,12 +4,23 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM"],
-    "types": ["node"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src", "music", "scripts", "remotion.config.ts"]
+  "include": [
+    "src",
+    "music",
+    "scripts",
+    "remotion.config.ts",
+    "vitest.config.ts"
+  ]
 }
