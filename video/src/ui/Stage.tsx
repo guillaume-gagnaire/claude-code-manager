@@ -1,4 +1,4 @@
-import type { FC, ReactNode } from 'react';
+import { createContext, useContext, type FC, type ReactNode } from 'react';
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { pop } from '../anim';
 import { C, UI } from '../theme';
@@ -17,10 +17,14 @@ export const Stage: FC<{ children?: ReactNode }> = ({ children }) => (
   </AbsoluteFill>
 );
 
+/** Off for the website's images: they show the interface alone. */
+export const CaptionsContext = createContext(true);
+
 /** The scene's text, word by word. */
 export const Caption: FC<{ text: string; delay?: number; top?: number; size?: number }> = ({ text, delay = 4, top = 62, size = 50 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  if (!useContext(CaptionsContext)) return null;
   return (
     <div
       style={{ position: 'absolute', top, left: 0, right: 0, textAlign: 'center', fontSize: size, fontWeight: 700, letterSpacing: -0.5 }}

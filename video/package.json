@@ -6,6 +6,7 @@
     "studio": "remotion studio src/index.ts",
     "music": "tsx music/generate.ts",
     "stills": "tsx scripts/stills.ts",
+    "site-images": "tsx scripts/site-images.ts",
     "render": "npm run music && remotion render src/index.ts Presentation out/presentation.mp4 --codec=h264 --crf=18",
     "test": "vitest run",
     "check": "tsc --noEmit"
