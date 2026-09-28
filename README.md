@@ -102,6 +102,17 @@ Le workflow `release.yml` vérifie que le tag correspond à la version, crée la
 
 Tague toujours la tête de `main`, et attends que la release soit créée (première minute du workflow) avant de pousser d'autres commits : une fois `main` plus loin que le tag, le `GITHUB_TOKEN` des Actions n'a plus le droit de créer la release (« Resource not accessible by integration »).
 
+### Vidéo de présentation
+
+Le dossier `video/` contient la vidéo de présentation (Remotion) et sa musique, générée par code :
+
+```powershell
+cd video
+npm install
+npm run studio   # aperçu
+npm run render   # musique + out/presentation.mp4
+```
+
 ## Architecture
 
 - `src-tauri/` : backend Rust (Tauri 2).
