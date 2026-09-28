@@ -1,3 +1,4 @@
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from './ipc';
 import { app } from './state.svelte';
 import type { Agent } from './types';
@@ -28,6 +29,27 @@ export function mergeAgent(agent: Agent) {
       if (out !== undefined) app.toast(out || 'Merge effectué', 'ok');
     },
   };
+}
+
+/** Remote Control on / off: the agent becomes reachable from claude.ai and the Claude app. */
+export async function toggleRemote(agent: Agent) {
+  const on = !agent.remoteControl;
+  const ok = await app.run(api.setRemoteControl(agent.id, on));
+  if (ok !== undefined && on) app.toast(`${agent.name} est accessible depuis claude.ai et l’app Claude`, 'ok');
+}
+
+export function openRemote(agent: Agent) {
+  if (agent.remoteUrl) openUrl(agent.remoteUrl).catch((e) => app.toast(String(e), 'error'));
+}
+
+export async function copyRemoteLink(agent: Agent) {
+  if (!agent.remoteUrl) return;
+  try {
+    await navigator.clipboard.writeText(agent.remoteUrl);
+    app.toast('Lien claude.ai copié', 'ok');
+  } catch (e) {
+    app.toast(String(e), 'error');
+  }
 }
 
 export function openFiles(scope: 'agent' | 'project' = 'agent') {

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { api } from '../lib/ipc';
   import { fDur, fTok, fUsd, tildify } from '../lib/format';
-  import { menu } from '../lib/menu.svelte';
+  import { copyRemoteLink, openRemote, toggleRemote } from '../lib/agent-actions';
+  import { menu, type MenuItem } from '../lib/menu.svelte';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
   import { app } from '../lib/state.svelte';
@@ -54,9 +55,32 @@
         ? { label: 'Restaurer', onClick: () => app.run(api.archiveAgent(a.id, false)) }
         : { label: 'Archiver', hint: 'garde la conversation', onClick: () => app.run(api.archiveAgent(a.id, true)) },
       ...(a.worktree ? [{ label: 'Ouvrir le worktree dans l’éditeur', onClick: () => app.run(api.openInEditor(a.worktree!.path)) }] : []),
+      ...remoteItems(a),
       { label: '', separator: true },
       { label: 'Supprimer…', danger: true, onClick: () => confirmDelete(a) },
     ]);
+  }
+
+  function remoteItems(a: Agent): MenuItem[] {
+    if (a.archived) return [];
+    const items: MenuItem[] = [
+      { label: '', separator: true },
+      a.remoteControl
+        ? { label: 'Désactiver le remote control', onClick: () => toggleRemote(a) }
+        : { label: 'Activer le remote control', hint: 'claude.ai, mobile', onClick: () => toggleRemote(a) },
+    ];
+    if (a.remoteControl && a.remoteUrl) {
+      items.push(
+        { label: 'Ouvrir sur claude.ai', onClick: () => openRemote(a) },
+        { label: 'Copier le lien claude.ai', onClick: () => copyRemoteLink(a) },
+      );
+    }
+    return items;
+  }
+
+  function remoteTitle(a: Agent) {
+    const state = a.remoteState === 'connected' ? 'connecté' : a.remoteState === 'ready' ? 'connexion…' : 'en attente de connexion';
+    return `Remote control : ${state} (accessible depuis claude.ai et l’app Claude)`;
   }
 
   function confirmDelete(a: Agent) {
@@ -135,6 +159,21 @@
             />
           {:else}
             <span class="name" ondblclick={() => startRename(a)} role="presentation">{a.name}</span>
+          {/if}
+          {#if a.remoteControl}
+            <span class="rc" class:on={a.remoteState === 'connected'} title={remoteTitle(a)}>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                aria-hidden="true"
+                ><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" fill="currentColor" /></svg
+              >
+            </span>
           {/if}
           {#if a.status === 'waiting'}
             <span class="pill">Question</span>
@@ -360,6 +399,14 @@
     font-size: 11px;
     color: var(--muted);
     flex: none;
+  }
+  .rc {
+    flex: none;
+    display: inline-flex;
+    color: var(--dim);
+  }
+  .rc.on {
+    color: var(--info);
   }
   .meta {
     display: flex;

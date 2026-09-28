@@ -385,3 +385,8 @@ pub fn quit_app(core: CoreState, app: tauri::AppHandle) {
     core.shutdown();
     app.exit(0);
 }
+
+#[tauri::command]
+pub async fn set_remote_control(core: CoreState<'_>, id: String, enabled: bool) -> Res<()> {
+    core.set_remote_control(&id, enabled).await.map_err(err)
+}

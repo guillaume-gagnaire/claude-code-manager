@@ -182,6 +182,7 @@ pub fn run() {
             commands::git_diff,
             commands::git_log,
             commands::git_show,
+            commands::set_remote_control,
             commands::stats,
             commands::refresh_usage,
             commands::open_in_editor,

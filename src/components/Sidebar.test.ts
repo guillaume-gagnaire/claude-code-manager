@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
 import { agent, fakeBackend, project, resetApp } from '../test/ipc';
 import Sidebar from './Sidebar.svelte';
@@ -70,5 +71,42 @@ describe('Sidebar agent card', () => {
     const card = screen.getByRole('button', { name: /refacto-auth/ });
     expect(within(card).getByText('1,5 k tok')).toBeInTheDocument();
     expect(within(card).getByText('≈ 0,30 $')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar remote control', () => {
+  const items = () => menu.open?.items.map((i) => i.label) ?? [];
+  const click = (label: string) => menu.open!.items.find((i) => i.label === label)!.onClick!();
+
+  it('turns Remote Control on from the agent’s context menu', async () => {
+    resetApp({ projects: [project()], agents: [agent()] });
+    const backend = fakeBackend();
+    render(Sidebar, { project: project() });
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /refacto-auth/ }));
+    expect(items()).toContain('Activer le remote control');
+    click('Activer le remote control');
+    await new Promise((r) => setTimeout(r));
+    expect(backend.called('set_remote_control')[0].args).toEqual({ id: 'a1', enabled: true });
+  });
+
+  it('shows a remote agent’s link state and offers its claude.ai session', async () => {
+    const url = 'https://claude.ai/code/session_abc';
+    resetApp({ projects: [project()], agents: [agent({ remoteControl: true, remoteUrl: url, remoteState: 'connected' })] });
+    const backend = fakeBackend();
+    render(Sidebar, { project: project() });
+    const card = screen.getByRole('button', { name: /refacto-auth/ });
+    expect(within(card).getByTitle(/Remote control : connecté/)).toBeInTheDocument();
+    await fireEvent.contextMenu(card);
+    expect(items()).toEqual(expect.arrayContaining(['Désactiver le remote control', 'Ouvrir sur claude.ai', 'Copier le lien claude.ai']));
+    click('Désactiver le remote control');
+    await new Promise((r) => setTimeout(r));
+    expect(backend.called('set_remote_control')[0].args).toEqual({ id: 'a1', enabled: false });
+  });
+
+  it('says when a remote agent is not reachable yet', () => {
+    resetApp({ projects: [project()], agents: [agent({ remoteControl: true, remoteState: null })] });
+    fakeBackend();
+    render(Sidebar, { project: project() });
+    expect(screen.getByTitle(/Remote control : en attente de connexion/)).toBeInTheDocument();
   });
 });

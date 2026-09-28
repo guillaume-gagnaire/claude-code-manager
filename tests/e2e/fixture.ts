@@ -121,6 +121,8 @@ export const test = base.extend<{ app: App }>({
         ...process.env,
         CCM_DATA_DIR: data,
         FAKE_CLAUDE_LOG: log,
+        // Sent "from claude.ai" to an agent once its Remote Control is on.
+        FAKE_CLAUDE_REMOTE_MESSAGE: 'Message depuis le téléphone',
         WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'),
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
       },

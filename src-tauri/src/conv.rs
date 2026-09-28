@@ -141,6 +141,11 @@ impl Conv {
         self.items.clone()
     }
 
+    pub fn contains(&mut self, id: &str) -> bool {
+        self.ensure_loaded();
+        self.index.contains_key(id)
+    }
+
     #[cfg(test)]
     pub fn get(&mut self, id: &str) -> Option<&Value> {
         self.ensure_loaded();

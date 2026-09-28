@@ -82,6 +82,10 @@ export function agent(over: Partial<Agent> = {}): Agent {
     contextTokens: 0,
     liveTokens: 0,
     liveCost: 0,
+    remoteControl: false,
+    remoteSession: null,
+    remoteUrl: null,
+    remoteState: null,
     ...over,
   };
 }

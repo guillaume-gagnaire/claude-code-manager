@@ -9,9 +9,11 @@
     {#if item.images > 0}
       <span class="chip">🖼 {item.images} image{item.images > 1 ? 's' : ''}</span>
     {/if}
-    {item.text}
+    <span class="text">{item.text}</span>
     <!-- Sent while Claude worked: the CLI takes it at the turn's next step (after the running tool). -->
-    {#if item.queued}<span class="queued" title="Claude en tient compte dès sa prochaine étape">transmis pendant le tour</span>{/if}
+    {#if item.queued}<span class="note" title="Claude en tient compte dès sa prochaine étape">transmis pendant le tour</span>{/if}
+    {#if item.origin === 'remote'}<span class="note" title="Envoyé depuis claude.ai ou l’app Claude (remote control)">depuis claude.ai</span
+      >{/if}
   </div>
 </div>
 
@@ -28,8 +30,11 @@
     font-size: 14px;
     line-height: 1.55;
     text-wrap: pretty;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  /* Only the message keeps its line breaks and spaces, not the template's. */
+  .text {
+    white-space: pre-wrap;
   }
   .chip {
     display: inline-block;
@@ -40,7 +45,7 @@
     font-size: 11.5px;
     color: var(--muted);
   }
-  .queued {
+  .note {
     display: block;
     margin-top: 6px;
     font-family: var(--mono);

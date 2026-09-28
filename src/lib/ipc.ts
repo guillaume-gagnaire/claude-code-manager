@@ -52,6 +52,7 @@ export const api = {
   gitDiff: (projectId: string, agentId: string | null, paths: string[]) => invoke<string>('git_diff', { projectId, agentId, paths }),
   gitLog: (projectId: string, agentId: string | null) => invoke<GitLog>('git_log', { projectId, agentId }),
   gitShow: (projectId: string, hash: string) => invoke<string>('git_show', { projectId, hash }),
+  setRemoteControl: (id: string, enabled: boolean) => invoke<void>('set_remote_control', { id, enabled }),
   stats: (range: string) => invoke<StatsView>('stats', { range }),
   refreshUsage: () => invoke<void>('refresh_usage'),
   openInEditor: (path: string) => invoke<void>('open_in_editor', { path }),

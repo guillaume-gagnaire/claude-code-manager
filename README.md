@@ -12,6 +12,7 @@ Application Windows pour piloter plusieurs instances de [Claude Code](https://cl
 - **Terminaux** : vrais terminaux (ConPTY + xterm.js) PowerShell 7, Git Bash et WSL, avec l'autocomplétion native du shell.
 - **Barre de statut** : agents actifs, en attente et terminés, quota de session 5 h (avec délai avant réinitialisation), quota hebdomadaire, coût du jour. Tokens et coût montent en direct pendant que Claude travaille (estimation « ≈ » d'après les tarifs publics), puis prennent le chiffre exact de Claude Code à la fin du tour.
 - **Statistiques** : tokens (entrée, cache, sortie) par jour, semaine ou mois, coût global, coût moyen par prompt, répartition par projet et par modèle.
+- **Remote control** : clic droit sur un agent → « Activer le remote control ». Sa session devient accessible depuis claude.ai et l'app Claude sur mobile ; ce que tu y envoies s'affiche aussi dans l'app, et l'agent reste joignable tant que l'app tourne (même session après un redémarrage).
 - **Fermer la fenêtre ne coupe pas les agents** : l'app reste dans la zone de notification. Au redémarrage, chaque agent reprend sa session Claude (`--resume`). Les processus inactifs sont arrêtés après un délai réglable et reprennent automatiquement à la prochaine action.
 - **Proxy réseau** configurable (processus Claude, quotas, mises à jour, et optionnellement terminaux).
 - **Mises à jour automatiques** via les releases GitHub.

@@ -73,6 +73,10 @@ pub struct AgentRt {
     pub commands: Vec<Value>,
     pub interrupted: bool,
     pub saw_init: bool,
+    /// Remote Control link state ("ready", "connected"…) of the live process.
+    pub remote_state: Option<String>,
+    /// The live process was linked to claude.ai (Remote Control).
+    pub remote_linked: bool,
     blocks: HashMap<String, Vec<Block>>,
     current_msg: HashMap<String, String>,
     pending: HashMap<String, PendingReq>,
@@ -103,6 +107,8 @@ impl AgentRt {
             commands: Vec::new(),
             interrupted: false,
             saw_init: false,
+            remote_state: None,
+            remote_linked: false,
             blocks: HashMap::new(),
             current_msg: HashMap::new(),
             pending: HashMap::new(),
@@ -132,6 +138,7 @@ impl AgentRt {
             context_tokens: self.context_tokens,
             live_tokens,
             live_cost,
+            remote_state: self.remote_state.clone(),
         }
     }
 
@@ -145,6 +152,8 @@ impl AgentRt {
         self.pending.clear();
         self.last_usage.clear();
         self.live.clear();
+        self.remote_state = None;
+        self.remote_linked = false;
         self.saw_init = false;
         self.queued = 0;
     }
@@ -195,8 +204,23 @@ impl AgentRt {
     /// Records a user message delivered to Claude under `id` (the frame uuid). Returns true
     /// when it was queued behind a running turn.
     pub fn push_user(&mut self, id: &str, text: &str, images: u32, fx: &mut Effects) -> bool {
+        self.push_user_from(id, text, images, None, fx)
+    }
+
+    /// `origin`: "remote" for a message sent from claude.ai / the Claude app (Remote Control).
+    fn push_user_from(
+        &mut self,
+        id: &str,
+        text: &str,
+        images: u32,
+        origin: Option<&str>,
+        fx: &mut Effects,
+    ) -> bool {
         let queued = self.meta.status.is_active();
-        let item = json!({ "kind": "user", "id": id, "text": text, "images": images, "ts": now_ms(), "queued": queued });
+        let mut item = json!({ "kind": "user", "id": id, "text": text, "images": images, "ts": now_ms(), "queued": queued });
+        if let Some(o) = origin {
+            item["origin"] = json!(o);
+        }
         self.append(item, fx);
         if queued {
             self.queued += 1;
@@ -326,6 +350,8 @@ impl AgentRt {
         }
         self.proc = None;
         self.live.clear();
+        self.remote_state = None;
+        self.remote_linked = false;
         self.clear_pending(fx);
         self.close_open_items(fx);
         if !self.saw_init && stderr.contains("No conversation found") {
@@ -388,6 +414,10 @@ impl AgentRt {
                 }
             }
             "compact_boundary" => self.notice("info", "Contexte compacté", fx),
+            "bridge_state" => {
+                self.remote_state = f["state"].as_str().map(str::to_string);
+                fx.agent_changed = true;
+            }
             "local_command_output" => {
                 let text = f["content"].as_str().unwrap_or("").to_string();
                 if !text.trim().is_empty() {
@@ -583,7 +613,38 @@ impl AgentRt {
         }
     }
 
+    /// A user message re-emitted by Claude Code (`--replay-user-messages`): the echo of one sent
+    /// from the app (same uuid, already listed), or one sent from claude.ai (Remote Control).
+    fn on_replay(&mut self, f: &Value, fx: &mut Effects) {
+        let id = f["uuid"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(new_id);
+        if self.conv.contains(&id) {
+            return;
+        }
+        let content = &f["message"]["content"];
+        let (text, images) = match content.as_array() {
+            Some(blocks) => (
+                blocks
+                    .iter()
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                blocks.iter().filter(|b| b["type"] == "image").count() as u32,
+            ),
+            None => (content.as_str().unwrap_or_default().to_string(), 0),
+        };
+        if text.trim().is_empty() && images == 0 {
+            return;
+        }
+        self.push_user_from(&id, &text, images, Some("remote"), fx);
+    }
+
     fn on_user(&mut self, f: &Value, fx: &mut Effects) {
+        if f["isReplay"] == true {
+            return self.on_replay(f, fx);
+        }
         let content = &f["message"]["content"];
         if let Some(text) = content.as_str() {
             if text.contains("<local-command-stdout>") || text.contains("<local-command-stderr>") {
@@ -1109,6 +1170,52 @@ mod tests {
         assert_eq!((v.live_tokens, v.live_cost), (0, 0.0));
         assert_eq!(a.meta.tokens, 1050);
         assert!((a.meta.cost - 0.00125).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_message_sent_from_claude_ai_shows_in_the_conversation() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":"Ajoute les tests"},"parent_tool_use_id":null,
+                "uuid":"r1","isReplay":true,"origin":{"kind":"human"}}),
+            &mut fx,
+        );
+        let item = a.conv.get("r1").expect("remote message listed");
+        assert_eq!(item["kind"], "user");
+        assert_eq!(item["text"], "Ajoute les tests");
+        assert_eq!(item["origin"], "remote");
+        assert_eq!(a.meta.status, AgentStatus::Running);
+        assert_eq!(a.meta.prompts, 1);
+        assert!(fx.agent_changed);
+    }
+
+    #[test]
+    fn the_echo_of_a_message_sent_from_the_app_is_not_shown_twice() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.push_user("u1", "Bonjour", 0, &mut fx);
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":"Bonjour"},"parent_tool_use_id":null,"uuid":"u1","isReplay":true}),
+            &mut fx,
+        );
+        let users = a.conv.ids_where(|v| v["kind"] == "user");
+        assert_eq!(users, vec!["u1".to_string()]);
+        assert_eq!(a.meta.prompts, 1);
+    }
+
+    #[test]
+    fn follows_the_remote_control_link_state() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.handle_frame(
+            &json!({"type":"system","subtype":"bridge_state","state":"connected"}),
+            &mut fx,
+        );
+        assert_eq!(a.view().remote_state.as_deref(), Some("connected"));
+        assert!(fx.agent_changed);
+        a.on_exit(a.gen, Some(0), "", &mut fx);
+        assert_eq!(a.view().remote_state, None);
     }
 
     #[test]

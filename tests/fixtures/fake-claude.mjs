@@ -41,6 +41,8 @@ function startSession() {
   let msg = 0;
   let pendingAnswer = null;
   let slowTimer = null;
+  const replay = argv.includes('--replay-user-messages');
+  let remoteSent = false;
 
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
   const ok = (id, response = {}) => out({ type: 'control_response', response: { subtype: 'success', request_id: id, response } });
@@ -235,12 +237,47 @@ function startSession() {
           clearTimeout(slowTimer);
           ok(m.request_id, { still_queued: [] });
           return result({ isError: true, subtype: 'error_during_execution' });
+        case 'remote_control':
+          return remoteControl(m.request_id, r);
         default:
           return ok(m.request_id);
       }
     }
-    if (m.type === 'user')
+    if (m.type === 'user') {
+      // Real CLI: echoes stdin messages (same uuid) with --replay-user-messages.
+      if (replay) out({ type: 'user', message: m.message, parent_tool_use_id: null, uuid: m.uuid, isReplay: true, session_id: sessionId });
       onUser(typeof m.message.content === 'string' ? m.message.content : m.message.content.map((b) => b.text ?? '').join(' '));
+    }
   });
+
+  // Remote Control: requests are logged to <log>.control.jsonl. With $FAKE_CLAUDE_REMOTE_MESSAGE,
+  // a message "sent from claude.ai" arrives once it is on (replayed with origin human, then run).
+  function remoteControl(id, r) {
+    fs.appendFileSync(logFile.replace(/\.jsonl$/, '') + '.control.jsonl', JSON.stringify(r) + '\n');
+    if (!r.enabled) {
+      ok(id);
+      return out({ type: 'system', subtype: 'bridge_state', state: 'disconnected', session_id: sessionId });
+    }
+    const bridge = r.reattach_session_id ?? `cse_fake_${process.pid}`;
+    out({ type: 'system', subtype: 'bridge_state', state: 'ready', session_id: sessionId });
+    ok(id, { session_url: `https://claude.ai/code/session_${bridge.slice(4)}`, bridge_session_id: bridge, bridge_epoch: 1 });
+    out({ type: 'system', subtype: 'bridge_state', state: 'connected', bridge_epoch: 1, session_id: sessionId });
+    const text = process.env.FAKE_CLAUDE_REMOTE_MESSAGE;
+    if (text && !remoteSent) {
+      remoteSent = true;
+      setTimeout(() => {
+        out({
+          type: 'user',
+          message: { role: 'user', content: text },
+          parent_tool_use_id: null,
+          uuid: `remote-${process.pid}`,
+          isReplay: true,
+          origin: { kind: 'human' },
+          session_id: sessionId,
+        });
+        onUser(text);
+      }, 300);
+    }
+  }
   rl.on('close', () => process.exit(0));
 }

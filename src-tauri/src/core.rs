@@ -88,6 +88,8 @@ const CLAUDE_BASE_ARGS: &[&str] = &[
     "--permission-prompt-tool",
     "stdio",
     "--include-partial-messages",
+    // Messages sent from claude.ai (Remote Control) come back on stdout, so the app shows them.
+    "--replay-user-messages",
     "--thinking-display",
     "summarized",
     "--allow-dangerously-skip-permissions",
@@ -274,6 +276,7 @@ impl<R: Runtime> Core<R> {
                 c.stop_idle_processes();
             }
         });
+        self.start_remote_agents();
         self.update_tray();
     }
 
@@ -648,7 +651,16 @@ impl<R: Runtime> Core<R> {
         {
             Ok(resp) => {
                 log::info!("agent {id}: ready in {} ms", started.elapsed().as_millis());
-                h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default()
+                h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default();
+                if h.lock().meta.remote_control {
+                    if let Err(e) = self.link_remote(&h, &proc).await {
+                        log::warn!("agent {id}: remote control failed: {e:#}");
+                        let _ = self.with_agent(id, |rt, fx| {
+                            rt.notice("warn", format!("Remote control indisponible : {e}"), fx);
+                            Ok(())
+                        });
+                    }
+                }
             }
             Err(_) if !proc.is_alive() => {
                 log::warn!("agent {id}: claude exited while starting");
@@ -679,6 +691,113 @@ impl<R: Runtime> Core<R> {
         });
     }
 
+    // ---------- remote control ----------
+
+    /// Name of the agent's session in claude.ai / the Claude app.
+    fn remote_name(&self, meta: &AgentMeta) -> String {
+        let project = self
+            .project(&meta.project_id)
+            .map(|p| p.name)
+            .unwrap_or_default();
+        format!("{project} · {}", meta.name)
+    }
+
+    /// Links the agent's live process to claude.ai (Remote Control). Its previous remote session
+    /// is reattached, so the link opened on a phone stays valid across restarts.
+    async fn link_remote(
+        self: &Arc<Self>,
+        h: &AgentHandle,
+        proc: &Arc<ClaudeProcess>,
+    ) -> Result<()> {
+        let (name, reattach) = {
+            let rt = h.lock();
+            (self.remote_name(&rt.meta), rt.meta.remote_session.clone())
+        };
+        let request = |reattach: Option<&String>| {
+            let mut r = json!({ "subtype": "remote_control", "enabled": true, "name": name, "keep_session_on_exit": true });
+            if let Some(s) = reattach {
+                r["reattach_session_id"] = json!(s);
+            }
+            r
+        };
+        let timeout = Duration::from_secs(30);
+        let resp = match proc.control(request(reattach.as_ref()), timeout).await {
+            Ok(r) => r,
+            // The previous remote session is gone: open a new one.
+            Err(_) if reattach.is_some() && proc.is_alive() => {
+                proc.control(request(None), timeout).await?
+            }
+            Err(e) => return Err(e),
+        };
+        {
+            let mut rt = h.lock();
+            rt.remote_linked = true;
+            rt.meta.remote_session = resp["bridge_session_id"].as_str().map(str::to_string);
+            rt.meta.remote_url = resp["session_url"].as_str().map(str::to_string);
+        }
+        self.request_save();
+        self.emit_agent(h);
+        Ok(())
+    }
+
+    /// Turns Remote Control on (the agent's process starts if needed and stays up) or off.
+    pub async fn set_remote_control(self: &Arc<Self>, id: &str, enabled: bool) -> Result<()> {
+        let h = self.agent(id)?;
+        h.lock().meta.remote_control = enabled;
+        self.request_save();
+        if enabled {
+            let linked = match self.ensure_process(id).await {
+                Ok(_) if h.lock().remote_linked => Ok(()),
+                Ok(proc) => self.link_remote(&h, &proc).await,
+                Err(e) => Err(e),
+            };
+            if let Err(e) = linked {
+                h.lock().meta.remote_control = false;
+                self.emit_agent(&h);
+                return Err(e.context("Remote control indisponible"));
+            }
+        } else {
+            let proc = {
+                let mut rt = h.lock();
+                let linked = std::mem::take(&mut rt.remote_linked);
+                rt.meta.remote_session = None;
+                rt.meta.remote_url = None;
+                rt.remote_state = None;
+                rt.proc.clone().filter(|_| linked)
+            };
+            if let Some(p) = proc {
+                p.control(
+                    json!({ "subtype": "remote_control", "enabled": false }),
+                    Duration::from_secs(15),
+                )
+                .await?;
+            }
+        }
+        self.emit_agent(&h);
+        Ok(())
+    }
+
+    /// Starts the Remote Control agents with the app, so they are reachable from claude.ai.
+    pub fn start_remote_agents(self: &Arc<Self>) {
+        let ids: Vec<String> = self
+            .agents
+            .read()
+            .values()
+            .filter_map(|h| {
+                let rt = h.lock();
+                (rt.meta.remote_control && !rt.meta.archived).then(|| rt.meta.id.clone())
+            })
+            .collect();
+        for id in ids {
+            let c = self.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = c.ensure_process(&id).await {
+                    log::warn!("agent {id}: remote control start failed: {e:#}");
+                }
+            });
+        }
+    }
+
     /// Stops the processes of agents idle for longer than the configured delay. The session
     /// and the conversation stay: the next action on the agent resumes it (--resume).
     pub(crate) fn stop_idle_processes(&self) {
@@ -691,7 +810,9 @@ impl<R: Runtime> Core<R> {
         for h in agents {
             let stopped = {
                 let mut rt = h.lock();
+                // A Remote Control agent must stay reachable from claude.ai.
                 let idle = rt.proc.is_some()
+                    && !rt.meta.remote_control
                     && !rt.meta.status.is_active()
                     && rt.meta.last_activity < limit;
                 if idle {
@@ -1094,6 +1215,10 @@ impl<R: Runtime> Core<R> {
 
     pub async fn archive_agent(self: &Arc<Self>, id: &str, archived: bool) -> Result<()> {
         if archived {
+            // An archived agent is no longer reachable from claude.ai.
+            if self.agent(id)?.lock().meta.remote_control {
+                let _ = self.set_remote_control(id, false).await;
+            }
             // Stop the current turn first: closing stdin alone lets it run to completion.
             let running = {
                 let h = self.agent(id)?;
@@ -1137,6 +1262,10 @@ impl<R: Runtime> Core<R> {
         id: &str,
         remove_worktree: bool,
     ) -> Result<Option<String>> {
+        // End its claude.ai session rather than leave it behind.
+        if self.agent(id)?.lock().meta.remote_control {
+            let _ = self.set_remote_control(id, false).await;
+        }
         // Wait for an in-flight start (warm-up) so that its process is killed too.
         let lock = self.spawn_lock(id);
         let _guard = lock.lock().await;

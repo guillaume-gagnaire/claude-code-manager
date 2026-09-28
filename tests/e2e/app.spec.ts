@@ -96,6 +96,22 @@ test('the history shows the repository’s commits and opens a commit’s diff',
   await expect(diff).toContainText('const a = 2;');
 });
 
+test('an agent in remote control shows what is sent to it from claude.ai', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  const card = page.locator('.card').first();
+  await card.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /Activer le remote control/ }).click();
+  await expect(card.getByTitle(/Remote control : connecté/)).toBeVisible();
+  // The fake CLI then plays a message sent from the phone, and Claude answers it.
+  await expect(page.locator('.bubble', { hasText: 'Message depuis le téléphone' })).toContainText('depuis claude.ai');
+  await expect(page.getByText('Bonjour, tu as dit : Message depuis le téléphone')).toBeVisible();
+  await card.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Ouvrir sur claude.ai' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Désactiver le remote control' }).click();
+  await expect(card.getByTitle(/Remote control/)).toBeHidden();
+});
+
 test('a terminal runs commands in the project folder', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

@@ -173,6 +173,21 @@ impl Harness {
             .collect()
     }
 
+    /// Remote Control requests received by the fake CLI started in `cwd`.
+    fn remote_requests(&self, cwd: &Path) -> Vec<Value> {
+        let key: String = cwd
+            .to_string_lossy()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let file = std::env::temp_dir().join(format!("fake-claude-{key}.control.jsonl"));
+        std::fs::read_to_string(file)
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
     fn removed_events(&self, id: &str) -> usize {
         self.events
             .lock()
@@ -577,4 +592,115 @@ async fn state_is_saved_and_reloaded_with_the_session() {
         reloaded.agent(&id).unwrap().lock().conv.items().len(),
         h.items(&id).len()
     );
+}
+
+#[tokio::test]
+async fn remote_control_links_the_agent_to_claude_ai() {
+    let h = harness("remote-on");
+    let (p, r) = h.project(false).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let id = a.meta.id.clone();
+    h.core.set_remote_control(&id, true).await.unwrap();
+    let m = h.agent(&id);
+    assert!(m.remote_control);
+    let session = m.remote_session.clone().expect("remote session kept");
+    assert_eq!(
+        m.remote_url.as_deref(),
+        Some(format!("https://claude.ai/code/session_{}", &session[4..]).as_str())
+    );
+    let req = h.remote_requests(&r).pop().unwrap();
+    assert_eq!(req["enabled"], true);
+    assert_eq!(req["keep_session_on_exit"], true);
+    assert_eq!(req["name"], format!("demo · {}", m.name));
+    h.wait("link connected", |h| {
+        h.core
+            .agent(&id)
+            .unwrap()
+            .lock()
+            .view()
+            .remote_state
+            .as_deref()
+            == Some("connected")
+    })
+    .await;
+    // Messages sent from claude.ai are re-emitted to the app.
+    assert!(h
+        .launches(&r)
+        .last()
+        .unwrap()
+        .contains(&"--replay-user-messages".to_string()));
+}
+
+#[tokio::test]
+async fn a_remote_agent_gets_its_remote_session_back_after_a_restart() {
+    let h = harness("remote-reattach");
+    let (p, r) = h.project(false).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let id = a.meta.id.clone();
+    h.core.set_remote_control(&id, true).await.unwrap();
+    let session = h.agent(&id).remote_session.unwrap();
+    let old = h.core.agent(&id).unwrap().lock().detach().unwrap();
+    old.close_input();
+    h.core.ensure_process(&id).await.unwrap();
+    let req = h.remote_requests(&r).pop().unwrap();
+    assert_eq!(req["reattach_session_id"], session.as_str());
+    assert_eq!(
+        h.agent(&id).remote_session.as_deref(),
+        Some(session.as_str())
+    );
+}
+
+#[tokio::test]
+async fn remote_agents_stay_reachable_instead_of_being_idle_stopped() {
+    let h = harness("remote-idle");
+    let (p, _) = h.project(false).await;
+    let remote = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    let local = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.core.set_remote_control(&remote, true).await.unwrap();
+    h.core.ensure_process(&local).await.unwrap();
+    for id in [&remote, &local] {
+        h.core.agent(id).unwrap().lock().meta.last_activity = 0;
+    }
+    h.core.stop_idle_processes();
+    assert!(h.alive(&remote));
+    assert!(!h.alive(&local));
+}
+
+#[tokio::test]
+async fn turning_remote_control_off_ends_the_remote_session() {
+    let h = harness("remote-off");
+    let (p, r) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.core.set_remote_control(&id, true).await.unwrap();
+    h.core.set_remote_control(&id, false).await.unwrap();
+    let m = h.agent(&id);
+    assert!(!m.remote_control);
+    assert_eq!((m.remote_session, m.remote_url), (None, None));
+    assert_eq!(h.remote_requests(&r).pop().unwrap()["enabled"], false);
+}
+
+#[tokio::test]
+async fn remote_agents_are_started_with_the_app() {
+    let h = harness("remote-startup");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    // Creating an agent warms its process up: let it start, then stop it, so that only
+    // start_remote_agents can start (and link) the next one.
+    h.core.ensure_process(&id).await.unwrap();
+    // The warm-up task only runs when the test yields (single-threaded runtime): let it finish.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    h.core
+        .agent(&id)
+        .unwrap()
+        .lock()
+        .detach()
+        .unwrap()
+        .close_input();
+    h.core.agent(&id).unwrap().lock().meta.remote_control = true;
+    assert!(!h.alive(&id));
+    h.core.start_remote_agents();
+    h.wait("remote agent started", |h| {
+        h.agent(&id).remote_url.is_some()
+    })
+    .await;
 }

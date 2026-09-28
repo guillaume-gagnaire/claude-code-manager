@@ -132,6 +132,12 @@ pub struct AgentMeta {
     pub touched_files: Vec<String>,
     pub last_activity: i64,
     pub prompts: u32,
+    /// Remote Control on: the session is also reachable from claude.ai / the Claude app, so the
+    /// agent's process stays up (started with the app, never idle-stopped).
+    pub remote_control: bool,
+    /// Remote session to reattach to when the process restarts, and its claude.ai link.
+    pub remote_session: Option<String>,
+    pub remote_url: Option<String>,
 }
 
 /// Agent as shown by the UI: persisted metadata plus live runtime fields.
@@ -149,6 +155,8 @@ pub struct AgentView {
     pub live_tokens: u64,
     /// Estimated cost of the running turn so far, from list prices (not yet in `cost`).
     pub live_cost: f64,
+    /// Remote Control link state reported by Claude Code ("ready", "connected"…).
+    pub remote_state: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -16,3 +16,10 @@ describe('UserMessage', () => {
     expect(screen.queryByText('transmis pendant le tour')).not.toBeInTheDocument();
   });
 });
+
+describe('UserMessage from claude.ai', () => {
+  it('says the message was sent from claude.ai or the Claude app', () => {
+    render(UserMessage, { item: { ...item(false), origin: 'remote' as const } });
+    expect(screen.getByText('depuis claude.ai')).toBeInTheDocument();
+  });
+});

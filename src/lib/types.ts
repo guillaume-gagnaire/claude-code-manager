@@ -62,6 +62,13 @@ export interface Agent {
   liveTokens: number;
   /** Estimated cost (list prices) of the running turn so far; `cost` gets the exact figure at its end. */
   liveCost: number;
+  /** Remote Control: reachable from claude.ai / the Claude app (its process stays up). */
+  remoteControl: boolean;
+  remoteSession: string | null;
+  /** The session on claude.ai. */
+  remoteUrl: string | null;
+  /** Link state reported by Claude Code ("ready", "connected"…), null without a live link. */
+  remoteState: string | null;
 }
 
 export interface UiState {
@@ -171,6 +178,8 @@ export interface UserItem extends Base {
   images: number;
   ts: number;
   queued: boolean;
+  /** "remote": sent from claude.ai / the Claude app (Remote Control). */
+  origin?: 'remote';
 }
 export interface TextItem extends Base {
   kind: 'text';
