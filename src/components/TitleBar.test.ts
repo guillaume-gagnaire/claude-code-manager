@@ -23,6 +23,12 @@ describe('TitleBar', () => {
     }),
   );
 
+  it('shows the app’s logo', () => {
+    fakeBackend();
+    render(TitleBar);
+    expect(screen.getByRole('img', { name: 'Claude Code Manager' })).toHaveAttribute('src', '/logo.svg');
+  });
+
   it('shows one tab per project with its waiting badge and git counter', () => {
     fakeBackend();
     app.git = { p1: { isRepo: true, branch: 'main', modified: 2, added: 1, deleted: 0, total: 3, agents: {} } };

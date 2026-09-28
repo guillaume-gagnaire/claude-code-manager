@@ -105,7 +105,7 @@
 
 <header class="bar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
-    <span class="mark">C</span>
+    <img class="mark" src="/logo.svg" alt="Claude Code Manager" draggable="false" />
   </div>
   <nav class="tabs" data-tauri-drag-region>
     {#each app.projects as p, i (p.id)}
@@ -199,17 +199,9 @@
     padding-right: 14px;
   }
   .mark {
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 24px;
+    height: 24px;
+    display: block;
     pointer-events: none;
   }
   .tabs {
