@@ -1,0 +1,27 @@
+{
+  "name": "ccm-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "music": "tsx music/generate.ts",
+    "stills": "tsx scripts/stills.ts",
+    "render": "npm run music && remotion render src/index.ts Presentation out/presentation.mp4 --codec=h264 --crf=18",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.2.0",
+    "tsx": "^4.23.0",
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.7"
+  }
+}
