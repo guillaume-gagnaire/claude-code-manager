@@ -66,7 +66,18 @@ jobs:
           $v = $keys | ForEach-Object { (Get-ItemProperty $_ -ErrorAction SilentlyContinue).pv } | Where-Object { $_ } | Select-Object -First 1
           if ($v) { "::notice::WebView2 runtime $v" } else { "::warning::WebView2 runtime not found" }
 
+      # WebView2 150+ ignores the WEBVIEW2_* variables (and the per-user policy) in elevated processes,
+      # and CI runners are elevated: open the app's DevTools port through the machine policy instead.
+      - name: Open the app's WebView2 DevTools port
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'claude-code-manager.exe' -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
+
       - name: End-to-end tests (Playwright over WebView2)
+        env:
+          CCM_E2E_CDP_PORT: 9222
         run: npx playwright test
 
       - name: Upload Playwright traces

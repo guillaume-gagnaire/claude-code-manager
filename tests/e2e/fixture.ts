@@ -109,7 +109,11 @@ export const test = base.extend<{ app: App }>({
     );
     const repo = makeRepo(root);
     const log = path.join(root, 'fake-claude.jsonl');
-    const port = 9400 + (testInfo.workerIndex * 50 + Math.floor(Math.random() * 50));
+    // CI runs elevated, where WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: the workflow
+    // opens a fixed port through the machine policy instead (tests run one at a time).
+    const port = process.env.CCM_E2E_CDP_PORT
+      ? Number(process.env.CCM_E2E_CDP_PORT)
+      : 9400 + (testInfo.workerIndex * 50 + Math.floor(Math.random() * 50));
     const stderr = path.join(root, 'app-stderr.log');
     const errFd = fs.openSync(stderr, 'w');
     const child: ChildProcess = spawn(EXE, [], {
