@@ -77,7 +77,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 Actifs · en attente · terminés │ Session 5 h (barre, %, reset dans) · Hebdo (barre, %) │ Coût du jour │ ♪ · ⚙ (réglages).
 
 - Quotas : endpoint utilisé par `/usage` (token OAuth de Claude Code, lecture seule), sauf si une source officielle équivalente existe dans le stream.
-- Coûts : équivalent API (compte Max), grille de prix embarquée et modifiable.
+- Coûts : équivalent API (compte Max). Le coût exact de chaque tour vient de Claude Code à la fin du tour ; pendant le tour, tokens et coût (préfixé « ≈ ») montent en direct, estimés à partir des tarifs publics (`pricing.rs`), puis remplacés par le chiffre exact. Les statistiques n'enregistrent que les coûts exacts.
 
 ## Stats
 
@@ -91,7 +91,7 @@ Actifs · en attente · terminés │ Session 5 h (barre, %, reset dans) · Hebd
 Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Windows, shells, éditeur externe, arrêt des process inactifs, raccourcis.
 
 - **Proxy réseau** : URL HTTP(S) (avec identifiants éventuels) + exclusions `NO_PROXY`. Injecté dans les process `claude` (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`), les appels de quotas et le vérificateur de mises à jour ; option pour l'exporter aussi dans les terminaux intégrés.
-- Les coûts viennent directement de Claude Code (`costUSD` par modèle) : pas de grille de prix à maintenir.
+- Les coûts enregistrés viennent directement de Claude Code (`costUSD` par modèle). La grille de `pricing.rs` ne sert qu'à l'estimation en cours de tour ; un modèle absent de la grille n'a simplement pas d'estimation.
 
 ## Raccourcis (défauts)
 

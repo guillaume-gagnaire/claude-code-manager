@@ -58,6 +58,10 @@ export interface Agent {
   alive: boolean;
   pending: string[];
   contextTokens: number;
+  /** Tokens of the running turn so far; `tokens` includes them once the turn ends. */
+  liveTokens: number;
+  /** Estimated cost (list prices) of the running turn so far; `cost` gets the exact figure at its end. */
+  liveCost: number;
 }
 
 export interface UiState {

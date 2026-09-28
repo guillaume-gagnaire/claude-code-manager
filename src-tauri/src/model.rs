@@ -145,6 +145,10 @@ pub struct AgentView {
     /// Ids of the question/permission items awaiting an answer.
     pub pending: Vec<String>,
     pub context_tokens: u64,
+    /// Tokens of the running turn so far (not yet in `tokens`, which the turn's end updates).
+    pub live_tokens: u64,
+    /// Estimated cost of the running turn so far, from list prices (not yet in `cost`).
+    pub live_cost: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

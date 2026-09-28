@@ -60,6 +60,8 @@ class AppState {
 
   project = $derived(this.projects.find((p) => p.id === this.ui.activeProject) ?? null);
   split = $derived(this.ui.layout === 'split');
+  /** Estimated cost of the turns running now (their exact cost joins `usage.todayCost` at their end). */
+  liveCost = $derived(Object.values(this.agents).reduce((sum, a) => sum + (a.liveCost ?? 0), 0));
 
   projectAgents = $derived.by(() => {
     const p = this.project;

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { fCountdown, fPct, fUsd } from '../lib/format';
+  import { fCountdown, fPct } from '../lib/format';
   import { api } from '../lib/ipc';
+  import { ESTIMATE_HINT, fSpentUsd } from '../lib/spend';
   import { app } from '../lib/state.svelte';
 
   const agents = $derived(Object.values(app.agents).filter((a) => !a.archived));
@@ -58,7 +59,9 @@
     <span class="v">{week ? fPct(week.pct) : '—'}</span>
   </span>
   <span class="vsep"></span>
-  <span class="it">Aujourd'hui <span class="v strong">{fUsd(app.usage.todayCost)}</span></span>
+  <span class="it" title={app.liveCost > 0 ? ESTIMATE_HINT : undefined}
+    >Aujourd'hui <span class="v strong">{fSpentUsd({ cost: app.usage.todayCost + app.liveCost, estimated: app.liveCost > 0 })}</span></span
+  >
   <div style="flex:1"></div>
   {#if app.update}
     <button

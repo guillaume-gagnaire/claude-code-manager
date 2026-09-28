@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/ipc';
   import { conversationOf } from '../lib/conversations.svelte';
-  import { fDur, fTok, fUsd } from '../lib/format';
+  import { fDur, fTok } from '../lib/format';
   import { modelLabel } from '../lib/models';
+  import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
   import { app } from '../lib/state.svelte';
   import type { Agent, ConvItem, Project } from '../lib/types';
   import Composer from './Composer.svelte';
@@ -42,6 +43,7 @@
   });
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
   const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
+  const used = $derived(spent(agent));
   const duration = $derived(fDur(agent.activeMs + (agent.activeSince ? app.now - agent.activeSince : 0)));
   const running = $derived(agent.status === 'running');
 
@@ -101,8 +103,10 @@
     <div style="flex:1"></div>
     <div class="metrics">
       <span class="model mono" title="Contexte actuel : {fTok(agent.contextTokens)} tokens">{modelLabel(agent.model)}</span>
-      <div class="m opt"><span class="k">Tokens</span><span class="v mono">{fTok(agent.tokens)}</span></div>
-      <div class="m opt2"><span class="k">Coût</span><span class="v mono">{fUsd(agent.cost)}</span></div>
+      <div class="m opt"><span class="k">Tokens</span><span class="v mono">{fTok(used.tokens)}</span></div>
+      <div class="m opt2" title={used.estimated ? ESTIMATE_HINT : undefined}>
+        <span class="k">Coût</span><span class="v mono">{fSpentUsd(used)}</span>
+      </div>
       {#if app.split}
         <div class="m opt2"><span class="k">Fichiers</span><span class="v mono">{files}</span></div>
       {:else}

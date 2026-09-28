@@ -12,6 +12,7 @@ mod job;
 mod model;
 mod notify;
 mod paths;
+mod pricing;
 #[cfg(test)]
 mod process_tests;
 mod pty;

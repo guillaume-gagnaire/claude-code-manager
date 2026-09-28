@@ -91,3 +91,11 @@ describe('Conversation header', () => {
     expect(screen.getByText('Fichiers')).toBeInTheDocument();
   });
 });
+
+describe('Conversation header usage', () => {
+  it('counts the running turn in the tokens and the estimated cost', () => {
+    setup({ tokens: 2000, cost: 0.4, liveTokens: 1000, liveCost: 0.2 });
+    expect(screen.getByText('3,0 k')).toBeInTheDocument();
+    expect(screen.getByText('≈ 0,60 $')).toBeInTheDocument();
+  });
+});

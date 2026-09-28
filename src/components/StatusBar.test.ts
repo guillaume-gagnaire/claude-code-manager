@@ -62,3 +62,13 @@ describe('StatusBar', () => {
     expect(app.agent?.id).toBe('a2');
   });
 });
+
+describe('StatusBar day cost', () => {
+  it('includes what running turns cost so far, marked as an estimate', () => {
+    resetApp({ agents: [agent({ id: 'a1', status: 'running', liveCost: 0.5 }), agent({ id: 'a2', liveCost: 0.25 })] });
+    app.usage = { fiveHour: null, sevenDay: null, todayCost: 1, updatedAt: 1 };
+    fakeBackend();
+    render(StatusBar);
+    expect(screen.getByText('≈ 1,75 $')).toBeInTheDocument();
+  });
+});

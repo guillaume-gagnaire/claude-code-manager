@@ -5,6 +5,7 @@ use crate::claude::{truncate, ClaudeProcess};
 use crate::conv::Conv;
 use crate::model::*;
 use crate::paths::relative_slash;
+use crate::pricing::{self, Usage};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -76,6 +77,9 @@ pub struct AgentRt {
     current_msg: HashMap<String, String>,
     pending: HashMap<String, PendingReq>,
     last_usage: HashMap<String, Counters>,
+    /// Usage of the running turn's API messages (by message id, with their model), until the
+    /// turn's result brings the exact figures.
+    live: HashMap<String, (String, Usage)>,
     queued: u32,
 }
 
@@ -103,17 +107,31 @@ impl AgentRt {
             current_msg: HashMap::new(),
             pending: HashMap::new(),
             last_usage: HashMap::new(),
+            live: HashMap::new(),
             queued: 0,
         }
     }
 
+    /// Tokens and estimated cost of the running turn so far.
+    fn live_totals(&self) -> (u64, f64) {
+        self.live.values().fold((0, 0.0), |(t, c), (model, u)| {
+            (
+                t + u.tokens(),
+                c + pricing::estimate(model, u).unwrap_or(0.0),
+            )
+        })
+    }
+
     pub fn view(&self) -> AgentView {
+        let (live_tokens, live_cost) = self.live_totals();
         AgentView {
             meta: self.meta.clone(),
             active_since: self.active_since,
             alive: self.proc.is_some(),
             pending: self.pending.keys().cloned().collect(),
             context_tokens: self.context_tokens,
+            live_tokens,
+            live_cost,
         }
     }
 
@@ -126,6 +144,7 @@ impl AgentRt {
         self.current_msg.clear();
         self.pending.clear();
         self.last_usage.clear();
+        self.live.clear();
         self.saw_init = false;
         self.queued = 0;
     }
@@ -306,6 +325,7 @@ impl AgentRt {
             return;
         }
         self.proc = None;
+        self.live.clear();
         self.clear_pending(fx);
         self.close_open_items(fx);
         if !self.saw_init && stderr.contains("No conversation found") {
@@ -389,6 +409,15 @@ impl AgentRt {
                 };
                 self.current_msg.insert(pkey, mid.to_string());
                 self.blocks.entry(mid.to_string()).or_default();
+                let model = ev["message"]["model"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                self.live.insert(
+                    mid.to_string(),
+                    (model, Usage::from_api(&ev["message"]["usage"])),
+                );
+                fx.agent_changed = true;
                 if parent.is_none() {
                     let u = &ev["message"]["usage"];
                     self.context_tokens = [
@@ -466,6 +495,17 @@ impl AgentRt {
                         },
                         fx,
                     );
+                }
+            }
+            // The message's final output token count (message_start only announces its input).
+            "message_delta" => {
+                let entry = self
+                    .current_msg
+                    .get(&pkey)
+                    .and_then(|mid| self.live.get_mut(mid));
+                if let (Some((_, u)), Some(out)) = (entry, ev["usage"]["output_tokens"].as_u64()) {
+                    u.output = out;
+                    fx.agent_changed = true;
                 }
             }
             _ => {}
@@ -610,6 +650,8 @@ impl AgentRt {
 
     fn on_result(&mut self, f: &Value, fx: &mut Effects) {
         let interrupted = std::mem::take(&mut self.interrupted);
+        // The exact figures below replace the running estimate.
+        self.live.clear();
         let is_error = f["is_error"].as_bool().unwrap_or(false) || f["subtype"] != "success";
         let (mut tokens, mut cost) = (0u64, 0f64);
         if let Some(models) = f["modelUsage"].as_object() {
@@ -985,6 +1027,104 @@ mod tests {
         a.handle_frame(&result(90, 60, 1.2), &mut fx);
         assert_eq!(fx.turns[0].input, 0);
         assert_eq!(fx.turns[0].output, 10);
+    }
+
+    fn message_start(
+        a: &mut AgentRt,
+        id: &str,
+        parent: Option<&str>,
+        usage: Value,
+        fx: &mut Effects,
+    ) {
+        a.handle_frame(
+            &json!({"type":"stream_event","parent_tool_use_id":parent,
+                "event":{"type":"message_start","message":{"id":id,"model":"claude-haiku-4-5-20251001","usage":usage}}}),
+            fx,
+        );
+    }
+
+    fn message_delta(a: &mut AgentRt, parent: Option<&str>, output: u64, fx: &mut Effects) {
+        a.handle_frame(
+            &json!({"type":"stream_event","parent_tool_use_id":parent,
+                "event":{"type":"message_delta","usage":{"output_tokens":output}}}),
+            fx,
+        );
+    }
+
+    #[test]
+    fn tokens_and_an_estimated_cost_add_up_while_the_turn_runs() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        let input = json!({"input_tokens":10,"cache_read_input_tokens":17513,"cache_creation_input_tokens":10045,
+            "cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":10045},"output_tokens":1});
+        message_start(&mut a, "m1", None, input, &mut fx);
+        assert_eq!(a.view().live_tokens, 10 + 17513 + 10045 + 1);
+        let mut fx = Effects::default();
+        message_delta(&mut a, None, 257, &mut fx);
+        assert!(fx.agent_changed);
+        assert_eq!(a.view().live_tokens, 10 + 17513 + 10045 + 257);
+        // A second API call of the same turn, and one made by a subagent.
+        let more = json!({"input_tokens":8,"cache_read_input_tokens":27558,"cache_creation_input_tokens":489,
+            "cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":489},"output_tokens":1});
+        message_start(&mut a, "m2", None, more, &mut fx);
+        message_delta(&mut a, None, 65, &mut fx);
+        message_start(
+            &mut a,
+            "s1",
+            Some("tu1"),
+            json!({"input_tokens":100,"output_tokens":1}),
+            &mut fx,
+        );
+        message_delta(&mut a, Some("tu1"), 20, &mut fx);
+        let v = a.view();
+        assert_eq!(v.live_tokens, 18 + 322 + 45071 + 10534 + 120);
+        // Measured with the real CLI for the first two messages, plus 100 input and 20 output tokens.
+        assert!(
+            (v.live_cost - (0.0272031 + 100e-6 + 20.0 * 5e-6)).abs() < 1e-9,
+            "{}",
+            v.live_cost
+        );
+        assert_eq!(a.meta.tokens, 0);
+    }
+
+    #[test]
+    fn the_exact_cost_replaces_the_estimate_when_the_turn_ends() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        message_start(
+            &mut a,
+            "m1",
+            None,
+            json!({"input_tokens":1000,"output_tokens":1}),
+            &mut fx,
+        );
+        message_delta(&mut a, None, 50, &mut fx);
+        assert!(a.view().live_cost > 0.0);
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,"duration_ms":1,
+                "modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":1000,"outputTokens":50,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.00125}}}),
+            &mut fx,
+        );
+        let v = a.view();
+        assert_eq!((v.live_tokens, v.live_cost), (0, 0.0));
+        assert_eq!(a.meta.tokens, 1050);
+        assert!((a.meta.cost - 0.00125).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_process_that_dies_mid_turn_drops_its_estimate() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        message_start(
+            &mut a,
+            "m1",
+            None,
+            json!({"input_tokens":1000,"output_tokens":1}),
+            &mut fx,
+        );
+        a.on_exit(a.gen, Some(1), "boom", &mut fx);
+        let v = a.view();
+        assert_eq!((v.live_tokens, v.live_cost), (0, 0.0));
     }
 
     fn start_streaming(a: &mut AgentRt, fx: &mut Effects) {

@@ -61,3 +61,14 @@ describe('Sidebar', () => {
     expect(new Set(swatches.map((s) => s.getAttribute('aria-label'))).size).toBe(swatches.length);
   });
 });
+
+describe('Sidebar agent card', () => {
+  it('shows the tokens and the estimated cost of the running turn', () => {
+    resetApp({ projects: [project()], agents: [agent({ status: 'running', tokens: 1000, cost: 0.2, liveTokens: 500, liveCost: 0.1 })] });
+    fakeBackend();
+    render(Sidebar, { project: project() });
+    const card = screen.getByRole('button', { name: /refacto-auth/ });
+    expect(within(card).getByText('1,5 k tok')).toBeInTheDocument();
+    expect(within(card).getByText('≈ 0,30 $')).toBeInTheDocument();
+  });
+});

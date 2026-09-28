@@ -3,6 +3,7 @@
   import { fDur, fTok, fUsd, tildify } from '../lib/format';
   import { menu } from '../lib/menu.svelte';
   import { modelLabel } from '../lib/models';
+  import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
   import { app } from '../lib/state.svelte';
   import { closeTerminal, newTerminal, SHELL_GLYPH } from '../lib/term-actions';
   import { PROJECT_COLORS } from '../lib/theme';
@@ -106,6 +107,7 @@
   <div class="list">
     {#each app.projectAgents as a (a.id)}
       {@const sel = a.id === selectedAgentId && !termSelected}
+      {@const s = spent(a)}
       <div
         class="card"
         class:sel
@@ -146,8 +148,8 @@
               >⎇ {a.worktree.branch.replace(/^ccm\//, '')}</span
             >{/if}
         </div>
-        <div class="meta dim">
-          <span>{fTok(a.tokens)} tok</span><span>{fUsd(a.cost)}</span><span>{git?.agents[a.id] ?? 0} fich.</span>
+        <div class="meta dim" title={s.estimated ? ESTIMATE_HINT : undefined}>
+          <span>{fTok(s.tokens)} tok</span><span>{fSpentUsd(s)}</span><span>{git?.agents[a.id] ?? 0} fich.</span>
         </div>
       </div>
     {:else}

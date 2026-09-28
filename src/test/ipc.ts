@@ -80,6 +80,8 @@ export function agent(over: Partial<Agent> = {}): Agent {
     alive: true,
     pending: [],
     contextTokens: 0,
+    liveTokens: 0,
+    liveCost: 0,
     ...over,
   };
 }
