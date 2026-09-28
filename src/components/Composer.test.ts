@@ -121,6 +121,17 @@ describe('Composer', () => {
     expect(textarea.value).toBe('');
   });
 
+  it('shrinks the text field back once a long message is sent', async () => {
+    const { textarea, backend } = setup();
+    // jsdom has no layout: the content height follows the text.
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, get: () => (textarea.value ? 240 : 44) });
+    await userEvent.type(textarea, 'Un long message');
+    expect(textarea.style.height).toBe('240px');
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(backend.called('send_message')).toHaveLength(1));
+    await waitFor(() => expect(textarea.style.height).toBe('44px'));
+  });
+
   it('keeps Shift+Enter as a newline', async () => {
     const { backend, textarea } = setup();
     await userEvent.type(textarea, 'ligne 1{Shift>}{Enter}{/Shift}ligne 2');

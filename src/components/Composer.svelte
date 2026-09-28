@@ -107,6 +107,12 @@
     ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + 'px';
   }
 
+  // Also when the text changes without typing: cleared once sent, another agent's draft, recall.
+  $effect(() => {
+    void text;
+    autosize();
+  });
+
   async function refreshSuggestions() {
     if (!ta) return;
     trigger = detectTrigger(text, ta.selectionStart);
