@@ -64,6 +64,8 @@ export interface UiState {
   activeProject: string | null;
   view: string;
   selectedAgent: Record<string, string>;
+  /** 'split': conversation on the left half, uncommitted files and their diff on the right. */
+  layout?: '' | 'split';
 }
 
 export interface GitInfo {

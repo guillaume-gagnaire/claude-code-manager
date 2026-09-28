@@ -4,8 +4,10 @@
   import { api } from '../lib/ipc';
   import { app } from '../lib/state.svelte';
   import type { Agent, FileChange, Project } from '../lib/types';
+  import FileDiff from './FileDiff.svelte';
 
-  let { project, agent }: { project: Project; agent: Agent | null } = $props();
+  // `docked`: right half of the split layout, showing the picked file's diff under the list.
+  let { project, agent, docked = false }: { project: Project; agent: Agent | null; docked?: boolean } = $props();
 
   let files = $state<FileChange[]>([]);
   let loading = $state(false);
@@ -63,14 +65,29 @@
   function openDiff(paths: string[], agentId: string | null, title: string) {
     app.modal = { kind: 'diff', projectId: project.id, agentId, paths, title };
   }
+
+  const keyOf = (f: FileChange) => f.agentId + ':' + f.path;
+
+  /** The agent whose worktree holds `f` (null: the project checkout). */
+  function diffOwner(f: FileChange) {
+    if (scope === 'agent') return agent?.id ?? null;
+    return f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null;
+  }
+
+  let picked = $state<string | null>(null);
+  // The picked file while it is still listed, else the first one.
+  const current = $derived(docked ? (files.find((f) => keyOf(f) === picked) ?? files[0] ?? null) : null);
+  // Primitives, so that a list refresh returning the same file does not reload its diff twice.
+  const currentPath = $derived(current?.path ?? null);
+  const currentOwner = $derived(current ? diffOwner(current) : null);
 </script>
 
-<aside class="panel">
+<aside class="panel" class:docked>
   <div class="head">
     <span class="section-label">Non commités</span>
     <span class="count">{files.length}</span>
     <div style="flex:1"></div>
-    <button class="icon-btn" title="Fermer" onclick={() => (app.filesOpen = false)}>×</button>
+    {#if !docked}<button class="icon-btn" title="Fermer" onclick={() => (app.filesOpen = false)}>×</button>{/if}
   </div>
   <div class="scope">
     <div class="segmented" style="width:100%">
@@ -91,15 +108,13 @@
     {:else if !files.length && !loading}
       <div class="empty">{scope === 'agent' ? 'Aucun fichier modifié par cet agent.' : 'Aucune modification non commitée.'}</div>
     {/if}
-    {#each files as f (f.agentId + ':' + f.path)}
+    {#each files as f (keyOf(f))}
+      {@const on = current !== null && keyOf(current) === keyOf(f)}
       <button
         class="file"
-        onclick={() =>
-          openDiff(
-            [f.path],
-            scope === 'agent' ? (agent?.id ?? null) : f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null,
-            f.path,
-          )}
+        class:on
+        aria-current={on ? 'true' : undefined}
+        onclick={() => (docked ? (picked = keyOf(f)) : openDiff([f.path], diffOwner(f), f.path))}
       >
         <span class="st" style:color={SC[f.status]}>{f.status}</span>
         <span class="names">
@@ -112,6 +127,15 @@
       </button>
     {/each}
   </div>
+  {#if docked}
+    {#if currentPath !== null}
+      {#key currentOwner + ':' + currentPath}
+        <FileDiff projectId={project.id} agentId={currentOwner} path={currentPath} />
+      {/key}
+    {:else}
+      <div class="fill"></div>
+    {/if}
+  {/if}
   <div class="foot">
     <button
       class="btn"
@@ -146,6 +170,18 @@
     background: var(--panel);
     border-left: 1px solid var(--line);
     min-height: 0;
+  }
+  .panel.docked {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .docked .list {
+    flex: 0 1 auto;
+    max-height: 35%;
+  }
+  .fill {
+    flex: 1;
   }
   .head {
     display: flex;
@@ -193,7 +229,8 @@
     cursor: pointer;
     min-width: 0;
   }
-  .file:hover {
+  .file:hover,
+  .file.on {
     background: var(--elev);
   }
   .st {

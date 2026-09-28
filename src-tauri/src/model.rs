@@ -153,6 +153,8 @@ pub struct UiState {
     pub active_project: Option<String>,
     pub view: String,
     pub selected_agent: HashMap<String, String>,
+    /// "split" (conversation | files) or "" (classic).
+    pub layout: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -325,5 +327,14 @@ mod tests {
                 { "op": "delta", "id": "a", "text": "?" },
             ])
         );
+    }
+
+    #[test]
+    fn ui_layout_is_kept_and_defaults_to_classic_for_older_state_files() {
+        let ui: UiState =
+            serde_json::from_value(json!({ "view": "project", "layout": "split" })).unwrap();
+        assert_eq!(serde_json::to_value(&ui).unwrap()["layout"], "split");
+        let old: UiState = serde_json::from_value(json!({ "view": "project" })).unwrap();
+        assert_eq!(serde_json::to_value(&old).unwrap()["layout"], "");
     }
 }

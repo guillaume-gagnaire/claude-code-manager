@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { parseUnifiedDiff, splitRows, type DiffFile, type DiffLine } from '../lib/diff';
+  import { parseUnifiedDiff, type DiffFile } from '../lib/diff';
   import { api } from '../lib/ipc';
   import { trapFocus } from '../lib/focus';
   import { app } from '../lib/state.svelte';
+  import DiffView from './DiffView.svelte';
 
   let { projectId, agentId, paths, title }: { projectId: string; agentId: string | null; paths: string[]; title: string } = $props();
 
@@ -10,7 +11,6 @@
   let current = $state(0);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let split = $state(localStorage.getItem('ccm.diffSplit') === '1');
 
   $effect(() => {
     api
@@ -26,14 +26,6 @@
   });
 
   const file = $derived(files[current]);
-  const lines = $derived<DiffLine[]>(
-    file ? file.hunks.flatMap((h) => [{ kind: 'meta', text: h.header, oldNo: null, newNo: null } as DiffLine, ...h.lines]) : [],
-  );
-
-  function toggleSplit() {
-    split = !split;
-    localStorage.setItem('ccm.diffSplit', split ? '1' : '0');
-  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (app.modal = null)} />
@@ -46,8 +38,8 @@
       <span class="n mono">{files.length} fichier{files.length > 1 ? 's' : ''}</span>
       <div style="flex:1"></div>
       <div class="segmented">
-        <button class:on={!split} onclick={() => split && toggleSplit()}>Unifié</button>
-        <button class:on={split} onclick={() => !split && toggleSplit()}>Côte à côte</button>
+        <button class:on={!app.diffSplit} onclick={() => app.setDiffSplit(false)}>Unifié</button>
+        <button class:on={app.diffSplit} onclick={() => app.setDiffSplit(true)}>Côte à côte</button>
       </div>
       <button class="icon-btn" title="Fermer (Échap)" onclick={() => (app.modal = null)}>×</button>
     </div>
@@ -70,35 +62,9 @@
           <div class="msg">{error}</div>
         {:else if !file}
           <div class="msg">Aucune différence.</div>
-        {:else if file.binary}
-          <div class="msg">Fichier binaire.</div>
         {:else}
           <div class="fhead mono">{file.path} <span class="add">+{file.add}</span> <span class="del">−{file.del}</span></div>
-          {#if split}
-            <div class="rows">
-              {#each splitRows(lines) as r, i (i)}
-                <div class="srow">
-                  {#each [r.left, r.right] as l, side (side)}
-                    <div class="cell {l ? (l.kind === 'ctx' ? '' : l.kind) : 'void'}">
-                      <span class="no">{l && l.kind !== 'meta' ? (side === 0 ? (l.oldNo ?? '') : (l.newNo ?? '')) : ''}</span>
-                      <span class="txt">{l?.text ?? ''}</span>
-                    </div>
-                  {/each}
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <div class="rows">
-              {#each lines as l, i (i)}
-                <div class="urow {l.kind}">
-                  <span class="no">{l.oldNo ?? ''}</span>
-                  <span class="no">{l.newNo ?? ''}</span>
-                  <span class="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                  <span class="txt">{l.text}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
+          <DiffView {file} split={app.diffSplit} />
         {/if}
       </div>
     </div>
@@ -223,65 +189,5 @@
     font-size: 12px;
     background: var(--panel);
     border-bottom: 1px solid var(--line);
-  }
-  .rows {
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.55;
-    min-width: max-content;
-  }
-  .urow {
-    display: flex;
-    white-space: pre;
-  }
-  .no {
-    width: 48px;
-    flex: none;
-    padding-right: 8px;
-    text-align: right;
-    color: var(--dim);
-    user-select: none;
-  }
-  .sign {
-    width: 18px;
-    flex: none;
-    text-align: center;
-    user-select: none;
-  }
-  .txt {
-    padding-right: 20px;
-  }
-  .urow.add,
-  .cell.add {
-    background: color-mix(in oklch, var(--add) 14%, transparent);
-  }
-  .urow.del,
-  .cell.del {
-    background: color-mix(in oklch, var(--del) 14%, transparent);
-  }
-  .urow.add .sign {
-    color: var(--add);
-  }
-  .urow.del .sign {
-    color: var(--del);
-  }
-  .urow.meta,
-  .cell.meta {
-    color: var(--info);
-    background: color-mix(in oklch, var(--info) 8%, transparent);
-  }
-  .srow {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    min-width: max-content;
-  }
-  .cell {
-    display: flex;
-    white-space: pre;
-    min-width: 50vw;
-    border-right: 1px solid var(--line);
-  }
-  .cell.void {
-    background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.02) 6px 12px);
   }
 </style>

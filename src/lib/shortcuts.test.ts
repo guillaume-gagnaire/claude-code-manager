@@ -37,6 +37,23 @@ describe('handleShortcut', () => {
     expect(app.modal).toEqual({ kind: 'settings' });
   });
 
+  it('switches the screen layout with Ctrl+Shift+L', () => {
+    fakeBackend();
+    expect(handleShortcut(key('L', { shiftKey: true }))).toBe(true);
+    expect(app.split).toBe(true);
+    handleShortcut(key('L', { shiftKey: true }));
+    expect(app.split).toBe(false);
+  });
+
+  it('toggles the files panel with Ctrl+Shift+B, except in the split layout where it is always shown', () => {
+    fakeBackend();
+    expect(handleShortcut(key('B', { shiftKey: true }))).toBe(true);
+    expect(app.filesOpen).toBe(true);
+    app.toggleLayout();
+    expect(handleShortcut(key('B', { shiftKey: true }))).toBe(false);
+    expect(app.filesOpen).toBe(true);
+  });
+
   it('does nothing behind an open dialog', () => {
     const backend = fakeBackend();
     app.modal = { kind: 'newProject' };

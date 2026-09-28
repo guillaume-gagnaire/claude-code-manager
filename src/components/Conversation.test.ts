@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { conversationOf } from '../lib/conversations.svelte';
 import { app } from '../lib/state.svelte';
@@ -64,5 +65,29 @@ describe('Conversation', () => {
     expect(await screen.findByText(/journal illisible/)).toBeInTheDocument();
     expect(screen.queryByText('Agent prêt')).not.toBeInTheDocument();
     expect(app.agents[a.id]).toBeDefined();
+  });
+});
+
+describe('Conversation header', () => {
+  it('switches between the classic and the split layout', async () => {
+    setup();
+    const split = screen.getByRole('button', { name: 'Conversation et fichiers côte à côte' });
+    const classic = screen.getByRole('button', { name: 'Disposition classique' });
+    expect(classic).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(split);
+    expect(app.split).toBe(true);
+    expect(split).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(classic);
+    expect(app.split).toBe(false);
+  });
+
+  it('keeps the files counter but no panel toggle in the split layout, where the files are always shown', async () => {
+    setup();
+    await userEvent.click(screen.getByRole('button', { name: /Fichiers/ }));
+    expect(app.filesOpen).toBe(true);
+    app.toggleLayout();
+    await frame();
+    expect(screen.queryByRole('button', { name: /Fichiers/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Fichiers')).toBeInTheDocument();
   });
 });

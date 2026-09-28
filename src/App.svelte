@@ -62,7 +62,9 @@
         {#key app.agent.id}
           <Conversation agent={app.agent} {project} />
         {/key}
-        {#if app.filesOpen}
+        {#if app.split}
+          <FilesPanel {project} agent={app.agent} docked />
+        {:else if app.filesOpen}
           <FilesPanel {project} agent={app.agent} />
         {/if}
       {:else}

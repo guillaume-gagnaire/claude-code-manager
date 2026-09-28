@@ -63,6 +63,23 @@ test('edits by Claude are attributed to the agent', async ({ app }) => {
   await expect(page.locator('.tool').filter({ hasText: 'Edit' })).toContainText('+2');
 });
 
+test('the split layout shows the files the agent edits, with their diff, next to the conversation', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await page.getByRole('button', { name: 'Conversation et fichiers côte à côte' }).click();
+  const pane = page.locator('.panel.docked');
+  await expect(pane).toContainText('Aucun fichier modifié par cet agent.');
+  await send(page, 'edit');
+  await expect(page.getByText('Fichier modifié.')).toBeVisible();
+  fs.writeFileSync(path.join(app.repo, 'src', 'app.ts'), 'const a = 2;\nconst b = 3;\n');
+  await expect(pane.getByRole('region', { name: 'Diff de src/app.ts' })).toContainText('const b = 3;');
+  const conv = (await page.locator('main.conv').boundingBox())!;
+  const side = (await pane.boundingBox())!;
+  expect(Math.abs(conv.width - side.width)).toBeLessThan(2);
+  await page.keyboard.press('Control+Shift+L');
+  await expect(pane).toBeHidden();
+});
+
 test('a terminal runs commands in the project folder', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

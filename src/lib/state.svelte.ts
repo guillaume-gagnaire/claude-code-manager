@@ -48,6 +48,8 @@ class AppState {
   version = $state('');
   filesOpen = $state(false);
   filesScope = $state<'agent' | 'project'>('agent');
+  /** Side-by-side diffs (else unified), shared by the diff dialog and the split layout. */
+  diffSplit = $state(readPref('ccm.diffSplit') === '1');
   showArchived = $state(false);
   modal = $state<Modal | null>(null);
   toasts = $state<Toast[]>([]);
@@ -57,6 +59,7 @@ class AppState {
   focusComposer = $state(0);
 
   project = $derived(this.projects.find((p) => p.id === this.ui.activeProject) ?? null);
+  split = $derived(this.ui.layout === 'split');
 
   projectAgents = $derived.by(() => {
     const p = this.project;
@@ -166,6 +169,20 @@ class AppState {
     this.persistUi();
   }
 
+  toggleLayout() {
+    this.ui.layout = this.split ? '' : 'split';
+    this.persistUi();
+  }
+
+  setDiffSplit(on: boolean) {
+    this.diffSplit = on;
+    try {
+      localStorage.setItem('ccm.diffSplit', on ? '1' : '0');
+    } catch {
+      // Storage unavailable: the choice lasts until the app closes.
+    }
+  }
+
   selectAgent(id: string) {
     const a = this.agents[id];
     if (!a) return;
@@ -217,6 +234,14 @@ class AppState {
       this.toast(String(e), 'error');
       return undefined;
     }
+  }
+}
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
   }
 }
 

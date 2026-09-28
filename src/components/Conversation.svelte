@@ -101,17 +101,59 @@
     <div style="flex:1"></div>
     <div class="metrics">
       <span class="model mono" title="Contexte actuel : {fTok(agent.contextTokens)} tokens">{modelLabel(agent.model)}</span>
-      <div class="m"><span class="k">Tokens</span><span class="v mono">{fTok(agent.tokens)}</span></div>
-      <div class="m"><span class="k">Coût</span><span class="v mono">{fUsd(agent.cost)}</span></div>
+      <div class="m opt"><span class="k">Tokens</span><span class="v mono">{fTok(agent.tokens)}</span></div>
+      <div class="m opt2"><span class="k">Coût</span><span class="v mono">{fUsd(agent.cost)}</span></div>
+      {#if app.split}
+        <div class="m opt2"><span class="k">Fichiers</span><span class="v mono">{files}</span></div>
+      {:else}
+        <button
+          class="m files opt2"
+          class:open={app.filesOpen}
+          title="Voir les fichiers non commités"
+          onclick={() => (app.filesOpen = !app.filesOpen)}
+        >
+          <span class="k">Fichiers ▸</span><span class="v mono">{files}</span>
+        </button>
+      {/if}
+      <div class="m opt"><span class="k">Durée</span><span class="v mono">{duration}</span></div>
+    </div>
+    <div class="segmented layout" role="group" aria-label="Disposition (Ctrl+Maj+L)">
       <button
-        class="m files"
-        class:open={app.filesOpen}
-        title="Voir les fichiers non commités"
-        onclick={() => (app.filesOpen = !app.filesOpen)}
+        class:on={!app.split}
+        aria-pressed={!app.split}
+        aria-label="Disposition classique"
+        title="Disposition classique"
+        onclick={() => app.split && app.toggleLayout()}
       >
-        <span class="k">Fichiers ▸</span><span class="v mono">{files}</span>
+        <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true"
+          ><rect x="0.5" y="0.5" width="15" height="11" rx="1.5" fill="none" stroke="currentColor" /><rect
+            x="11"
+            y="1"
+            width="4"
+            height="10"
+            fill="currentColor"
+            opacity="0.45"
+          /></svg
+        >
       </button>
-      <div class="m"><span class="k">Durée</span><span class="v mono">{duration}</span></div>
+      <button
+        class:on={app.split}
+        aria-pressed={app.split}
+        aria-label="Conversation et fichiers côte à côte"
+        title="Conversation et fichiers côte à côte"
+        onclick={() => !app.split && app.toggleLayout()}
+      >
+        <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true"
+          ><rect x="0.5" y="0.5" width="15" height="11" rx="1.5" fill="none" stroke="currentColor" /><rect
+            x="8"
+            y="1"
+            width="7"
+            height="10"
+            fill="currentColor"
+            opacity="0.45"
+          /></svg
+        >
+      </button>
     </div>
   </header>
 
@@ -191,6 +233,7 @@
     flex-direction: column;
   }
   .head {
+    container-type: inline-size;
     height: 60px;
     flex: none;
     display: flex;
@@ -270,6 +313,25 @@
   .files.open {
     background: var(--elev);
     border-color: var(--line2);
+  }
+  .layout {
+    flex: none;
+  }
+  /* Half-width conversation (split layout): the agent's card in the sidebar shows these too. */
+  @container (max-width: 680px) {
+    .opt {
+      display: none;
+    }
+  }
+  @container (max-width: 440px) {
+    .opt2 {
+      display: none;
+    }
+  }
+  .layout button {
+    display: flex;
+    align-items: center;
+    padding: 0 7px;
   }
   .scroll {
     flex: 1;

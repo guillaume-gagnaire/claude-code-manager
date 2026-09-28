@@ -39,8 +39,12 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     import('./term-actions').then((m) => m.newTerminal(projectId));
     return true;
   }
-  if (k === 'b' && e.shiftKey) {
+  if (k === 'b' && e.shiftKey && !app.split) {
     app.filesOpen = !app.filesOpen;
+    return true;
+  }
+  if (k === 'l' && e.shiftKey) {
+    app.toggleLayout();
     return true;
   }
   if (e.key === 'Tab' && app.project) {

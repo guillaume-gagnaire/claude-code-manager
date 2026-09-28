@@ -87,6 +87,23 @@ describe('AppState', () => {
     expect(backend.called('set_ui').at(-1)?.args.ui).toMatchObject({ activeProject: 'p2', selectedAgent: { p2: 'b1' } });
   });
 
+  it('restores the saved screen layout, classic by default', async () => {
+    await start();
+    expect(app.split).toBe(false);
+    await start({ ui: { activeProject: 'p1', view: 'project', selectedAgent: {}, layout: 'split' } });
+    expect(app.split).toBe(true);
+  });
+
+  it('toggles the screen layout and saves it', async () => {
+    const { backend } = await start();
+    app.toggleLayout();
+    expect(app.split).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(backend.called('set_ui').at(-1)?.args.ui).toMatchObject({ layout: 'split' });
+    app.toggleLayout();
+    expect(app.split).toBe(false);
+  });
+
   it('cycles through waiting agents across projects', async () => {
     const { emit } = await start();
     emit({ type: 'agent', agent: agent({ id: 'a2', name: 'tests-e2e', createdAt: 2, status: 'waiting', lastActivity: 5 }) });
