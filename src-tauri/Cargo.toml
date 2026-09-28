@@ -1,6 +1,6 @@
 [package]
 name = "claude-code-manager"
-version = "0.1.1"
+version = "0.1.2"
 description = "Pilote plusieurs instances de Claude Code en local"
 authors = ["Guillaume Gagnaire"]
 edition = "2021"
