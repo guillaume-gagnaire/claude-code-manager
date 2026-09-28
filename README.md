@@ -95,7 +95,7 @@ La CI (`.github/workflows/ci.yml`) exécute l'ensemble sur chaque push et pull r
    npm run version:set -- 0.2.0
    git commit -am "chore: release 0.2.0"
    git tag v0.2.0
-   git push --follow-tags
+   git push origin main v0.2.0
    ```
 
 Le workflow `release.yml` vérifie que le tag correspond à la version, crée la release, lance les tests, construit l'installeur, le signe et l'ajoute à la release avec le `latest.json` utilisé par la mise à jour automatique.
