@@ -394,6 +394,14 @@ impl PtyManager {
     }
 }
 
+/// Tests starting a real shell run one at a time: several Windows PowerShells booting at once on a
+/// CI runner can outlast what the tests wait for, and the ping tests would see each other's pings.
+#[cfg(test)]
+fn one_shell_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static SHELLS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SHELLS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
@@ -474,9 +482,6 @@ mod tests {
         assert!(installed(&alias), "{}", alias.display());
     }
 
-    /// Tests spotting "the new ping.exe" run one at a time, or they could see each other's.
-    static PINGS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// PIDs of running ping.exe processes.
     fn pings() -> Vec<u32> {
         let out = std::process::Command::new("tasklist")
@@ -499,6 +504,7 @@ mod tests {
 
     #[test]
     fn closing_a_terminal_kills_the_programs_it_started() {
+        let _one = one_shell_at_a_time();
         let pty = PtyManager::default();
         let out = Arc::new(Mutex::new(String::new()));
         let sink = out.clone();
@@ -530,14 +536,13 @@ mod tests {
         let start = Instant::now();
         while !out.lock().contains("PS ") {
             assert!(
-                start.elapsed() < Duration::from_secs(20),
+                start.elapsed() < Duration::from_secs(60),
                 "no prompt: {}",
                 out.lock()
             );
             std::thread::sleep(Duration::from_millis(20));
         }
         std::thread::sleep(Duration::from_millis(1500));
-        let _one_at_a_time = PINGS.lock().unwrap_or_else(|e| e.into_inner());
         let before = pings();
         pty.write("t1", b"ping -n 60 127.0.0.1\r").unwrap();
         let pid = loop {
@@ -545,7 +550,7 @@ mod tests {
                 break p;
             }
             assert!(
-                start.elapsed() < Duration::from_secs(40),
+                start.elapsed() < Duration::from_secs(90),
                 "ping did not start: {}",
                 out.lock()
             );
@@ -565,7 +570,7 @@ mod tests {
 
     /// Stops the launch command `command`, which starts a ping: the ping must die with it.
     fn stop_kills_its_ping(id: &str, command: &str) {
-        let _one_at_a_time = PINGS.lock().unwrap_or_else(|e| e.into_inner());
+        let _one = one_shell_at_a_time();
         let pty = PtyManager::default();
         let Some(shell) = detect_shells(&Settings::default())
             .into_iter()
@@ -601,7 +606,7 @@ mod tests {
                 break p;
             }
             assert!(
-                start.elapsed() < Duration::from_secs(30),
+                start.elapsed() < Duration::from_secs(90),
                 "ping did not start"
             );
             std::thread::sleep(Duration::from_millis(50));
@@ -652,6 +657,7 @@ mod windows_powershell_tests {
 
     /// Runs `command` as a launch command; returns its output and exit code.
     fn launch(command: &str) -> Option<(String, Option<u32>)> {
+        let _one = one_shell_at_a_time();
         let shell = windows_powershell()?;
         let pty = PtyManager::default();
         let out = Arc::new(Mutex::new(String::new()));
@@ -680,7 +686,7 @@ mod windows_powershell_tests {
         let start = Instant::now();
         while exit.lock().is_none() {
             assert!(
-                start.elapsed() < Duration::from_secs(30),
+                start.elapsed() < Duration::from_secs(90),
                 "did not end: {}",
                 out.lock()
             );
@@ -714,6 +720,7 @@ mod windows_powershell_tests {
 
     #[test]
     fn a_resized_launch_command_leaves_the_lines_above_its_start_alone() {
+        let _one = one_shell_at_a_time();
         let Some(shell) = windows_powershell() else {
             return;
         };
@@ -745,7 +752,7 @@ mod windows_powershell_tests {
         let text = |from: usize| String::from_utf8_lossy(&out.lock()[from..]).to_string();
         let start = Instant::now();
         while !text(0).contains("pret") {
-            assert!(start.elapsed() < Duration::from_secs(30), "no output");
+            assert!(start.elapsed() < Duration::from_secs(90), "no output");
             std::thread::sleep(Duration::from_millis(50));
         }
         let n = out.lock().len();
@@ -813,6 +820,7 @@ mod windows_powershell_tests {
 
     #[test]
     fn a_windows_powershell_terminal_runs_commands() {
+        let _one = one_shell_at_a_time();
         let root = std::env::var_os("SystemRoot").map(PathBuf::from);
         let roots = ShellRoots {
             path: vec![],
@@ -863,7 +871,7 @@ mod windows_powershell_tests {
                 sent = true;
             }
             assert!(
-                start.elapsed() < Duration::from_secs(30),
+                start.elapsed() < Duration::from_secs(90),
                 "no output: {}",
                 out.lock()
             );
