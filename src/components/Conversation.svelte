@@ -51,15 +51,30 @@
   let content = $state<HTMLDivElement>();
   let stick = true;
   let showJump = $state(false);
+  let lastTop = 0;
 
   function atBottom() {
-    return !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+    return !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
   }
 
   function toBottom() {
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight;
+      lastTop = scroller.scrollTop;
+    }
     stick = true;
     showJump = false;
+  }
+
+  // Scrolling up means leaving the bottom, however close to it: messages rendered as they come
+  // into view (content-visibility) resize the content, which must not pull the reader back.
+  function onScroll() {
+    if (!scroller) return;
+    const top = scroller.scrollTop;
+    if (top < lastTop - 1) stick = false;
+    else if (atBottom()) stick = true;
+    lastTop = top;
+    if (stick) showJump = false;
   }
 
   // The view is re-created for each agent ({#key}): scroll down once, not on every agent update.
@@ -161,7 +176,7 @@
     </div>
   </header>
 
-  <div class="scroll" bind:this={scroller} onscroll={() => ((stick = atBottom()), stick && (showJump = false))}>
+  <div class="scroll" bind:this={scroller} onscroll={onScroll}>
     <div class="msgs" bind:this={content}>
       {#if conv.error}
         <div class="load-error">

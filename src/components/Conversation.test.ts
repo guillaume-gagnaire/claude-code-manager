@@ -52,6 +52,48 @@ describe('Conversation', () => {
     expect(scroller.scrollTop).toBe(100);
   });
 
+  describe('near the bottom', () => {
+    // Resizes of the content (messages rendered as they scroll into view, streamed text).
+    let resized: ((entries: unknown[]) => void)[] = [];
+    const Real = globalThis.ResizeObserver;
+    beforeEach(() => {
+      resized = [];
+      globalThis.ResizeObserver = class {
+        constructor(cb: (entries: unknown[]) => void) {
+          resized.push(cb);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+    });
+    afterEach(() => {
+      globalThis.ResizeObserver = Real;
+    });
+    const scrollTo = (el: HTMLElement, top: number) => {
+      el.scrollTop = top;
+      el.dispatchEvent(new Event('scroll'));
+    };
+
+    it('lets the reader scroll up a little without pulling them back down', async () => {
+      const { scroller } = setup();
+      await frame();
+      // At the bottom (2000), the reader scrolls up by 10 px, still within the old 80 px magnet.
+      scrollTo(scroller, 1490);
+      resized.forEach((cb) => cb([]));
+      expect(scroller.scrollTop).toBe(1490);
+    });
+
+    it('follows the conversation again once the reader is back at the bottom', async () => {
+      const { scroller } = setup();
+      await frame();
+      scrollTo(scroller, 1400);
+      scrollTo(scroller, 1495);
+      resized.forEach((cb) => cb([]));
+      expect(scroller.scrollTop).toBe(2000);
+    });
+  });
+
   it('says so when the conversation cannot be loaded', async () => {
     const a = agent({ id: `w${Math.random()}` });
     resetApp({ projects: [project()], agents: [a] });

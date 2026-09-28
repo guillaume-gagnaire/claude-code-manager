@@ -112,6 +112,29 @@ test('an agent in remote control shows what is sent to it from claude.ai', async
   await expect(card.getByTitle(/Remote control/)).toBeHidden();
 });
 
+test('scrolling up slowly from the bottom of a conversation is never pulled back down', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  for (let i = 1; i <= 10; i++) {
+    await send(page, `message ${i} ` + 'du texte pour remplir la conversation '.repeat(12));
+    await expect(page.getByText(`tu as dit : message ${i} `)).toBeVisible();
+  }
+  const scroll = page.locator('.scroll');
+  const box = (await scroll.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const bottom = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
+  // The conversation followed every reply down to the bottom.
+  expect(await scroll.evaluate((el) => el.scrollTop)).toBeGreaterThanOrEqual(bottom - 2);
+  const tops: number[] = [];
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, -12);
+    await page.waitForTimeout(60);
+    tops.push(await scroll.evaluate((el) => el.scrollTop));
+  }
+  for (let i = 1; i < tops.length; i++) expect(tops[i], JSON.stringify(tops)).toBeLessThanOrEqual(tops[i - 1]);
+  expect(tops.at(-1)!, JSON.stringify({ bottom, tops })).toBeLessThan(bottom - 60);
+});
+
 test('a terminal runs commands in the project folder', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);
