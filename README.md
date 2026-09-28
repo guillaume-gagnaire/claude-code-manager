@@ -96,7 +96,9 @@ La CI (`.github/workflows/ci.yml`) exécute l'ensemble sur chaque push et pull r
    git push --follow-tags
    ```
 
-Le workflow `release.yml` vérifie que le tag correspond à la version, lance les tests, construit l'installeur, le signe et publie la release avec le `latest.json` utilisé par la mise à jour automatique.
+Le workflow `release.yml` vérifie que le tag correspond à la version, crée la release, lance les tests, construit l'installeur, le signe et l'ajoute à la release avec le `latest.json` utilisé par la mise à jour automatique.
+
+Tague toujours la tête de `main`, et attends que la release soit créée (première minute du workflow) avant de pousser d'autres commits : une fois `main` plus loin que le tag, le `GITHUB_TOKEN` des Actions n'a plus le droit de créer la release (« Resource not accessible by integration »).
 
 ## Architecture
 

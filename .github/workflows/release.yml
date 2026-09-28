@@ -20,6 +20,22 @@ jobs:
       - name: Check that the tag matches the app version
         run: node scripts/version.mjs --check ${{ github.ref_name }}
 
+      # Created before the long build, while the tag is still the head of main: once main has moved
+      # past it, GITHUB_TOKEN may no longer create the release ("Resource not accessible by
+      # integration", it would need the `workflows` permission it cannot have). tauri-action then
+      # finds this release and only uploads the installer, its signature and latest.json to it.
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 && exit 0
+          flags=()
+          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+          gh release create "$TAG" --verify-tag --title "Claude Code Manager $TAG" \
+            --notes "Voir les commits depuis la version précédente." "${flags[@]}"
+
       - uses: actions/setup-node@v7
         with:
           node-version: 22
