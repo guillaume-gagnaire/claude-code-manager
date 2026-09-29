@@ -74,12 +74,19 @@
     showJump = false;
   }
 
-  // Scrolling up means leaving the bottom, however close to it: messages rendered as they come
-  // into view (content-visibility) resize the content, which must not pull the reader back.
+  // The reader scrolling up leaves the bottom, however close to it: messages rendered as they come
+  // into view (content-visibility) resize the content, which must not pull them back. Only the
+  // reader does: content shrinking under the view, or the message field shrinking back once a
+  // message is sent, moves the view up too, and the conversation must go on following.
+  let readerAt = 0;
+  let dragging = false;
+  const reading = () => dragging || performance.now() - readerAt < 500;
+  const byReader = () => (readerAt = performance.now());
+
   function onScroll() {
     if (!scroller) return;
     const top = scroller.scrollTop;
-    if (top < lastTop - 1) stick = false;
+    if (top < lastTop - 1 && reading()) stick = false;
     else if (atBottom()) stick = true;
     lastTop = top;
     if (stick) showJump = false;
@@ -113,6 +120,8 @@
     return i > 0 && top[i - 1].kind === 'text';
   }
 </script>
+
+<svelte:window onpointerup={() => (dragging = false)} onpointercancel={() => (dragging = false)} />
 
 <main class="conv">
   <header class="head">
@@ -184,7 +193,15 @@
     </div>
   </header>
 
-  <div class="scroll" bind:this={scroller} onscroll={onScroll}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="scroll"
+    bind:this={scroller}
+    onscroll={onScroll}
+    onwheel={byReader}
+    onkeydown={byReader}
+    onpointerdown={() => (dragging = true)}
+  >
     <div class="msgs" bind:this={content}>
       {#if conv.error}
         <div class="load-error">

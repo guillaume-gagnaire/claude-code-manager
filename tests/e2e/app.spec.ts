@@ -210,6 +210,9 @@ test('an agent in remote control shows what is sent to it from claude.ai', async
 
 test('scrolling up slowly from the bottom of a conversation is never pulled back down', async ({ app }) => {
   const { page } = app;
+  // The window of the CI runners: the first reply just fits, and the message field shrinking back
+  // once a message is sent moves the view up (which must not stop it following).
+  await page.setViewportSize({ width: 1028, height: 779 });
   await addProject(page, app.repo);
   const scroll = page.locator('.scroll');
   // [scrollTop, scrollHeight, clientHeight] after each reply, for the failure message (CI).

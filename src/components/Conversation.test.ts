@@ -70,25 +70,69 @@ describe('Conversation', () => {
     afterEach(() => {
       globalThis.ResizeObserver = Real;
     });
-    const scrollTo = (el: HTMLElement, top: number) => {
+    // The reader scrolls with the wheel (or keys, or by dragging); the layout moves the view alone.
+    const readerScrollsTo = (el: HTMLElement, top: number) => {
+      el.dispatchEvent(new WheelEvent('wheel', { deltaY: top - el.scrollTop }));
+      layoutMovesTo(el, top);
+    };
+    const layoutMovesTo = (el: HTMLElement, top: number) => {
       el.scrollTop = top;
       el.dispatchEvent(new Event('scroll'));
+    };
+    const grows = (scroller: HTMLElement) => {
+      let height = 2000;
+      Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => height });
+      return (h: number) => (height = h);
     };
 
     it('lets the reader scroll up a little without pulling them back down', async () => {
       const { scroller } = setup();
       await frame();
       // At the bottom (2000), the reader scrolls up by 10 px, still within the old 80 px magnet.
-      scrollTo(scroller, 1490);
+      readerScrollsTo(scroller, 1490);
       resized.forEach((cb) => cb([]));
       expect(scroller.scrollTop).toBe(1490);
+    });
+
+    it('leaves the bottom when the reader drags the scrollbar up', async () => {
+      const { scroller } = setup();
+      await frame();
+      scroller.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      layoutMovesTo(scroller, 1300);
+      window.dispatchEvent(new Event('pointerup'));
+      resized.forEach((cb) => cb([]));
+      expect(scroller.scrollTop).toBe(1300);
+    });
+
+    it('keeps following when the content shrinks under a view at the bottom', async () => {
+      const { scroller } = setup();
+      await frame();
+      const height = grows(scroller);
+      // The end of a turn replaces taller content (the running indicator): the browser pulls the
+      // view up with it, to the new bottom. The reader did not scroll.
+      height(1800);
+      layoutMovesTo(scroller, 1300);
+      height(2400);
+      resized.forEach((cb) => cb([]));
+      expect(scroller.scrollTop).toBe(2400);
+    });
+
+    it('keeps following when the message field shrinks back as the message is sent', async () => {
+      const { scroller } = setup();
+      await frame();
+      const height = grows(scroller);
+      // The taller view pulls it up, and the message is in before the scroll event is.
+      height(2300);
+      layoutMovesTo(scroller, 1200);
+      resized.forEach((cb) => cb([]));
+      expect(scroller.scrollTop).toBe(2300);
     });
 
     it('follows the conversation again once the reader is back at the bottom', async () => {
       const { scroller } = setup();
       await frame();
-      scrollTo(scroller, 1400);
-      scrollTo(scroller, 1495);
+      readerScrollsTo(scroller, 1400);
+      readerScrollsTo(scroller, 1495);
       resized.forEach((cb) => cb([]));
       expect(scroller.scrollTop).toBe(2000);
     });
