@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { hasDiff, toolArg, toolLabel, toolResultSummary } from './tools';
-import type { ToolItem } from './types';
+import { editsByTurn, hasDiff, toolArg, toolLabel, toolResultSummary } from './tools';
+import type { ConvItem, ToolItem, TurnItem } from './types';
 
 const CWD = 'C:\\code\\app';
 const tool = (name: string, input: Record<string, unknown>, extra: Partial<ToolItem> = {}): ToolItem => ({
@@ -66,5 +66,47 @@ describe('hasDiff', () => {
   it('is true only when the result carries line counts', () => {
     expect(hasDiff(tool('Edit', {}, { result: { isError: false, add: 0, del: 3 } }))).toBe(true);
     expect(hasDiff(tool('Read', {}, { result: { isError: false, text: 'x' } }))).toBe(false);
+  });
+});
+
+describe('editsByTurn', () => {
+  const edit = (id: string, file: string, add: number, del: number, extra: Partial<ToolItem> = {}): ToolItem =>
+    tool('Edit', { file_path: `${CWD}\\${file}` }, { id, result: { isError: false, add, del }, ...extra });
+  const end = (id: string): TurnItem => ({
+    kind: 'turn',
+    id,
+    ts: 0,
+    durationMs: 1,
+    cost: 0,
+    tokens: 0,
+    isError: false,
+    interrupted: false,
+    error: null,
+  });
+
+  it('sums each turn’s edits per file, subagents’ included, in the order first touched', () => {
+    const items: ConvItem[] = [
+      edit('e1', 'src\\old.ts', 1, 0),
+      end('r1'),
+      edit('e2', 'src\\b.ts', 3, 1),
+      tool('Read', { file_path: `${CWD}\\src\\a.ts` }, { id: 'x' }),
+      edit('e3', 'src\\a.ts', 2, 0, { parent: 'task1' }),
+      edit('e4', 'src\\b.ts', 1, 1),
+      tool(
+        'Write',
+        { file_path: `${CWD}\\notes.md` },
+        { id: 'w', result: { isError: false, add: 4, del: 0, filePath: `${CWD}\\notes.md` } },
+      ),
+      // A failed edit changed nothing.
+      edit('e5', 'src\\c.ts', 9, 9, { status: 'error', result: { isError: true, text: 'no match' } }),
+      end('r2'),
+    ];
+    const edits = editsByTurn(items, CWD);
+    expect(edits.get('r1')).toEqual([{ path: 'src/old.ts', add: 1, del: 0 }]);
+    expect(edits.get('r2')).toEqual([
+      { path: 'src/b.ts', add: 4, del: 2 },
+      { path: 'src/a.ts', add: 2, del: 0 },
+      { path: 'notes.md', add: 4, del: 0 },
+    ]);
   });
 });

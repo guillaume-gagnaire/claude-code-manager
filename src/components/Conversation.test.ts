@@ -108,6 +108,33 @@ describe('Conversation', () => {
     expect(screen.queryByText('Agent prêt')).not.toBeInTheDocument();
     expect(app.agents[a.id]).toBeDefined();
   });
+
+  it('ends a finished task with the files its last turn edited', async () => {
+    const edit = (id: string, file: string, add: number) => ({
+      kind: 'tool',
+      id,
+      name: 'Edit',
+      input: { file_path: `C:\\code\\demo-api\\${file}` },
+      status: 'ok',
+      result: { isError: false, add, del: 1 },
+      ts: 1,
+    });
+    const end = (id: string) => ({
+      kind: 'turn',
+      id,
+      ts: 1,
+      durationMs: 1,
+      cost: 0,
+      tokens: 0,
+      isError: false,
+      interrupted: false,
+      error: null,
+    });
+    setup({ status: 'done' }, [edit('e1', 'old.ts', 1), end('r1'), edit('e2', 'src\\auth.ts', 5), end('r2')]);
+    const recap = await screen.findByRole('list', { name: 'Fichiers modifiés' });
+    expect(recap).toHaveTextContent('src/auth.ts+5−1');
+    expect(recap).not.toHaveTextContent('old.ts');
+  });
 });
 
 describe('Conversation header', () => {

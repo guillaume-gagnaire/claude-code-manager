@@ -51,8 +51,3 @@ export async function copyRemoteLink(agent: Agent) {
     app.toast(String(e), 'error');
   }
 }
-
-export function openFiles(scope: 'agent' | 'project' = 'agent') {
-  app.filesScope = scope;
-  app.filesOpen = true;
-}

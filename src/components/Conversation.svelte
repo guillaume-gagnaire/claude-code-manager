@@ -5,6 +5,7 @@
   import { fDur, fTok } from '../lib/format';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
+  import { editsByTurn } from '../lib/tools';
   import { app } from '../lib/state.svelte';
   import type { Agent, ConvItem, Project } from '../lib/types';
   import Composer from './Composer.svelte';
@@ -40,6 +41,11 @@
       list.push(i);
     }
     return m;
+  });
+  // What the last turn edited, for its recap: worked out once it has ended, not while streaming.
+  const lastEdits = $derived.by(() => {
+    const last = top.at(-1);
+    return last?.kind === 'turn' ? (editsByTurn(conv.items, agent.cwd).get(last.id) ?? []) : [];
   });
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
   const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
@@ -213,7 +219,7 @@
         {:else if item.kind === 'permission'}
           <PermissionCard {item} agentId={agent.id} cwd={agent.cwd} pending={agent.pending.includes(item.id)} />
         {:else if item.kind === 'turn'}
-          <TurnCard {item} {agent} last={i === top.length - 1} />
+          <TurnCard {item} {agent} last={i === top.length - 1} edits={i === top.length - 1 ? lastEdits : []} />
         {:else if item.kind === 'notice'}
           <Notice {item} />
         {/if}

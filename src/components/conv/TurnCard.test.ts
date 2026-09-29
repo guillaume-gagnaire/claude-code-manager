@@ -1,10 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
-import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { COMMIT_AGENT_PROMPT } from '../../lib/agent-actions';
-import { app } from '../../lib/state.svelte';
 import type { TurnItem } from '../../lib/types';
-import { agent, fakeBackend, resetApp } from '../../test/ipc';
+import { agent, resetApp } from '../../test/ipc';
 import TurnCard from './TurnCard.svelte';
 
 const turn = (over: Partial<TurnItem> = {}): TurnItem => ({
@@ -23,24 +20,26 @@ const turn = (over: Partial<TurnItem> = {}): TurnItem => ({
 describe('TurnCard', () => {
   beforeEach(() => resetApp());
 
-  it('shows the "task done" card with actions for the last turn of a finished agent', async () => {
-    const backend = fakeBackend();
-    const a = agent({ status: 'done' });
-    app.git = { p1: { isRepo: true, branch: 'main', modified: 2, added: 0, deleted: 0, total: 2, agents: { a1: 2 } } };
-    render(TurnCard, { item: turn(), agent: a, last: true });
+  it('ends the last turn of a finished agent with the recap of the files it edited, and nothing to click', () => {
+    const a = agent({ status: 'done', worktree: { path: 'C:\\code\\.claude\\worktrees\\x', branch: 'ccm/x', baseBranch: 'main' } });
+    const edits = [
+      { path: 'src/auth.ts', add: 12, del: 3 },
+      { path: 'notes.md', add: 4, del: 0 },
+    ];
+    render(TurnCard, { item: turn(), agent: a, last: true, edits });
     expect(screen.getByText('Tâche terminée')).toBeInTheDocument();
     expect(screen.getByText('2m 31s')).toBeInTheDocument();
     expect(screen.getByText('2 fichiers modifiés')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Commit…' }));
-    expect(backend.called('send_message')[0].args).toMatchObject({ id: 'a1', text: COMMIT_AGENT_PROMPT });
-    await userEvent.click(screen.getByRole('button', { name: 'Revoir les fichiers' }));
-    expect(app.filesOpen).toBe(true);
+    const recap = screen.getAllByRole('listitem');
+    expect(recap.map((li) => li.textContent)).toEqual(['src/auth.ts+12−3', 'notes.md+4−0']);
+    // No commit, merge nor review to propose.
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('offers a merge for worktree agents', () => {
-    const a = agent({ status: 'done', worktree: { path: 'C:\\code\\.claude\\worktrees\\x', branch: 'ccm/x', baseBranch: 'main' } });
-    render(TurnCard, { item: turn(), agent: a, last: true });
-    expect(screen.getByRole('button', { name: 'Merger dans main…' })).toBeInTheDocument();
+  it('says when the turn edited no file', () => {
+    render(TurnCard, { item: turn(), agent: agent({ status: 'done' }), last: true });
+    expect(screen.getByText('0 fichier modifié')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('is a discreet separator for earlier turns', () => {

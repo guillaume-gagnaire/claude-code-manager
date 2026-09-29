@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { commitViaAgent, mergeAgent, openFiles } from '../../lib/agent-actions';
   import { fDur, fTok, fUsd, plural } from '../../lib/format';
-  import { app } from '../../lib/state.svelte';
+  import type { FileEdit } from '../../lib/tools';
   import type { Agent, TurnItem } from '../../lib/types';
 
-  let { item, agent, last }: { item: TurnItem; agent: Agent; last: boolean } = $props();
+  // `edits`: the files this turn edited, recapped once the agent is done.
+  let { item, agent, last, edits = [] }: { item: TurnItem; agent: Agent; last: boolean; edits?: FileEdit[] } = $props();
 
-  const files = $derived(app.git[agent.projectId]?.agents[agent.id] ?? 0);
   const big = $derived(last && agent.status === 'done' && !item.isError && !item.interrupted);
 </script>
 
@@ -20,16 +19,16 @@
     <div class="title ok"><span class="check">✓</span>Tâche terminée</div>
     <div class="stats mono">
       <span>{fDur(item.durationMs ?? 0)}</span><span>{fTok(item.tokens)} tokens</span><span>{fUsd(item.cost)}</span><span
-        >{plural(files, 'fichier modifié', 'fichiers modifiés')}</span
+        >{plural(edits.length, 'fichier modifié', 'fichiers modifiés')}</span
       >
     </div>
-    <div class="actions">
-      <button class="btn" onclick={() => openFiles('agent')}>Revoir les fichiers</button>
-      <button class="btn primary" onclick={() => commitViaAgent(agent)}>Commit…</button>
-      {#if agent.worktree}
-        <button class="btn" onclick={() => mergeAgent(agent)}>Merger dans {agent.worktree.baseBranch}…</button>
-      {/if}
-    </div>
+    {#if edits.length}
+      <ul class="recap mono" aria-label="Fichiers modifiés">
+        {#each edits as e (e.path)}
+          <li><span class="path">{e.path}</span><span class="add">+{e.add}</span><span class="del">−{e.del}</span></li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {:else}
   <div class="sep mono">
@@ -85,10 +84,32 @@
     font-size: 12px;
     color: var(--muted);
   }
-  .actions {
+  .recap {
+    margin: 0;
+    padding: 0;
+    list-style: none;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .recap li {
+    display: flex;
+    gap: 10px;
+    min-width: 0;
+  }
+  .path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .add {
+    color: var(--add);
+  }
+  .del {
+    color: var(--del);
   }
   .err {
     margin: 0;

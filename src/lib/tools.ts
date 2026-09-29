@@ -1,7 +1,7 @@
 // One-line summaries of tool calls for the compact rows of the conversation.
 
 import { relPath } from './format';
-import type { ToolItem } from './types';
+import type { ConvItem, ToolItem } from './types';
 
 const lines = (s: string | undefined) => (s ? s.split('\n').length : 0);
 
@@ -86,4 +86,31 @@ export function toolResultSummary(t: ToolItem): string {
 
 export function hasDiff(t: ToolItem): boolean {
   return !!t.result && typeof t.result.add === 'number';
+}
+
+export interface FileEdit {
+  path: string;
+  add: number;
+  del: number;
+}
+
+/** The files each turn edited (by turn id), subagents included, with their line counts summed. */
+export function editsByTurn(items: ConvItem[], cwd: string): Map<string, FileEdit[]> {
+  const out = new Map<string, FileEdit[]>();
+  let current = new Map<string, FileEdit>();
+  for (const it of items) {
+    if (it.kind === 'turn') {
+      out.set(it.id, [...current.values()]);
+      current = new Map();
+    } else if (it.kind === 'tool' && hasDiff(it) && !it.result!.isError) {
+      const file = it.result!.filePath ?? it.input?.file_path;
+      if (typeof file !== 'string') continue;
+      const path = relPath(cwd, file);
+      const e = current.get(path) ?? { path, add: 0, del: 0 };
+      e.add += it.result!.add ?? 0;
+      e.del += it.result!.del ?? 0;
+      current.set(path, e);
+    }
+  }
+  return out;
 }
