@@ -211,16 +211,28 @@ test('an agent in remote control shows what is sent to it from claude.ai', async
 test('scrolling up slowly from the bottom of a conversation is never pulled back down', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);
+  const scroll = page.locator('.scroll');
+  // [scrollTop, scrollHeight, clientHeight] after each reply, for the failure message (CI).
+  const followed: number[][] = [];
   for (let i = 1; i <= 10; i++) {
     await send(page, `message ${i} ` + 'du texte pour remplir la conversation '.repeat(12));
     await expect(page.getByText(`tu as dit : message ${i} `)).toBeVisible();
+    followed.push(await scroll.evaluate((el) => [el.scrollTop, el.scrollHeight, el.clientHeight]));
   }
-  const scroll = page.locator('.scroll');
   const box = (await scroll.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   const bottom = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
   // The conversation followed every reply down to the bottom.
-  expect(await scroll.evaluate((el) => el.scrollTop)).toBeGreaterThanOrEqual(bottom - 2);
+  const rendering = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const state = () => ({ visibility: document.visibilityState, focus: document.hasFocus(), size: [innerWidth, innerHeight] });
+        const t = setTimeout(() => resolve({ animationFrame: false, ...state() }), 1000);
+        requestAnimationFrame(() => (clearTimeout(t), resolve({ animationFrame: true, ...state() })));
+      }),
+  );
+  const jump = await page.getByRole('button', { name: /Nouveaux messages/ }).isVisible();
+  expect(await scroll.evaluate((el) => el.scrollTop), JSON.stringify({ rendering, jump, followed })).toBeGreaterThanOrEqual(bottom - 2);
   const tops: number[] = [];
   for (let i = 0; i < 40; i++) {
     await page.mouse.wheel(0, -12);
