@@ -53,20 +53,38 @@ describe('readAttachment', () => {
     await expect(readAttachment(file('sources.zip', 'application/zip'))).rejects.toThrow(/sources\.zip.*images.*PDF.*texte/);
   });
 
-  it('refuses a text file that is not UTF-8 text', async () => {
-    await expect(readAttachment(file('latin1.txt', 'text/plain', new Uint8Array([0x63, 0xe9, 0x74, 0xe9])))).rejects.toThrow(/latin1\.txt/);
+  it('reads the text encodings Windows writes, and refuses binary content', async () => {
+    // Excel's CSV exports on a French Windows: Windows-1252.
+    const csv = await readAttachment(file('export.csv', '', new Uint8Array([0x63, 0xe9, 0x74, 0xe9, 0x80])));
+    expect(csv.data).toBe('cété€');
+    // PowerShell 5's Out-File: UTF-16 with its BOM.
+    const log = await readAttachment(file('out.txt', '', new Uint8Array([0xff, 0xfe, 0x6f, 0, 0x6b, 0])));
+    expect(log.data).toBe('ok');
     await expect(readAttachment(file('binaire.log', '', new Uint8Array([0x61, 0, 0x62])))).rejects.toThrow(/binaire\.log/);
   });
 
+  it('reads as text a file of no known kind that Windows gives no type, when it is text', async () => {
+    expect(await readAttachment(file('.env.local', '', 'PORT=3000'))).toMatchObject({ kind: 'text', data: 'PORT=3000' });
+    expect(await readAttachment(file('Jenkinsfile', '', 'pipeline {}'))).toMatchObject({ kind: 'text' });
+    const binary = file('data.bin', '', new Uint8Array([0x61, 0, 0x62]));
+    await expect(readAttachment(binary)).rejects.toThrow(/data\.bin.*images.*PDF.*texte/);
+    // Only known text files get the Windows-1252 reading: this is not UTF-8, so not text.
+    await expect(readAttachment(file('blob.xyz', '', new Uint8Array([0xe9, 0x80, 0x41])))).rejects.toThrow(/blob\.xyz/);
+    // A type from the system is trusted.
+    await expect(readAttachment(file('sources.zip', 'application/zip', 'PK'))).rejects.toThrow(/sources\.zip/);
+  });
+
   it('refuses a file over the size limit of its kind', async () => {
-    const big = (name: string, mb: number) => {
+    const big = (name: string, kb: number) => {
       const f = file(name);
-      Object.defineProperty(f, 'size', { value: mb * 1024 * 1024 + 1 });
+      Object.defineProperty(f, 'size', { value: kb * 1024 + 1 });
       return f;
     };
-    await expect(readAttachment(big('capture.png', 5))).rejects.toThrow('capture.png dépasse 5 Mo');
-    await expect(readAttachment(big('rapport.pdf', 20))).rejects.toThrow('rapport.pdf dépasse 20 Mo');
-    await expect(readAttachment(big('notes.md', 1))).rejects.toThrow('notes.md dépasse 1 Mo');
+    await expect(readAttachment(big('capture.png', 5 * 1024))).rejects.toThrow('capture.png dépasse 5 Mo');
+    // Within what a whole message may carry (18 MB, sent in base64 under the API's 32 MB).
+    await expect(readAttachment(big('rapport.pdf', 18 * 1024))).rejects.toThrow('rapport.pdf dépasse 18 Mo');
+    // More text would fill Claude's context.
+    await expect(readAttachment(big('notes.md', 256))).rejects.toThrow('notes.md dépasse 256 Ko');
   });
 });
 

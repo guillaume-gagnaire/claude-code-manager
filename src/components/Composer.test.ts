@@ -237,6 +237,81 @@ describe('Composer', () => {
     expect(screen.getByRole('button', { name: 'Envoyer' })).toBeDisabled();
   });
 
+  it('caps the files of one message at 18 Mo in all', async () => {
+    setup();
+    const pdf = (name: string) => {
+      const f = new File(['%PDF-1.4'], name, { type: 'application/pdf' });
+      Object.defineProperty(f, 'size', { value: 10 * 1024 * 1024 });
+      return f;
+    };
+    const input = screen.getByLabelText('Joindre un fichier', { selector: 'input' });
+    await userEvent.upload(input, pdf('a.pdf'));
+    expect(await screen.findByText('a.pdf')).toBeInTheDocument();
+    await userEvent.upload(input, pdf('b.pdf'));
+    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/b\.pdf.*18 Mo en tout/));
+    expect(screen.queryByText('b.pdf')).not.toBeInTheDocument();
+  });
+
+  describe('while a file is being read', () => {
+    const real = FileReader.prototype.readAsDataURL;
+    let finish: () => void = () => {};
+    beforeEach(() => {
+      FileReader.prototype.readAsDataURL = function (this: FileReader, blob: Blob) {
+        finish = () => real.call(this, blob);
+      };
+    });
+    afterEach(() => {
+      FileReader.prototype.readAsDataURL = real;
+    });
+    const pdf = () => new File(['%PDF-1.4'], 'rapport.pdf', { type: 'application/pdf' });
+
+    it('does not send the message without it', async () => {
+      const { backend, textarea } = setup();
+      await userEvent.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), pdf());
+      await userEvent.type(textarea, 'Résume{Enter}');
+      expect(backend.called('send_message')).toHaveLength(0);
+      expect(textarea).toHaveValue('Résume');
+      finish();
+      expect(await screen.findByText('rapport.pdf')).toBeInTheDocument();
+      await userEvent.type(textarea, '{Enter}');
+      await waitFor(() => expect(backend.called('send_message')[0]?.args.attachments).toHaveLength(1));
+    });
+
+    it('keeps it for the agent it was attached to', async () => {
+      const a = agent({ id: 'r1' });
+      const b = agent({ id: 'r2', name: 'autre' });
+      resetApp({ agents: [a, b] });
+      fakeBackend({ get_conversation: () => [] });
+      const { rerender } = render(Composer, { agent: app.agents.r1 });
+      await userEvent.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), pdf());
+      await rerender({ agent: app.agents.r2 });
+      finish();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByText('rapport.pdf')).not.toBeInTheDocument();
+      await rerender({ agent: app.agents.r1 });
+      expect(await screen.findByText('rapport.pdf')).toBeInTheDocument();
+    });
+  });
+
+  it('gives back the text and the files when the message is refused', async () => {
+    const { backend, textarea } = setup();
+    fakeBackend({
+      send_message: () => {
+        throw new Error('rapport.pdf dépasse 18 Mo');
+      },
+    });
+    await userEvent.upload(
+      screen.getByLabelText('Joindre un fichier', { selector: 'input' }),
+      new File(['%PDF-1.4'], 'rapport.pdf', { type: 'application/pdf' }),
+    );
+    await screen.findByText('rapport.pdf');
+    await userEvent.type(textarea, 'Résume{Enter}');
+    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/dépasse 18 Mo/));
+    expect(textarea).toHaveValue('Résume');
+    expect(screen.getByText('rapport.pdf')).toBeInTheDocument();
+    expect(backend.called('send_message')).toHaveLength(0);
+  });
+
   it('takes a dropped file instead of letting the window open it', async () => {
     setup();
     const composer = screen.getByRole('group');

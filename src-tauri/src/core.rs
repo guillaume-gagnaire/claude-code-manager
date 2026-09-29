@@ -52,7 +52,20 @@ impl Attachment {
 
 /// The only image formats the API reads.
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-const MB: usize = 1024 * 1024;
+const KB: usize = 1024;
+const MB: usize = 1024 * KB;
+/// Past this, a text file alone would fill Claude's context (~4 bytes a token).
+const MAX_TEXT: usize = 256 * KB;
+/// All the files of a message: sent in base64 (4/3 bigger), under the API's 32 MB a request.
+const MAX_TOTAL: usize = 18 * MB;
+
+fn size_label(bytes: usize) -> String {
+    if bytes >= MB {
+        format!("{} Mo", bytes / MB)
+    } else {
+        format!("{} Ko", bytes / KB)
+    }
+}
 
 /// Content of a user message: its text alone, or the attached files as content blocks
 /// followed by the text.
@@ -60,19 +73,29 @@ pub fn user_content(text: &str, attachments: &[Attachment]) -> Result<Value> {
     if attachments.is_empty() {
         return Ok(Value::String(text.to_string()));
     }
-    let mut blocks = attachments
+    let (mut blocks, sizes): (Vec<Value>, Vec<usize>) = attachments
         .iter()
         .map(attachment_block)
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .unzip();
+    if sizes.iter().sum::<usize>() > MAX_TOTAL {
+        bail!(
+            "Les fichiers joints à un message sont limités à {} en tout.",
+            size_label(MAX_TOTAL)
+        );
+    }
     if !text.is_empty() {
         blocks.push(json!({ "type": "text", "text": text }));
     }
     Ok(Value::Array(blocks))
 }
 
-fn attachment_block(a: &Attachment) -> Result<Value> {
-    // Base64 carries 3 bytes in 4 characters.
-    let decoded = a.data.len() / 4 * 3;
+/// The content block of a file, and its size.
+fn attachment_block(a: &Attachment) -> Result<(Value, usize)> {
+    // Base64 carries 3 bytes in 4 characters, the padding none.
+    let padding = a.data.bytes().rev().take_while(|&b| b == b'=').count();
+    let decoded = (a.data.len() / 4 * 3).saturating_sub(padding);
     let (block, size, max) = match a.media_type.as_str() {
         t if IMAGE_TYPES.contains(&t) => (
             json!({ "type": "image", "source": { "type": "base64", "media_type": t, "data": a.data } }),
@@ -86,7 +109,7 @@ fn attachment_block(a: &Attachment) -> Result<Value> {
                 "source": { "type": "base64", "media_type": "application/pdf", "data": a.data },
             }),
             decoded,
-            20 * MB,
+            18 * MB,
         ),
         "text/plain" => (
             json!({
@@ -95,7 +118,7 @@ fn attachment_block(a: &Attachment) -> Result<Value> {
                 "source": { "type": "text", "media_type": "text/plain", "data": a.data },
             }),
             a.data.len(),
-            MB,
+            MAX_TEXT,
         ),
         t => bail!(
             "« {} » ({t}) ne peut pas être joint : les fichiers acceptés sont les images (PNG, JPEG, GIF, WebP), les PDF et les fichiers texte.",
@@ -103,9 +126,9 @@ fn attachment_block(a: &Attachment) -> Result<Value> {
         ),
     };
     if size > max {
-        bail!("{} dépasse {} Mo", a.name, max / MB);
+        bail!("{} dépasse {}", a.name, size_label(max));
     }
-    Ok(block)
+    Ok((block, size))
 }
 
 pub struct Core<R: Runtime = Wry> {
@@ -1972,5 +1995,34 @@ mod tests {
         let big = "A".repeat(7 * 1024 * 1024);
         let e = user_content("x", &[att("photo.png", "image/png", &big)]).unwrap_err();
         assert!(e.to_string().contains("5 Mo"), "{e}");
+    }
+
+    #[test]
+    fn text_pdf_and_whole_message_sizes_fit_what_claude_takes() {
+        // Past ~256 KB, a text file alone would fill Claude's context.
+        let ok = "a".repeat(256 * 1024);
+        assert!(user_content("x", &[att("log.txt", "text/plain", &ok)]).is_ok());
+        let e = user_content("x", &[att("log.txt", "text/plain", &(ok + "a"))]).unwrap_err();
+        assert!(e.to_string().contains("256 Ko"), "{e}");
+        // A PDF of 18 MB fits in the whole message's limit.
+        let pdf = "A".repeat(19 * MB / 3 * 4);
+        let e = user_content("x", &[att("a.pdf", "application/pdf", &pdf)]).unwrap_err();
+        assert!(e.to_string().contains("18 Mo"), "{e}");
+        let pdf = "A".repeat(18 * MB / 3 * 4);
+        assert!(user_content("x", &[att("a.pdf", "application/pdf", &pdf)]).is_ok());
+        // Together, the files stay under the API's request size.
+        let part = "A".repeat(10 * MB);
+        let three = ["a.pdf", "b.pdf", "c.pdf"].map(|n| att(n, "application/pdf", &part));
+        let e = user_content("x", &three).unwrap_err();
+        assert!(e.to_string().contains("18 Mo en tout"), "{e}");
+        assert!(user_content("x", &three[..2]).is_ok());
+    }
+
+    #[test]
+    fn base64_padding_is_not_counted_as_data() {
+        // Exactly 5 MB: 5 MB ≡ 2 (mod 3), so its base64 ends with one '='.
+        let n = 5 * MB;
+        let b64 = format!("{}=", "A".repeat((n / 3 + 1) * 4 - 1));
+        assert!(user_content("x", &[att("p.png", "image/png", &b64)]).is_ok());
     }
 }

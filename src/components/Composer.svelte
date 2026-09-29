@@ -7,7 +7,7 @@
 
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ACCEPT, readAttachment } from '../lib/attachments';
+  import { ACCEPT, MAX_TOTAL, readAttachment, sizeLabel } from '../lib/attachments';
   import { applyCompletion, detectTrigger, filterCommands, type Trigger } from '../lib/complete';
   import { conversationOf } from '../lib/conversations.svelte';
   import { basename, dirname } from '../lib/format';
@@ -31,6 +31,8 @@
   let suggestions = $state<{ label: string; detail: string; value: string }[]>([]);
   let sel = $state(0);
   let sending = $state(false);
+  /** Files being read, not attached yet. */
+  let reading = $state(0);
   let dragOver = $state(false);
   let menu = $state<'model' | 'effort' | 'mode' | null>(null);
   let width = $state(0);
@@ -209,14 +211,27 @@
     }
   }
 
-  // A file that cannot be attached is named in a toast, never silently dropped.
+  // A file that cannot be attached is named in a toast, never silently dropped. Sending waits for
+  // the files being read, and one read while switching agents goes to the draft it was added to.
   async function addFiles(list: Iterable<File>) {
-    for (const f of list) {
-      try {
-        files.push(await readAttachment(f));
-      } catch (e) {
-        app.toast(e instanceof Error ? e.message : String(e), 'error');
+    const owner = draftFor;
+    reading++;
+    try {
+      for (const f of list) {
+        try {
+          const a = await readAttachment(f);
+          const target = owner === draftFor ? files : (drafts.get(owner)?.files ?? []);
+          if (target.reduce((n, x) => n + x.size, a.size) > MAX_TOTAL) {
+            throw new Error(`${f.name} n'est pas joint : les fichiers d'un message sont limités à ${sizeLabel(MAX_TOTAL)} en tout.`);
+          }
+          if (owner === draftFor) files.push(a);
+          else drafts.set(owner, { text: drafts.get(owner)?.text ?? '', files: [...target, a] });
+        } catch (e) {
+          app.toast(e instanceof Error ? e.message : String(e), 'error');
+        }
       }
+    } finally {
+      reading--;
     }
   }
 
@@ -240,7 +255,7 @@
 
   async function send() {
     const body = text.trim();
-    if ((!body && !files.length) || sending) return;
+    if ((!body && !files.length) || sending || reading) return;
     // Text typed while Claude waits answers the question / refuses the permission.
     const answering = body ? pendingItem : undefined;
     sending = true;
@@ -439,7 +454,7 @@
         title={busy && !pendingItem
           ? 'Claude en tiendra compte dès sa prochaine étape · Entrée pour envoyer'
           : 'Entrée pour envoyer · Maj+Entrée pour aller à la ligne'}
-        disabled={sending || (!text.trim() && !files.length)}
+        disabled={sending || reading > 0 || (!text.trim() && !files.length)}
         onclick={send}
       >
         Envoyer

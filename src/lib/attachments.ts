@@ -7,6 +7,8 @@ export type AttachmentKind = 'image' | 'pdf' | 'text';
 /** An attachment waiting in the composer; images keep a preview. */
 export interface DraftAttachment extends Attachment {
   kind: AttachmentKind;
+  /** Of the file, in bytes. */
+  size: number;
   url?: string;
 }
 
@@ -34,7 +36,16 @@ const TEXT_EXTENSIONS = new Set(
 );
 const TEXT_TYPES = /^(text\/|application\/([\w.-]+\+)?(json|xml|yaml|x-yaml|toml|sql|javascript|x-sh)$)/;
 
-const LIMITS_MB: Record<AttachmentKind, number> = { image: 5, pdf: 20, text: 1 };
+const KB = 1024;
+const MB = 1024 * KB;
+// A PDF fits in what a whole message may carry; more text would fill Claude's context.
+const LIMITS: Record<AttachmentKind, number> = { image: 5 * MB, pdf: 18 * MB, text: 256 * KB };
+/** All the files of a message: sent in base64 (4/3 bigger), under the API's 32 MB a request. */
+export const MAX_TOTAL = 18 * MB;
+
+export function sizeLabel(bytes: number): string {
+  return bytes >= MB ? `${Math.floor(bytes / MB)} Mo` : `${Math.floor(bytes / KB)} Ko`;
+}
 
 const SUPPORTED = 'les fichiers acceptés sont les images (PNG, JPEG, GIF, WebP), les PDF et les fichiers texte';
 
@@ -66,32 +77,44 @@ function read(f: File, as: 'dataURL' | 'arrayBuffer'): Promise<string | ArrayBuf
   });
 }
 
-function utf8(buf: ArrayBuffer): string | null {
+/**
+ * The text of a file: UTF-8, UTF-16 with its BOM (PowerShell 5), else with `legacy` Windows-1252
+ * (Excel, older tools). Null for binary content.
+ */
+function decodeText(buf: ArrayBuffer, legacy: boolean): string | null {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  if (b.includes(0)) return null;
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    return new TextDecoder('utf-8', { fatal: true }).decode(b);
   } catch {
-    return null;
+    return legacy ? new TextDecoder('windows-1252').decode(b) : null;
   }
 }
 
 /** Reads a file to attach; rejects with the reason to show when it cannot be. */
 export async function readAttachment(f: File): Promise<DraftAttachment> {
   const kind = attachmentKind(f);
-  if (!kind) throw new Error(`« ${f.name} » ne peut pas être joint : ${SUPPORTED}.`);
-  const max = LIMITS_MB[kind];
-  if (f.size > max * 1024 * 1024) throw new Error(`${f.name} dépasse ${max} Mo`);
-  if (kind === 'text') {
-    const data = utf8(await read(f, 'arrayBuffer'));
-    if (data === null || data.includes('\0')) {
-      throw new Error(`${f.name} n'est pas un fichier texte UTF-8 : il ne peut pas être joint.`);
+  const unsupported = new Error(`« ${f.name} » ne peut pas être joint : ${SUPPORTED}.`);
+  // Of no known kind and given no type by Windows (.env.local, Jenkinsfile…), it may be text.
+  const maybeText = !kind && (!f.type || f.type === 'application/octet-stream') && f.size <= LIMITS.text;
+  if (!kind && !maybeText) throw unsupported;
+  const max = LIMITS[kind ?? 'text'];
+  if (f.size > max) throw new Error(`${f.name} dépasse ${sizeLabel(max)}`);
+  if (kind === 'text' || maybeText) {
+    const data = decodeText(await read(f, 'arrayBuffer'), kind === 'text');
+    if (data === null) {
+      if (maybeText) throw unsupported;
+      throw new Error(`${f.name} n'est pas un fichier texte : il ne peut pas être joint.`);
     }
-    return { kind, name: f.name, mediaType: 'text/plain', data };
+    return { kind: 'text', name: f.name, mediaType: 'text/plain', data, size: f.size };
   }
   const url = await read(f, 'dataURL');
   const data = url.slice(url.indexOf(',') + 1);
-  if (kind === 'pdf') return { kind, name: f.name, mediaType: 'application/pdf', data };
+  if (kind === 'pdf') return { kind, name: f.name, mediaType: 'application/pdf', data, size: f.size };
   const mediaType = IMAGE_TYPES.has(f.type) ? f.type : IMAGE_EXTENSIONS.get(extension(f.name))!;
-  return { kind, name: f.name || 'image', mediaType, data, url };
+  return { kind: 'image', name: f.name || 'image', mediaType, data, size: f.size, url };
 }
 
 /** A file dropped outside a drop zone would make the WebView open it in place of the app. */
