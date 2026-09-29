@@ -93,10 +93,10 @@
 
   const keyOf = (f: FileChange) => f.agentId + ':' + f.path;
 
-  /** The agent whose worktree holds `f` (null: the project checkout). */
+  /** The agent whose worktree holds `f` (null: the project checkout), as listed: a row still
+   *  shown while another agent's list loads keeps pointing at its own checkout. */
   function diffOwner(f: FileChange) {
-    if (scope === 'agent') return agent?.id ?? null;
-    return f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null;
+    return f.inWorktree ? f.agentId : null;
   }
 
   function fileMenu(e: MouseEvent, f: FileChange) {

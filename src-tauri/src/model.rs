@@ -213,6 +213,8 @@ pub struct FileChange {
     pub add: u32,
     pub del: u32,
     pub agent_id: Option<String>,
+    /// Listed from `agent_id`'s worktree rather than the project's repository.
+    pub in_worktree: bool,
 }
 
 /// One commit of the repository graph.

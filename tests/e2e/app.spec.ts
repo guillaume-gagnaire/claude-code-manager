@@ -85,7 +85,10 @@ test('a changed file is opened in the editor, reverted or deleted from its conte
 
   await file(/app\.ts/).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Abandonner les modifications…' }).click();
-  await page.getByRole('dialog', { name: 'Abandonner les modifications de « app.ts » ?' }).getByRole('button', { name: 'Abandonner les modifications' }).click();
+  await page
+    .getByRole('dialog', { name: 'Abandonner les modifications de « app.ts » ?' })
+    .getByRole('button', { name: 'Abandonner les modifications' })
+    .click();
   await expect(file(/app\.ts/)).toBeHidden();
   expect(fs.readFileSync(path.join(app.repo, 'src', 'app.ts'), 'utf8')).toBe('const a = 1;\n');
 

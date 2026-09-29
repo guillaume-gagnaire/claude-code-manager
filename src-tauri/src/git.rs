@@ -71,6 +71,8 @@ pub struct Entry {
     pub path: String,
     /// 'M', 'A' or 'D'.
     pub status: char,
+    /// The path before a rename.
+    pub orig: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -106,6 +108,7 @@ pub fn parse_status(out: &[u8]) -> Status {
             st.branch = head.to_string();
             continue;
         }
+        let mut orig = None;
         let (xy, path) = match t.chars().next() {
             Some('1') => {
                 let f: Vec<&str> = t.splitn(9, ' ').collect();
@@ -113,7 +116,8 @@ pub fn parse_status(out: &[u8]) -> Status {
             }
             Some('2') => {
                 let f: Vec<&str> = t.splitn(10, ' ').collect();
-                i += 1; // original path of the rename
+                orig = tokens.get(i).map(|o| o.to_string());
+                i += 1;
                 (f.get(1).copied().unwrap_or(".."), f.get(9).copied())
             }
             Some('u') => {
@@ -138,6 +142,7 @@ pub fn parse_status(out: &[u8]) -> Status {
         st.entries.push(Entry {
             path: path.to_string(),
             status,
+            orig,
         });
     }
     st
@@ -218,6 +223,7 @@ pub async fn file_changes(root: &str) -> Result<Vec<FileChange>> {
                 add,
                 del,
                 agent_id: None,
+                in_worktree: false,
             }
         })
         .collect())
@@ -269,25 +275,32 @@ pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
 }
 
 /// Puts one dirty file of `root` back as in HEAD: a tracked file loses its changes (staged ones
-/// included), a new file is deleted. Only a path listed by `git status` is accepted.
+/// included), a renamed one gets its name back, a new file is deleted. Only a path listed by
+/// `git status` is accepted.
 pub async fn discard(root: &str, path: &str) -> Result<()> {
-    if !status(root).await?.entries.iter().any(|e| e.path == path) {
+    let entries: Vec<Entry> = status(root)
+        .await?
+        .entries
+        .into_iter()
+        .filter(|e| e.path == path)
+        .collect();
+    if entries.is_empty() {
         bail!("« {path} » n'a pas de modification à annuler");
+    }
+    // The path is a file name, not a pattern (`a[b].txt` must not also match `ab.txt`).
+    const LITERAL: &str = "--literal-pathspecs";
+    const RESTORE: [&str; 4] = [LITERAL, "restore", "--source=HEAD", "--staged"];
+    if let Some(orig) = entries.iter().find_map(|e| e.orig.as_deref()) {
+        run(root, &[&RESTORE[..], &["--worktree", "--", orig]].concat()).await?;
     }
     let in_head = run(root, &["cat-file", "-e", &format!("HEAD:{path}")])
         .await
         .is_ok();
-    // The path is a file name, not a pattern (`a[b].txt` must not also match `ab.txt`).
-    const LITERAL: &str = "--literal-pathspecs";
     if in_head {
-        let args = [
-            LITERAL,
-            "restore",
-            "--source=HEAD",
-            "--staged",
-            "--worktree",
-        ];
-        run(root, &[&args[..], &["--", path]].concat()).await?;
+        // Only deleted from the index (`git rm --cached`): what is on disk stays.
+        let kept = entries.iter().any(|e| e.status == 'D') && Path::new(root).join(path).exists();
+        let worktree: &[&str] = if kept { &[] } else { &["--worktree"] };
+        run(root, &[&RESTORE[..], worktree, &["--", path]].concat()).await?;
     } else {
         let args = [
             LITERAL,
@@ -727,6 +740,8 @@ mod tests {
                 ("gone.ts".into(), 'D'),
             ]
         );
+        assert_eq!(st.entries[2].orig.as_deref(), Some("old.ts"));
+        assert_eq!(st.entries[0].orig, None);
     }
 
     #[test]
@@ -886,6 +901,44 @@ mod repo_tests {
         discard(&r, "a[b].txt").await.unwrap();
         assert!(!root.join("a[b].txt").exists());
         assert_eq!(dirty(&r).await, vec![("ab.txt".to_string(), 'A')]);
+    }
+
+    #[tokio::test]
+    async fn discarding_a_rename_puts_the_file_back_under_its_name() {
+        let r = repo("git-discard-rename");
+        git(&r, &["config", "core.autocrlf", "false"]);
+        let root = Path::new(&r);
+        git(&r, &["mv", "résumé.md", "cv.md"]);
+        std::fs::write(root.join("cv.md"), "a\nb\n").unwrap();
+        assert_eq!(dirty(&r).await, vec![("cv.md".to_string(), 'M')]);
+        discard(&r, "cv.md").await.unwrap();
+        assert!(!root.join("cv.md").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("résumé.md")).unwrap(),
+            "a\n"
+        );
+        assert_eq!(dirty(&r).await, vec![]);
+    }
+
+    #[tokio::test]
+    async fn restoring_a_file_kept_on_disk_does_not_overwrite_it() {
+        // `git rm --cached`: deleted from the index, the local copy (maybe edited) still there.
+        let r = repo("git-discard-kept");
+        let root = Path::new(&r);
+        git(&r, &["rm", "--cached", "-q", "résumé.md"]);
+        std::fs::write(root.join("résumé.md"), "local\n").unwrap();
+        let st = status(&r).await.unwrap();
+        assert!(st
+            .entries
+            .iter()
+            .any(|e| e.path == "résumé.md" && e.status == 'D'));
+        discard(&r, "résumé.md").await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("résumé.md")).unwrap(),
+            "local\n"
+        );
+        // Tracked again, with the local content as a change.
+        assert_eq!(dirty(&r).await, vec![("résumé.md".to_string(), 'M')]);
     }
 
     #[tokio::test]

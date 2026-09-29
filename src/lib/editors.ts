@@ -25,7 +25,8 @@ export function editorItems(
   disabled = false,
 ): MenuItem[] {
   const configured = command.trim() || 'code';
-  const def = editors.find((e) => e.command === configured);
+  // Like the backend: the default `code` without VS Code opens the editor that is there.
+  const def = editors.find((e) => e.command === configured) ?? (configured === 'code' ? editors[0] : undefined);
   const items: MenuItem[] = [
     { label: `${verb} ${def?.label ?? commandName(configured)}`, onClick: () => open(null), disabled },
     ...editors.filter((e) => e !== def).map((e) => ({ label: `${verb} ${e.label}`, onClick: () => open(e.id), disabled })),

@@ -1692,6 +1692,7 @@ impl<R: Runtime> Core<R> {
             if let Some(wt) = wt {
                 for mut f in git::file_changes(&wt.path).await.unwrap_or_default() {
                     f.agent_id = Some(id.clone());
+                    f.in_worktree = true;
                     out.push(f);
                 }
             }

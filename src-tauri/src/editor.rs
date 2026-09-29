@@ -173,7 +173,15 @@ pub fn command_for(
     detected: &[EditorInfo],
 ) -> Result<String> {
     let Some(id) = editor else {
-        return Ok(if configured.trim().is_empty() {
+        let configured = configured.trim();
+        // The default `code` (or nothing) without VS Code installed: the editor that is there.
+        let default = configured.is_empty() || configured == "code";
+        if default && !detected.iter().any(|e| e.command == "code") {
+            if let Some(first) = detected.first() {
+                return Ok(first.command.clone());
+            }
+        }
+        return Ok(if configured.is_empty() {
             "code".into()
         } else {
             configured.to_string()
@@ -365,7 +373,23 @@ mod tests {
             r#""C:\Zed\zed.exe""#
         );
         assert_eq!(command_for(None, "subl -n", &detected).unwrap(), "subl -n");
-        assert_eq!(command_for(None, "  ", &detected).unwrap(), "code");
+        // The default `code` without VS Code: the editor that is there.
+        assert_eq!(
+            command_for(None, "code", &detected).unwrap(),
+            r#""C:\Zed\zed.exe""#
+        );
+        assert_eq!(
+            command_for(None, "  ", &detected).unwrap(),
+            r#""C:\Zed\zed.exe""#
+        );
+        assert_eq!(command_for(None, "  ", &[]).unwrap(), "code");
+        let vscode = EditorInfo {
+            id: "vscode".into(),
+            label: "VS Code".into(),
+            command: "code".into(),
+        };
+        let both = [detected[0].clone(), vscode];
+        assert_eq!(command_for(None, "code", &both).unwrap(), "code");
         let err = command_for(Some("cursor"), "code", &detected)
             .unwrap_err()
             .to_string();

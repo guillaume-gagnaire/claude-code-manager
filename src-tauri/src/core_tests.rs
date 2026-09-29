@@ -603,6 +603,24 @@ async fn a_file_is_discarded_and_located_in_the_checkout_that_holds_it() {
     std::fs::write(wt.join("new.ts"), "x\n").unwrap();
 
     let id = Some(a.meta.id.clone());
+    // Each row says which checkout it comes from.
+    let mut rows: Vec<(String, Option<String>, bool)> = h
+        .core
+        .git_files(&p.id, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|f| (f.path, f.agent_id, f.in_worktree))
+        .collect();
+    rows.sort();
+    assert_eq!(
+        rows,
+        vec![
+            ("new.ts".into(), id.clone(), true),
+            ("src/app.ts".into(), None, false),
+            ("src/app.ts".into(), id.clone(), true),
+        ]
+    );
     // git spells the repository's path its own way (long names, forward slashes).
     let same = |a: PathBuf, b: PathBuf| {
         assert!(!a.to_string_lossy().contains('/'), "{}", a.display());

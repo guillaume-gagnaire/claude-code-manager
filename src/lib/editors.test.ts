@@ -23,6 +23,15 @@ describe('editorItems', () => {
     expect(p.got).toEqual([null, 'vscode']);
   });
 
+  it('offers the editor that is there when the default `code` has no VS Code behind it', () => {
+    const p = picked();
+    const items = editorItems('Éditer dans', [ZED], 'code', p.open);
+    expect(items.map((i) => [i.label, i.hint])).toEqual([['Éditer dans Zed', undefined]]);
+    items[0].onClick!();
+    // The backend makes the same choice for the settings' command.
+    expect(p.got).toEqual([null]);
+  });
+
   it('names a custom command after its program', () => {
     const items = editorItems('Ouvrir dans', [VSCODE], '"C:\\Sublime Text\\subl.exe" -n', () => {});
     expect(items.map((i) => i.label)).toEqual(['Ouvrir dans subl', 'Ouvrir dans VS Code']);

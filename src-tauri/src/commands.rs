@@ -313,12 +313,7 @@ pub async fn git_discard(
 /// The command of `editor` (an id from `detect_editors`), else the one of the settings.
 fn editor_command(core: &Core, editor: Option<&str>) -> anyhow::Result<String> {
     let configured = core.settings.read().editor_command.clone();
-    let detected = if editor.is_some() {
-        editor::detect()
-    } else {
-        Vec::new()
-    };
-    editor::command_for(editor, &configured, &detected)
+    editor::command_for(editor, &configured, &editor::detect())
 }
 
 #[tauri::command(async)]

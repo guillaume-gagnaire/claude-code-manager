@@ -138,6 +138,8 @@ export interface FileChange {
   add: number;
   del: number;
   agentId: string | null;
+  /** Listed from the worktree of `agentId` rather than the project's repository. */
+  inWorktree: boolean;
 }
 
 export interface RateWindow {

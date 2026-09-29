@@ -7,7 +7,14 @@ import type { FileChange } from '../lib/types';
 import { agent, fakeBackend, project, resetApp } from '../test/ipc';
 import FilesPanel from './FilesPanel.svelte';
 
-const change = (path: string, agentId: string | null = null): FileChange => ({ path, status: 'M', add: 3, del: 1, agentId });
+const change = (path: string, agentId: string | null = null, inWorktree = false): FileChange => ({
+  path,
+  status: 'M',
+  add: 3,
+  del: 1,
+  agentId,
+  inWorktree,
+});
 const settle = () => new Promise((r) => setTimeout(r, 200));
 const diffOf = (path: string, line: string) => `diff --git a/${path} b/${path}
 --- a/${path}
@@ -74,7 +81,7 @@ describe('FilesPanel docked in the split layout', () => {
     });
     render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
     expect(await screen.findByText('contenu de src/auth.ts')).toBeInTheDocument();
-    expect(backend.called('git_diff').at(-1)?.args).toEqual({ projectId: 'p1', agentId: 'a1', paths: ['src/auth.ts'] });
+    expect(backend.called('git_diff').at(-1)?.args).toEqual({ projectId: 'p1', agentId: null, paths: ['src/auth.ts'] });
     await userEvent.click(screen.getByRole('button', { name: /new\.txt/ }));
     expect(await screen.findByText('contenu de new.txt')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new\.txt/ })).toHaveAttribute('aria-current', 'true');
@@ -99,7 +106,7 @@ describe('FilesPanel docked in the split layout', () => {
 
   it('reads a project-wide file from the worktree of the agent that owns it', async () => {
     const backend = fakeBackend({
-      git_files: (a: any) => (a.agentId ? [] : [change('src/wt.ts', 'a2'), change('README.md', 'a1')]),
+      git_files: (a: any) => (a.agentId ? [] : [change('src/wt.ts', 'a2', true), change('README.md', 'a1')]),
       git_diff: (a: any) => diffOf(a.paths[0], 'x'),
     });
     app.filesScope = 'project';
@@ -171,7 +178,7 @@ describe('FilesPanel docked: the file being read stays put', () => {
 
   it('never asks for another agent’s file when switching agents', async () => {
     const backend = fakeBackend({
-      git_files: (a: any) => [change(a.agentId === 'a1' ? 'src/one.ts' : 'src/two.ts', a.agentId)],
+      git_files: (a: any) => [change(a.agentId === 'a1' ? 'src/one.ts' : 'src/two.ts', a.agentId, true)],
       git_diff: (a: any) => diffOf(a.paths[0], `diff de ${a.paths[0]}`),
     });
     const { rerender } = render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
@@ -201,7 +208,7 @@ describe('FilesPanel context menu', () => {
 
   it('edits a file with an installed editor, in the checkout of the agent that holds it', async () => {
     app.filesScope = 'project';
-    const backend = fakeBackend({ git_files: () => [change('src/wt.ts', 'a2')] });
+    const backend = fakeBackend({ git_files: () => [change('src/wt.ts', 'a2', true)] });
     render(FilesPanel, { project: project(), agent: app.agents.a1 });
     await rightClick(/wt\.ts/);
     expect(entries().map((i) => i.label)).toEqual(['Éditer dans VS Code', 'Éditer dans Zed', 'Abandonner les modifications…']);
@@ -212,6 +219,21 @@ describe('FilesPanel context menu', () => {
     expect(backend.called('open_file')[1].args.editor).toBeNull();
   });
 
+  it('acts in the checkout a row comes from, even while another agent’s list is loading', async () => {
+    let release: (files: FileChange[]) => void = () => {};
+    const backend = fakeBackend({
+      git_files: (a: any) => (a.agentId === 'a2' ? [change('src/wt.ts', 'a2', true)] : new Promise((r) => (release = r))),
+    });
+    const { rerender } = render(FilesPanel, { project: project(), agent: app.agents.a2 });
+    await screen.findByRole('button', { name: /wt\.ts/ });
+    await rerender({ project: project(), agent: app.agents.a1 });
+    await settle(); // a1's list is not there yet: the rows are still a2's
+    await rightClick(/wt\.ts/);
+    click('Éditer dans VS Code');
+    expect(backend.called('open_file')[0].args).toMatchObject({ agentId: 'a2', path: 'src/wt.ts' });
+    release([]);
+  });
+
   it('reverts a modified file once confirmed', async () => {
     const backend = fakeBackend({ git_files: () => [change('src/auth.ts', 'a1')] });
     render(FilesPanel, { project: project(), agent: app.agents.a1 });
@@ -220,7 +242,7 @@ describe('FilesPanel context menu', () => {
     expect(backend.called('git_discard')).toHaveLength(0);
     expect(app.modal).toMatchObject({ kind: 'confirm', danger: true, title: 'Abandonner les modifications de « auth.ts » ?' });
     await (app.modal as Extract<typeof app.modal, { kind: 'confirm' }>).onConfirm(false);
-    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a1', path: 'src/auth.ts' });
+    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: null, path: 'src/auth.ts' });
   });
 
   it('deletes a new file once confirmed, and restores a deleted one right away', async () => {
@@ -244,6 +266,6 @@ describe('FilesPanel context menu', () => {
     ).toBe(true);
     click('Restaurer le fichier');
     expect(app.modal).toBeNull();
-    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a1', path: 'gone.ts' });
+    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: null, path: 'gone.ts' });
   });
 });

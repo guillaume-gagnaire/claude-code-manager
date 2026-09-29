@@ -42,10 +42,12 @@
     }
     return m;
   });
-  // What the last turn edited, for its recap: worked out once it has ended, not while streaming.
+  // What the last turn edited, for its recap: worked out once it has ended, not while streaming,
+  // and not again on each update of the agent (a new object, same folder).
+  const cwd = $derived(agent.cwd);
   const lastEdits = $derived.by(() => {
     const last = top.at(-1);
-    return last?.kind === 'turn' ? (editsByTurn(conv.items, agent.cwd).get(last.id) ?? []) : [];
+    return last?.kind === 'turn' ? (editsByTurn(conv.items, cwd).get(last.id) ?? []) : [];
   });
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
   const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
