@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { menu } from '../lib/menu.svelte';
+import { PROJECT_COLORS } from '../lib/theme';
 import { app } from '../lib/state.svelte';
 import { agent, fakeBackend, gitInfo, project, resetApp } from '../test/ipc';
 import ConfirmModal from './modals/ConfirmModal.svelte';
@@ -83,6 +84,18 @@ describe('TitleBar', () => {
     await closeProjectFromMenu('studio-web');
     expect(backend.called('term_kill')).toHaveLength(0);
     expect(app.launches.c9).toMatchObject({ status: 'running', stopping: false });
+  });
+
+  it('sets a project’s color from its tab menu', async () => {
+    const backend = fakeBackend();
+    render(TitleBar);
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /studio-web/ }));
+    const colors = menu.open!.items.find((i) => i.label === 'Couleur')!.colors!;
+    expect(colors.values).toEqual(PROJECT_COLORS);
+    expect(colors.selected).toBe(project().color);
+    colors.onPick(PROJECT_COLORS[3]);
+    expect(app.projects.find((p) => p.id === 'p2')?.color).toBe(PROJECT_COLORS[3]);
+    expect(backend.called('update_project')[0].args.project).toMatchObject({ id: 'p2', color: PROJECT_COLORS[3] });
   });
 
   it('opens the launch commands of a project from its tab menu', async () => {

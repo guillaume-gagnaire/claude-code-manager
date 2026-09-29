@@ -7,6 +7,7 @@
   import { app } from '../lib/state.svelte';
   import { expectStops, forgetLaunches } from '../lib/launch-actions';
   import { closeTerminal } from '../lib/term-actions';
+  import { PROJECT_COLORS } from '../lib/theme';
   import type { Project } from '../lib/types';
 
   const win = getCurrentWindow();
@@ -44,6 +45,8 @@
           };
         },
       },
+      { label: 'Couleur', colors: { values: PROJECT_COLORS, selected: p.color, onPick: (color) => save({ ...p, color }) } },
+      { label: '', separator: true },
       {
         label: p.worktreePerAgent ? 'Désactiver le worktree par agent' : 'Activer le worktree par agent',
         hint: 'nouveaux agents',

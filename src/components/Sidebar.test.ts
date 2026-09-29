@@ -55,11 +55,11 @@ describe('Sidebar', () => {
     expect(app.agent?.id).toBe('a4');
   });
 
-  it('labels each color swatch', () => {
+  it('leaves the project’s color to its tab menu', () => {
     fakeBackend();
     render(Sidebar, { project: project() });
-    const swatches = screen.getAllByRole('button', { name: /^Couleur \d+/ });
-    expect(new Set(swatches.map((s) => s.getAttribute('aria-label'))).size).toBe(swatches.length);
+    expect(screen.queryAllByRole('button', { name: /^Couleur/ })).toEqual([]);
+    expect(screen.queryByText('Couleur')).not.toBeInTheDocument();
   });
 });
 

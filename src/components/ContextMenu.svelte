@@ -24,6 +24,27 @@
     {#each menu.open.items as item, i (i)}
       {#if item.separator}
         <div class="sep"></div>
+      {:else if item.colors}
+        {@const colors = item.colors}
+        <div class="colors" role="group" aria-label={item.label}>
+          <span class="clabel">{item.label}</span>
+          <div class="swatches">
+            {#each colors.values as c, ci (c)}
+              <button
+                class="swatch"
+                class:on={c === colors.selected}
+                role="menuitemradio"
+                aria-checked={c === colors.selected}
+                aria-label="{item.label} {ci + 1}"
+                style:background={c}
+                onclick={() => {
+                  menu.close();
+                  colors.onPick(c);
+                }}
+              ></button>
+            {/each}
+          </div>
+        </div>
       {:else}
         <button
           role="menuitem"
@@ -94,5 +115,34 @@
     height: 1px;
     margin: 4px 6px;
     background: var(--line);
+  }
+  .colors {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 7px 10px 8px;
+  }
+  .clabel {
+    font-size: 13px;
+  }
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(7, 16px);
+    gap: 7px;
+  }
+  .swatches .swatch {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 5px;
+  }
+  .swatches .swatch:hover {
+    outline: 1px solid var(--line2);
+    outline-offset: 1px;
+  }
+  .swatches .swatch.on {
+    box-shadow:
+      0 0 0 2px var(--elev),
+      0 0 0 3px var(--text);
   }
 </style>

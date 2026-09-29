@@ -8,7 +8,6 @@
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
   import { app } from '../lib/state.svelte';
   import { closeTerminal, newTerminal, SHELL_GLYPH } from '../lib/term-actions';
-  import { PROJECT_COLORS } from '../lib/theme';
   import type { Agent, Project } from '../lib/types';
   import RunsSection from './RunsSection.svelte';
   import StatusDot from './StatusDot.svelte';
@@ -112,13 +111,6 @@
       termMenuBtn,
       app.shells.map((s) => ({ label: s.label, hint: SHELL_GLYPH[s.id]?.glyph, onClick: () => newTerminal(project.id, s.id) })),
     );
-  }
-
-  function setColor(c: string) {
-    const p = { ...project, color: c };
-    const i = app.projects.findIndex((x) => x.id === project.id);
-    app.projects[i] = p;
-    app.run(api.updateProject(p));
   }
 </script>
 
@@ -276,19 +268,6 @@
     {:else if git}
       <div class="branch mono" style="color:var(--dim)">Pas de dépôt git</div>
     {/if}
-    <div class="colors">
-      <span class="clabel">Couleur</span>
-      {#each PROJECT_COLORS as c, i (c)}
-        <button
-          class="swatch"
-          aria-label="Couleur {i + 1}"
-          aria-pressed={project.color === c}
-          style:background={c}
-          style:box-shadow={project.color === c ? '0 0 0 2px var(--panel), 0 0 0 3px var(--text)' : 'none'}
-          onclick={() => setColor(c)}
-        ></button>
-      {/each}
-    </div>
   </div>
 </aside>
 
@@ -569,25 +548,5 @@
     display: flex;
     gap: 12px;
     font-size: 11px;
-  }
-  .colors {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    padding-top: 4px;
-  }
-  .clabel {
-    font-size: 11px;
-    color: var(--dim);
-    width: 100%;
-  }
-  .swatch {
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
-    border: none;
-    padding: 0;
-    cursor: pointer;
   }
 </style>

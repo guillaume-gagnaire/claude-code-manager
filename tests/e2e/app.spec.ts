@@ -374,6 +374,21 @@ test('Ctrl+N creates another agent and Ctrl+J jumps to the one waiting', async (
   await expect(page.getByTestId('question-pending')).toBeVisible();
 });
 
+test('a project’s color is picked from its tab’s menu, not from the sidebar', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await expect(page.locator('aside.side')).not.toContainText('Couleur');
+  const tab = page.locator('.tab', { hasText: 'demo-api' });
+  await tab.click({ button: 'right' });
+  const third = page.getByRole('menuitemradio', { name: 'Couleur 3' });
+  const color = await third.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await third.click();
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(tab.locator('.swatch')).toHaveCSS('background-color', color);
+  await tab.click({ button: 'right' });
+  await expect(page.getByRole('menuitemradio', { name: 'Couleur 3' })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('project tabs can be reordered (drag and drop logic)', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);
