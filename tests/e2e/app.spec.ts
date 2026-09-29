@@ -99,6 +99,59 @@ test('a changed file is opened in the editor, reverted or deleted from its conte
   expect(fs.existsSync(path.join(app.repo, 'notes.md'))).toBe(false);
 });
 
+test('the status bar shows what there is to pull from the remote, fetched and pulled from its menu', async ({ app }) => {
+  const { page } = app;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.email=e2e@test', '-c', 'user.name=e2e', ...args], { cwd, stdio: 'pipe' });
+  const root = path.dirname(app.repo);
+  const remote = path.join(root, 'remote.git');
+  git(root, 'init', '-q', '--bare', '-b', 'main', remote);
+  git(app.repo, 'remote', 'add', 'origin', remote);
+  git(app.repo, 'push', '-q', '-u', 'origin', 'main');
+  await addProject(page, app.repo);
+  const sync = page.locator('footer .sync');
+  await expect(sync).toContainText('⎇ main');
+  await expect(sync).toContainText('↓0');
+
+  // Someone else pushes a commit.
+  const other = path.join(root, 'other');
+  git(root, 'clone', '-q', remote, other);
+  fs.writeFileSync(path.join(other, 'README.md'), 'depuis ailleurs\n');
+  git(other, 'add', '-A');
+  git(other, 'commit', '-qm', 'readme');
+  git(other, 'push', '-q');
+
+  await sync.click();
+  await page.getByRole('menuitem', { name: /Fetch/ }).click();
+  await expect(sync).toContainText('↓1');
+  await sync.click();
+  await page.getByRole('menuitem', { name: /Pull/ }).click();
+  await expect(sync).toContainText('↓0');
+  expect(fs.readFileSync(path.join(app.repo, 'README.md'), 'utf8')).toBe('depuis ailleurs\n');
+});
+
+test('a PDF attached to a message reaches Claude as a document', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  const pdf = Buffer.from('%PDF-1.4 rapport');
+  await page.locator('input[type=file]').setInputFiles({ name: 'rapport.pdf', mimeType: 'application/pdf', buffer: pdf });
+  await expect(page.getByText('rapport.pdf')).toBeVisible();
+  await send(page, 'Résume ce rapport');
+  await expect(page.getByText('Bonjour, tu as dit : Résume ce rapport')).toBeVisible();
+  // What the CLI read on its stdin.
+  const stdin = path.join(path.dirname(app.data), 'fake-claude.stdin.jsonl');
+  const sent = fs
+    .readFileSync(stdin, 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+    .find((m) => Array.isArray(m.message?.content));
+  expect(sent.message.content).toEqual([
+    { type: 'document', title: 'rapport.pdf', source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') } },
+    { type: 'text', text: 'Résume ce rapport' },
+  ]);
+});
+
 test('edits by Claude are attributed to the agent', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);
