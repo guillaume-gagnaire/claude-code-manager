@@ -50,9 +50,18 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      # Reading the job's log takes admin rights: failed tests are also reported as an annotation.
       - name: Rust tests (unit + integration with the fake claude CLI)
         working-directory: src-tauri
-        run: cargo test
+        shell: bash
+        run: |
+          cargo test 2>&1 | tee cargo-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E -A12 '^---- .* stdout ----$|^failures:$' cargo-test.log | head -150 > failures.txt || true
+            node -e "const t=require('fs').readFileSync('failures.txt','utf8');console.log('::error title=cargo test::'+t.replace(/%/g,'%25').replace(/\r/g,'').replace(/\n/g,'%0A'))"
+          fi
+          exit $status
 
       - name: Build the app for end-to-end tests
         run: npx tauri build --debug --no-bundle
