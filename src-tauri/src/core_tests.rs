@@ -1,7 +1,7 @@
 //! Integration tests of the application core: real git repositories, the fake `claude` CLI
 //! (tests/fixtures/fake-claude.cmd) and Tauri's mock runtime.
 
-use crate::core::{Attachment, Core};
+use crate::core::{Attachment, Core, SyncOp};
 use crate::model::*;
 use crate::paths::{test_dir, DataDir};
 use serde_json::{json, Value};
@@ -669,6 +669,92 @@ async fn git_counts_attribute_files_to_the_agent_that_edited_them() {
             .map(|f| (f.path.as_str(), f.add, f.del))
             .collect::<Vec<_>>(),
         vec![("src/app.ts", 2, 1)]
+    );
+}
+
+/// Gives the project's repository `r` a bare remote (origin, tracked by main) and returns a
+/// second clone of it, to push commits the project does not have yet.
+fn add_remote(dir: &Path, r: &Path) -> PathBuf {
+    let bare = dir.join("remote.git").to_string_lossy().to_string();
+    git(dir, &["init", "-q", "--bare", "-b", "main", &bare]);
+    git(r, &["remote", "add", "origin", &bare]);
+    git(r, &["push", "-qu", "origin", "main"]);
+    let other = dir.join("other");
+    git(dir, &["clone", "-q", &bare, &other.to_string_lossy()]);
+    git(&other, &["config", "core.autocrlf", "false"]);
+    other
+}
+
+fn git_info(h: &Harness, project_id: &str) -> GitInfo {
+    h.core.git_cache.read().get(project_id).cloned().unwrap()
+}
+
+#[tokio::test]
+async fn git_state_tells_how_the_branch_stands_against_its_remote() {
+    let h = harness("git-sync-state");
+    let (p, r) = h.project(false).await;
+    // Without a remote, the background fetch leaves the project alone.
+    h.core.fetch_all().await;
+    h.core.compute_git(&p.id).await;
+    let info = git_info(&h, &p.id);
+    assert!(!info.has_remote);
+    assert_eq!((info.upstream, info.last_fetch), (None, None));
+
+    let other = add_remote(&h.dir, &r);
+    commit_change(&other, "const a = 2;\n", "theirs");
+    git(&other, &["push", "-q"]);
+    commit_change(&r, "const a = 3;\n", "mine");
+    h.core.fetch_all().await;
+    h.core.compute_git(&p.id).await;
+    let info = git_info(&h, &p.id);
+    assert!(info.has_remote);
+    assert_eq!(info.upstream.as_deref(), Some("origin/main"));
+    assert_eq!((info.ahead, info.behind), (1, 1));
+    assert!(info.last_fetch.is_some());
+    let sent = h
+        .events
+        .lock()
+        .iter()
+        .rev()
+        .find(|e| e["type"] == "git")
+        .cloned()
+        .unwrap();
+    assert_eq!(sent["git"]["hasRemote"], true);
+    assert_eq!(sent["git"]["upstream"], "origin/main");
+    assert_eq!(
+        (sent["git"]["ahead"].clone(), sent["git"]["behind"].clone()),
+        (1.into(), 1.into())
+    );
+    assert!(sent["git"]["lastFetch"].is_i64());
+}
+
+#[tokio::test]
+async fn fetch_pull_and_push_act_on_the_projects_checkout() {
+    let h = harness("git-sync-actions");
+    let (p, r) = h.project(false).await;
+    let other = add_remote(&h.dir, &r);
+    commit_change(&other, "const a = 2;\n", "theirs");
+    git(&other, &["push", "-q"]);
+    assert_eq!(
+        h.core.git_sync(&p.id, SyncOp::Fetch).await.unwrap(),
+        "Fetch terminé : 1 commit à tirer"
+    );
+    assert_eq!(
+        h.core.git_sync(&p.id, SyncOp::Pull).await.unwrap(),
+        "1 commit tiré"
+    );
+    commit_change(&r, "const a = 3;\n", "mine");
+    assert_eq!(
+        h.core.git_sync(&p.id, SyncOp::Push).await.unwrap(),
+        "1 commit poussé"
+    );
+    h.core.compute_git(&p.id).await;
+    let info = git_info(&h, &p.id);
+    assert_eq!((info.ahead, info.behind), (0, 0));
+    assert_eq!(git(&other, &["pull", "-q"]), "");
+    assert_eq!(
+        std::fs::read_to_string(other.join("src").join("app.ts")).unwrap(),
+        "const a = 3;\n"
     );
 }
 

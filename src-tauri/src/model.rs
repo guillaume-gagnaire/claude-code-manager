@@ -196,7 +196,16 @@ pub struct PersistedState {
 #[serde(rename_all = "camelCase")]
 pub struct GitInfo {
     pub is_repo: bool,
+    /// "(detached)" for a detached HEAD.
     pub branch: String,
+    /// The remote branch it tracks ("origin/main"), if any.
+    pub upstream: Option<String>,
+    /// Commits to push / to pull, against the upstream as last fetched.
+    pub ahead: u32,
+    pub behind: u32,
+    pub has_remote: bool,
+    /// When the repository was last fetched, ms since epoch.
+    pub last_fetch: Option<i64>,
     pub modified: u32,
     pub added: u32,
     pub deleted: u32,

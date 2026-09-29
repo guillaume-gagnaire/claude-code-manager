@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
+fn command(cwd: &str, args: &[&str]) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("git");
     cmd.arg("-C")
         .arg(cwd)
@@ -26,7 +26,55 @@ pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
         .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(crate::claude::CREATE_NO_WINDOW);
-    let out = cmd.output().await?;
+    cmd
+}
+
+pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
+    let out = command(cwd, args).output().await?;
+    checked(out, args)
+}
+
+/// Time limits of the commands that reach a remote.
+const NET_TIMEOUT: Duration = Duration::from_secs(180);
+const NET_TIMEOUT_BACKGROUND: Duration = Duration::from_secs(60);
+
+/// Runs a command that reaches a remote, killed with everything it started (credential
+/// helper, ssh…) past its time limit. In the background nothing may ask for credentials: no
+/// Git Credential Manager window, no ssh passphrase prompt.
+async fn run_net(cwd: &str, args: &[&str], background: bool) -> Result<Vec<u8>> {
+    let mut cmd = command(cwd, args);
+    cmd.kill_on_drop(true);
+    if background {
+        cmd.env("GCM_INTERACTIVE", "never")
+            .env("SSH_ASKPASS_REQUIRE", "never");
+    }
+    let child = cmd.spawn()?;
+    let job = crate::job::Job::new();
+    #[cfg(windows)]
+    if let (Some(j), Some(h)) = (&job, child.raw_handle()) {
+        j.assign_handle(h);
+    }
+    let limit = if background {
+        NET_TIMEOUT_BACKGROUND
+    } else {
+        NET_TIMEOUT
+    };
+    match tokio::time::timeout(limit, child.wait_with_output()).await {
+        Ok(out) => checked(out?, args),
+        Err(_) => {
+            if let Some(j) = &job {
+                j.terminate();
+            }
+            bail!(
+                "git {} : pas de réponse du dépôt distant après {} s",
+                args.first().unwrap_or(&""),
+                limit.as_secs()
+            )
+        }
+    }
+}
+
+fn checked(out: std::process::Output, args: &[&str]) -> Result<Vec<u8>> {
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let msg = if err.is_empty() {
@@ -77,7 +125,13 @@ pub struct Entry {
 
 #[derive(Debug, Clone, Default)]
 pub struct Status {
+    /// "(detached)" for a detached HEAD.
     pub branch: String,
+    /// The branch it tracks ("origin/main"), if any.
+    pub upstream: Option<String>,
+    /// Commits not in the upstream / in the upstream only, as of the last fetch.
+    pub ahead: u32,
+    pub behind: u32,
     pub entries: Vec<Entry>,
 }
 
@@ -106,6 +160,19 @@ pub fn parse_status(out: &[u8]) -> Status {
         i += 1;
         if let Some(head) = t.strip_prefix("# branch.head ") {
             st.branch = head.to_string();
+            continue;
+        }
+        if let Some(up) = t.strip_prefix("# branch.upstream ") {
+            st.upstream = Some(up.to_string());
+            continue;
+        }
+        if let Some(ab) = t.strip_prefix("# branch.ab ") {
+            // "+<ahead> -<behind>"
+            let mut n = ab
+                .split(' ')
+                .map(|s| s.trim_start_matches(['+', '-']).parse().unwrap_or(0));
+            st.ahead = n.next().unwrap_or(0);
+            st.behind = n.next().unwrap_or(0);
             continue;
         }
         let mut orig = None;
@@ -571,6 +638,158 @@ pub async fn rename_current_branch(worktree: &str, new_name: &str) -> Result<()>
     run(worktree, &["branch", "-m", new_name]).await.map(|_| ())
 }
 
+const NO_REMOTE: &str = "Aucun dépôt distant n'est configuré pour ce dépôt.";
+
+pub async fn remotes(repo: &str) -> Vec<String> {
+    text(repo, &["remote"])
+        .await
+        .map(|s| s.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// The remote to sync with: the upstream's, else origin, else the only one.
+pub fn sync_remote<'a>(remotes: &'a [String], upstream: Option<&str>) -> Option<&'a str> {
+    let of_upstream = upstream.and_then(|u| {
+        remotes
+            .iter()
+            .filter(|r| u.starts_with(&format!("{r}/")))
+            .max_by_key(|r| r.len())
+    });
+    of_upstream
+        .or_else(|| remotes.iter().find(|r| *r == "origin"))
+        .or(match remotes {
+            [only] => Some(only),
+            _ => None,
+        })
+        .map(String::as_str)
+}
+
+/// When the checkout at `root` was last fetched (the date of its FETCH_HEAD), ms since epoch.
+pub fn last_fetch(root: &str) -> Option<i64> {
+    let dot = Path::new(root).join(".git");
+    let dir = if dot.is_dir() {
+        dot
+    } else {
+        // A linked worktree or a submodule: ".git" is a file pointing at the real folder.
+        let text = std::fs::read_to_string(&dot).ok()?;
+        Path::new(root).join(text.trim().strip_prefix("gitdir:")?.trim())
+    };
+    let at = std::fs::metadata(dir.join("FETCH_HEAD"))
+        .ok()?
+        .modified()
+        .ok()?;
+    Some(at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
+}
+
+/// "1 commit", "3 commits".
+fn n_commits(n: u32) -> String {
+    format!("{n} commit{}", plural(n))
+}
+
+fn plural(n: u32) -> &'static str {
+    if n > 1 {
+        "s"
+    } else {
+        ""
+    }
+}
+
+/// The checked-out branch, which a detached HEAD does not have.
+fn sync_branch(st: &Status) -> Result<&str> {
+    if st.branch.is_empty() || st.branch == "(detached)" {
+        bail!("HEAD détachée : aucune branche à synchroniser.");
+    }
+    Ok(&st.branch)
+}
+
+/// Fetches the remote the current branch syncs with (every remote when that is ambiguous).
+pub async fn fetch(repo: &str, background: bool) -> Result<()> {
+    let (st, remotes) = tokio::join!(status(repo), remotes(repo));
+    if remotes.is_empty() {
+        bail!(NO_REMOTE);
+    }
+    let upstream = st.ok().and_then(|s| s.upstream);
+    let target = sync_remote(&remotes, upstream.as_deref()).unwrap_or("--all");
+    run_net(repo, &["fetch", "--quiet", "--prune", target], background)
+        .await
+        .map(|_| ())
+}
+
+/// What a fetch brought, for the user.
+pub fn fetch_summary(st: &Status) -> String {
+    match (&st.upstream, st.behind) {
+        (None, _) => "Fetch terminé".into(),
+        (Some(_), 0) => "Fetch terminé : déjà à jour".into(),
+        (Some(_), n) => format!("Fetch terminé : {} à tirer", n_commits(n)),
+    }
+}
+
+/// Fetches, then brings the upstream's new commits in, fast-forward only (`git pull --ff-only`).
+pub async fn pull(repo: &str) -> Result<String> {
+    let st = status(repo).await?;
+    let branch = sync_branch(&st)?;
+    let Some(upstream) = st.upstream.clone() else {
+        bail!("La branche {branch} ne suit aucune branche distante : rien à tirer.");
+    };
+    fetch(repo, false).await?;
+    let st = status(repo).await?;
+    if st.behind == 0 {
+        return Ok("Déjà à jour".into());
+    }
+    if st.ahead > 0 {
+        bail!(
+            "La branche locale et {upstream} ont divergé : pull impossible en avance rapide. \
+             Rebase ou merge à faire à la main (ou demande à un agent)."
+        );
+    }
+    if let Err(e) = run(repo, &["merge", "--ff-only", "--quiet", "@{upstream}"]).await {
+        if e.to_string().contains("would be overwritten") {
+            bail!("Des modifications non commitées seraient écrasées par le pull : commite-les ou mets-les de côté d'abord.");
+        }
+        return Err(e);
+    }
+    Ok(format!(
+        "{} tiré{}",
+        n_commits(st.behind),
+        plural(st.behind)
+    ))
+}
+
+/// Pushes the current branch. A branch without upstream is published on the remote (origin,
+/// else the only one) and tracks it from then on.
+pub async fn push(repo: &str) -> Result<String> {
+    let st = status(repo).await?;
+    let branch = sync_branch(&st)?;
+    let rejected = |e: anyhow::Error| {
+        let msg = e.to_string();
+        if msg.contains("[rejected]") || msg.contains("fetch first") {
+            anyhow::anyhow!(
+                "Le dépôt distant a des commits que tu n'as pas : fais d'abord un pull."
+            )
+        } else {
+            e
+        }
+    };
+    if st.upstream.is_some() {
+        run_net(repo, &["push"], false).await.map_err(rejected)?;
+        return Ok(match st.ahead {
+            0 => "Rien à pousser".into(),
+            n => format!("{} poussé{}", n_commits(n), plural(n)),
+        });
+    }
+    let remotes = remotes(repo).await;
+    let Some(remote) = sync_remote(&remotes, None) else {
+        if remotes.is_empty() {
+            bail!(NO_REMOTE);
+        }
+        bail!("Plusieurs dépôts distants et aucun ne s'appelle origin : publie la branche à la main (git push -u <dépôt> {branch}).");
+    };
+    run_net(repo, &["push", "-u", remote, branch], false)
+        .await
+        .map_err(rejected)?;
+    Ok(format!("Branche {branch} publiée sur {remote}"))
+}
+
 /// File list of a folder and when it was read.
 type CachedFiles = (Instant, Arc<Vec<String>>);
 
@@ -745,6 +964,55 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_upstream_and_the_ahead_behind_counts() {
+        let raw = b"# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\x001 .M N... 100644 100644 100644 a b src/app.ts\0";
+        let st = parse_status(raw);
+        assert_eq!(st.branch, "main");
+        assert_eq!(st.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((st.ahead, st.behind), (2, 3));
+        assert_eq!(st.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_branch_without_upstream_has_nothing_to_sync() {
+        let st = parse_status(b"# branch.oid abc\0# branch.head feat/x\0");
+        assert_eq!(st.branch, "feat/x");
+        assert_eq!(st.upstream, None);
+        assert_eq!((st.ahead, st.behind), (0, 0));
+    }
+
+    #[test]
+    fn an_upstream_gone_from_the_remote_has_no_counts() {
+        // `branch.ab` is left out when the upstream branch no longer exists.
+        let st = parse_status(
+            b"# branch.oid abc\0# branch.head feat/x\0# branch.upstream origin/feat/x\0",
+        );
+        assert_eq!(st.upstream.as_deref(), Some("origin/feat/x"));
+        assert_eq!((st.ahead, st.behind), (0, 0));
+    }
+
+    #[test]
+    fn a_detached_head_has_no_upstream() {
+        let st = parse_status(b"# branch.oid abc\0# branch.head (detached)\0");
+        assert_eq!(st.branch, "(detached)");
+        assert_eq!(st.upstream, None);
+    }
+
+    #[test]
+    fn syncs_with_the_upstreams_remote_else_origin_else_the_only_one() {
+        let v = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (both, one, two) = (v(&["fork", "origin"]), v(&["fork"]), v(&["a", "b"]));
+        assert_eq!(sync_remote(&both, Some("fork/main")), Some("fork"));
+        assert_eq!(sync_remote(&both, None), Some("origin"));
+        assert_eq!(sync_remote(&one, None), Some("fork"));
+        assert_eq!(sync_remote(&two, None), None);
+        assert_eq!(sync_remote(&[], None), None);
+        // A remote name may contain a slash: the longest match wins.
+        let nested = v(&["team", "team/eu"]);
+        assert_eq!(sync_remote(&nested, Some("team/eu/main")), Some("team/eu"));
+    }
+
+    #[test]
     fn parses_log_records_with_parents_and_refs() {
         let raw = "a1\x1fb2 c3\x1fAda\x1f1790000000\x1fHEAD -> main, origin/main, tag: v0.1.0\x1fMerge branch 'ccm/x'\x1e\n\
                    b2\x1fd4\x1fBob\x1f1789990000\x1fccm/x\x1ffix: a | b, c\x1e\n\
@@ -805,6 +1073,7 @@ mod tests {
 #[cfg(test)]
 mod repo_tests {
     use super::*;
+    use std::path::PathBuf;
     use std::process::Command;
 
     fn repo(name: &str) -> String {
@@ -1001,5 +1270,141 @@ mod repo_tests {
         let merged = show(&r, &log[0].hash).await.unwrap();
         assert!(merged.contains("+++ b/a.txt"), "{merged}");
         assert!(show(&r, "--output=x").await.is_err());
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn commit_file(dir: &Path, file: &str, content: &str) {
+        std::fs::write(dir.join(file), content).unwrap();
+        git_in(dir, &["add", "-A"]);
+        git_in(dir, &["commit", "-qm", &format!("edit {file}")]);
+    }
+
+    /// A bare remote with one commit on main, and two clones of it: the project's checkout and
+    /// someone else's.
+    fn with_remote(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let dir = crate::paths::test_dir(name);
+        let bare = dir.join("remote.git");
+        git_in(&dir, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
+        let clone = |to: &str| {
+            let d = dir.join(to);
+            git_in(&dir, &["clone", "-q", &bare.to_string_lossy(), to]);
+            git_in(&d, &["config", "user.email", "t@t"]);
+            git_in(&d, &["config", "user.name", "t"]);
+            git_in(&d, &["config", "core.autocrlf", "false"]);
+            d
+        };
+        let local = clone("local");
+        git_in(&local, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        commit_file(&local, "a.txt", "a\n");
+        git_in(&local, &["push", "-qu", "origin", "main"]);
+        let other = clone("other");
+        (local, other, bare)
+    }
+
+    fn s(p: &Path) -> String {
+        p.to_string_lossy().to_string()
+    }
+
+    #[tokio::test]
+    async fn a_fetch_shows_the_commits_to_pull_and_a_pull_brings_them_in() {
+        let (local, other, _) = with_remote("git-sync-pull");
+        let st = status(&s(&local)).await.unwrap();
+        assert_eq!(st.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((st.ahead, st.behind), (0, 0));
+        assert_eq!(last_fetch(&s(&local)), None);
+
+        commit_file(&other, "b.txt", "b\n");
+        git_in(&other, &["push", "-q"]);
+        fetch(&s(&local), true).await.unwrap();
+        let st = status(&s(&local)).await.unwrap();
+        assert_eq!((st.ahead, st.behind), (0, 1));
+        assert_eq!(fetch_summary(&st), "Fetch terminé : 1 commit à tirer");
+        let fetched = last_fetch(&s(&local)).expect("fetch date");
+        assert!((crate::model::now_ms() - fetched).abs() < 60_000);
+
+        assert_eq!(pull(&s(&local)).await.unwrap(), "1 commit tiré");
+        let st = status(&s(&local)).await.unwrap();
+        assert_eq!((st.ahead, st.behind), (0, 0));
+        assert_eq!(std::fs::read_to_string(local.join("b.txt")).unwrap(), "b\n");
+        assert_eq!(pull(&s(&local)).await.unwrap(), "Déjà à jour");
+    }
+
+    #[tokio::test]
+    async fn a_push_sends_the_local_commits() {
+        let (local, _, bare) = with_remote("git-sync-push");
+        commit_file(&local, "c.txt", "c\n");
+        commit_file(&local, "d.txt", "d\n");
+        assert_eq!(status(&s(&local)).await.unwrap().ahead, 2);
+        assert_eq!(push(&s(&local)).await.unwrap(), "2 commits poussés");
+        assert_eq!(status(&s(&local)).await.unwrap().ahead, 0);
+        assert_eq!(
+            git_in(&bare, &["rev-parse", "main"]),
+            git_in(&local, &["rev-parse", "HEAD"])
+        );
+    }
+
+    #[tokio::test]
+    async fn pushing_a_new_branch_publishes_it_and_tracks_it() {
+        let (local, _, bare) = with_remote("git-sync-publish");
+        git_in(&local, &["checkout", "-qb", "feat/x"]);
+        commit_file(&local, "e.txt", "e\n");
+        assert_eq!(status(&s(&local)).await.unwrap().upstream, None);
+        assert_eq!(
+            push(&s(&local)).await.unwrap(),
+            "Branche feat/x publiée sur origin"
+        );
+        let st = status(&s(&local)).await.unwrap();
+        assert_eq!(st.upstream.as_deref(), Some("origin/feat/x"));
+        assert_eq!((st.ahead, st.behind), (0, 0));
+        assert_eq!(
+            git_in(&bare, &["rev-parse", "feat/x"]),
+            git_in(&local, &["rev-parse", "HEAD"])
+        );
+    }
+
+    #[tokio::test]
+    async fn diverged_branches_are_neither_pushed_nor_pulled() {
+        let (local, other, _) = with_remote("git-sync-diverged");
+        commit_file(&other, "b.txt", "theirs\n");
+        git_in(&other, &["push", "-q"]);
+        commit_file(&local, "c.txt", "mine\n");
+        let head = git_in(&local, &["rev-parse", "HEAD"]);
+
+        let err = push(&s(&local)).await.unwrap_err().to_string();
+        assert!(err.contains("fais d'abord un pull"), "{err}");
+        let err = pull(&s(&local)).await.unwrap_err().to_string();
+        assert!(
+            err.contains("La branche locale et origin/main ont divergé"),
+            "{err}"
+        );
+        assert_eq!(git_in(&local, &["rev-parse", "HEAD"]), head);
+        let st = status(&s(&local)).await.unwrap();
+        assert_eq!((st.ahead, st.behind), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn a_repository_without_remote_has_nothing_to_sync() {
+        let r = repo("git-sync-none");
+        assert!(remotes(&r).await.is_empty());
+        let err = push(&r).await.unwrap_err().to_string();
+        assert!(err.contains("Aucun dépôt distant"), "{err}");
+        let err = fetch(&r, false).await.unwrap_err().to_string();
+        assert!(err.contains("Aucun dépôt distant"), "{err}");
+        let err = pull(&r).await.unwrap_err().to_string();
+        assert!(err.contains("ne suit aucune branche distante"), "{err}");
     }
 }

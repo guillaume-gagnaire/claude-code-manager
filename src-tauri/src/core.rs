@@ -34,6 +34,17 @@ impl std::fmt::Display for StartupFailure {
 
 impl std::error::Error for StartupFailure {}
 
+/// A sync of a project's checkout with its remote, asked by the user.
+#[derive(Debug, Clone, Copy)]
+pub enum SyncOp {
+    Fetch,
+    Pull,
+    Push,
+}
+
+/// How often every repository with a remote is fetched in the background.
+const FETCH_EVERY: Duration = Duration::from_secs(5 * 60);
+
 /// A file attached to a message: `data` is base64 for images and PDFs, the text itself for
 /// text files (`text/plain`).
 #[derive(Debug, Clone, Deserialize)]
@@ -151,6 +162,8 @@ pub struct Core<R: Runtime = Wry> {
     conv_flush: tokio::sync::Notify,
     last_oauth_call: Mutex<Option<i64>>,
     git_inflight: Mutex<std::collections::HashSet<String>>,
+    /// One fetch, pull or push at a time per repository.
+    sync_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     toplevels: Mutex<HashMap<String, Option<String>>>,
     dirty: AtomicBool,
     waiting: AtomicUsize,
@@ -319,6 +332,7 @@ impl<R: Runtime> Core<R> {
             conv_flush: tokio::sync::Notify::new(),
             last_oauth_call: Mutex::new(None),
             git_inflight: Mutex::default(),
+            sync_locks: Mutex::default(),
             toplevels: Mutex::default(),
             dirty: AtomicBool::new(false),
             waiting: AtomicUsize::new(usize::MAX),
@@ -364,6 +378,15 @@ impl<R: Runtime> Core<R> {
             loop {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 c.stop_idle_processes();
+            }
+        });
+        let c = self.clone();
+        tauri::async_runtime::spawn(async move {
+            // Shortly after startup, then regularly: the commits to pull show up by themselves.
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            loop {
+                c.fetch_all().await;
+                tokio::time::sleep(FETCH_EVERY).await;
             }
         });
         self.start_remote_agents();
@@ -1599,11 +1622,17 @@ impl<R: Runtime> Core<R> {
         let info = match self.toplevel(&project.path).await {
             None => GitInfo::default(),
             Some(root) => {
-                let st = git::status(&root).await.unwrap_or_default();
+                let (st, remotes) = tokio::join!(git::status(&root), git::remotes(&root));
+                let st = st.unwrap_or_default();
                 let prefix = sub_prefix(&root, &project.path);
                 let mut info = GitInfo {
                     is_repo: true,
                     branch: st.branch.clone(),
+                    upstream: st.upstream.clone(),
+                    ahead: st.ahead,
+                    behind: st.behind,
+                    has_remote: !remotes.is_empty(),
+                    last_fetch: git::last_fetch(&root),
                     ..Default::default()
                 };
                 let tally = |c: char, info: &mut GitInfo| match c {
@@ -1812,6 +1841,86 @@ impl<R: Runtime> Core<R> {
             .await
             .ok_or_else(|| anyhow!("pas un dépôt git"))?;
         git::show(&root, hash).await
+    }
+
+    fn sync_lock(&self, root: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.sync_locks
+            .lock()
+            .entry(root.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Refreshes the git state of every project in the repository at `root`.
+    async fn refresh_repo(&self, root: &str) {
+        let projects: Vec<(String, String)> = self
+            .projects
+            .read()
+            .iter()
+            .map(|p| (p.id.clone(), p.path.clone()))
+            .collect();
+        for (id, path) in projects {
+            if self.toplevel(&path).await.as_deref() == Some(root) {
+                self.git.refresh(&id);
+            }
+        }
+    }
+
+    /// Fetches every project's repository that has a remote, one at a time and without ever
+    /// asking for credentials, so that the commits to pull show up.
+    pub(crate) async fn fetch_all(self: &Arc<Self>) {
+        let paths: Vec<String> = self
+            .projects
+            .read()
+            .iter()
+            .map(|p| p.path.clone())
+            .collect();
+        let mut roots: Vec<String> = Vec::new();
+        for path in paths {
+            match self.toplevel(&path).await {
+                Some(root) if !roots.contains(&root) => roots.push(root),
+                _ => {}
+            }
+        }
+        for root in roots {
+            if git::remotes(&root).await.is_empty() {
+                continue;
+            }
+            let lock = self.sync_lock(&root);
+            // The user's own fetch, pull or push is running: no need for another one.
+            let Ok(_guard) = lock.try_lock() else {
+                continue;
+            };
+            match git::fetch(&root, true).await {
+                Ok(()) => self.refresh_repo(&root).await,
+                Err(e) => log::info!("background fetch of {root} failed: {e:#}"),
+            }
+        }
+    }
+
+    /// Fetch, pull or push of the project's main checkout, asked by the user (so credentials
+    /// may be asked for). Returns a summary for the user.
+    pub async fn git_sync(self: &Arc<Self>, project_id: &str, op: SyncOp) -> Result<String> {
+        let project = self.project(project_id)?;
+        let root = self
+            .toplevel(&project.path)
+            .await
+            .ok_or_else(|| anyhow!("pas un dépôt git"))?;
+        let lock = self.sync_lock(&root);
+        let out = {
+            let _guard = lock.lock().await;
+            match op {
+                SyncOp::Fetch => match git::fetch(&root, false).await {
+                    Ok(()) => git::status(&root).await.map(|st| git::fetch_summary(&st)),
+                    Err(e) => Err(e),
+                },
+                SyncOp::Pull => git::pull(&root).await,
+                SyncOp::Push => git::push(&root).await,
+            }
+        };
+        // Even after a failure: a pull that could not fast-forward has fetched.
+        self.refresh_repo(&root).await;
+        out
     }
 
     pub async fn file_suggestions(

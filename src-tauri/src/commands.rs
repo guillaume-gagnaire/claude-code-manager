@@ -1,6 +1,6 @@
 //! Tauri commands invoked by the frontend.
 
-use crate::core::{Attachment, Core};
+use crate::core::{Attachment, Core, SyncOp};
 use crate::editor::{self, EditorInfo};
 use crate::model::*;
 use crate::pty::{self, ShellInfo, TermInfo};
@@ -285,6 +285,21 @@ pub async fn git_log(
 #[tauri::command]
 pub async fn git_show(core: CoreState<'_>, project_id: String, hash: String) -> Res<String> {
     core.git_show(&project_id, &hash).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn git_fetch(core: CoreState<'_>, project_id: String) -> Res<String> {
+    core.git_sync(&project_id, SyncOp::Fetch).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn git_pull(core: CoreState<'_>, project_id: String) -> Res<String> {
+    core.git_sync(&project_id, SyncOp::Pull).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn git_push(core: CoreState<'_>, project_id: String) -> Res<String> {
+    core.git_sync(&project_id, SyncOp::Push).await.map_err(err)
 }
 
 #[tauri::command(async)]
