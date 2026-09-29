@@ -1,8 +1,10 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
-import { agent, fakeBackend, resetApp } from '../test/ipc';
+import { agent, fakeBackend, gitInfo, resetApp } from '../test/ipc';
 import StatusBar from './StatusBar.svelte';
 
 describe('StatusBar', () => {
@@ -60,6 +62,118 @@ describe('StatusBar', () => {
     render(StatusBar);
     await userEvent.click(screen.getByRole('button', { name: /1 en attente/ }));
     expect(app.agent?.id).toBe('a2');
+  });
+});
+
+describe('StatusBar sync with the remote', () => {
+  const tracked = { upstream: 'origin/main', hasRemote: true };
+  const syncButton = () => screen.getByRole('button', { name: /⎇ main/ });
+  const item = (label: string) => menu.open!.items.find((i) => i.label === label)!;
+
+  beforeEach(() => {
+    resetApp();
+    menu.close();
+    app.now = Date.UTC(2026, 8, 27, 20, 0, 0);
+  });
+
+  it('shows the branch with the commits to pull and to push, and when it was last fetched', () => {
+    fakeBackend();
+    app.git = { p1: gitInfo({ ...tracked, behind: 3, ahead: 1, lastFetch: app.now - 3 * 60_000 }) };
+    render(StatusBar);
+    expect(syncButton()).toHaveTextContent('↓3');
+    expect(syncButton()).toHaveTextContent('↑1');
+    expect(syncButton().title).toContain('origin/main');
+    expect(syncButton().title).toContain('Dernier fetch : il y a 3 min');
+  });
+
+  it('only shows up in a project whose repository has a remote and a branch checked out', async () => {
+    fakeBackend();
+    app.git = { p1: gitInfo({ hasRemote: false }) };
+    render(StatusBar);
+    expect(screen.queryByText(/⎇/)).toBeNull();
+    app.git = { p1: gitInfo({ ...tracked, branch: '(detached)', upstream: null }) };
+    await tick();
+    expect(screen.queryByText(/⎇/)).toBeNull();
+    app.git = { p1: gitInfo(tracked) };
+    await tick();
+    expect(syncButton()).toBeInTheDocument();
+    app.ui.view = 'stats';
+    await tick();
+    expect(screen.queryByText(/⎇/)).toBeNull();
+  });
+
+  it('offers to pull and push only what there is to pull or push', async () => {
+    fakeBackend();
+    app.git = { p1: gitInfo({ ...tracked, ahead: 2 }) };
+    render(StatusBar);
+    await userEvent.click(syncButton());
+    expect(menu.open!.items.map((i) => i.label)).toEqual(['Pull', 'Push', '', 'Fetch']);
+    expect(item('Pull')).toMatchObject({ hint: '↓0', disabled: true });
+    expect(item('Push')).toMatchObject({ hint: '↑2', disabled: false });
+    expect(item('Fetch')).toMatchObject({ hint: 'maintenant' });
+    expect(item('Fetch').disabled).toBeFalsy();
+  });
+
+  it('offers to publish a branch that tracks none', async () => {
+    fakeBackend();
+    app.git = { p1: gitInfo({ hasRemote: true, branch: 'feat/x' }) };
+    render(StatusBar);
+    const button = screen.getByRole('button', { name: /⎇ feat\/x/ });
+    expect(button).toHaveTextContent('non publiée');
+    await userEvent.click(button);
+    expect(item('Pull').disabled).toBe(true);
+    expect(item('Publier la branche').disabled).toBeFalsy();
+  });
+
+  it('pulls, then says what came in', async () => {
+    const backend = fakeBackend({ git_pull: () => '3 commits tirés' });
+    app.git = { p1: gitInfo({ ...tracked, behind: 3 }) };
+    render(StatusBar);
+    await userEvent.click(syncButton());
+    expect(item('Pull').disabled).toBe(false);
+    item('Pull').onClick!();
+    await waitFor(() => expect(app.toasts).toEqual([expect.objectContaining({ text: '3 commits tirés', kind: 'ok' })]));
+    expect(backend.called('git_pull')[0].args).toEqual({ projectId: 'p1' });
+  });
+
+  it('shows the push running and allows nothing else meanwhile', async () => {
+    let finish!: (summary: string) => void;
+    const backend = fakeBackend({ git_push: () => new Promise((r) => (finish = r)) });
+    app.git = { p1: gitInfo({ ...tracked, ahead: 1 }) };
+    render(StatusBar);
+    await userEvent.click(syncButton());
+    item('Push').onClick!();
+    await waitFor(() => expect(syncButton()).toBeDisabled());
+    expect(syncButton()).toHaveTextContent('Push…');
+    expect(backend.called('git_push')[0].args).toEqual({ projectId: 'p1' });
+    finish('1 commit poussé');
+    await waitFor(() => expect(syncButton()).toBeEnabled());
+    expect(app.toasts.map((t) => [t.text, t.kind])).toEqual([['1 commit poussé', 'ok']]);
+  });
+
+  it('fetches on demand', async () => {
+    const backend = fakeBackend({ git_fetch: () => 'Fetch terminé : déjà à jour' });
+    app.git = { p1: gitInfo(tracked) };
+    render(StatusBar);
+    await userEvent.click(syncButton());
+    item('Fetch').onClick!();
+    await waitFor(() => expect(app.toasts.map((t) => t.text)).toEqual(['Fetch terminé : déjà à jour']));
+    expect(backend.called('git_fetch')[0].args).toEqual({ projectId: 'p1' });
+  });
+
+  it('reports a failed pull as an error', async () => {
+    const refusal = 'La branche locale et origin/main ont divergé : pull impossible en avance rapide.';
+    fakeBackend({
+      git_pull: () => {
+        throw refusal;
+      },
+    });
+    app.git = { p1: gitInfo({ ...tracked, ahead: 1, behind: 1 }) };
+    render(StatusBar);
+    await userEvent.click(syncButton());
+    item('Pull').onClick!();
+    await waitFor(() => expect(app.toasts).toEqual([expect.objectContaining({ text: refusal, kind: 'error' })]));
+    expect(syncButton()).toBeEnabled();
   });
 });
 

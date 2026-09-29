@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
-import { agent, fakeBackend, project, resetApp } from '../test/ipc';
+import { agent, fakeBackend, gitInfo, project, resetApp } from '../test/ipc';
 import ConfirmModal from './modals/ConfirmModal.svelte';
 import TitleBar from './TitleBar.svelte';
 
@@ -31,7 +31,7 @@ describe('TitleBar', () => {
 
   it('shows one tab per project with its waiting badge and git counter', () => {
     fakeBackend();
-    app.git = { p1: { isRepo: true, branch: 'main', modified: 2, added: 1, deleted: 0, total: 3, agents: {} } };
+    app.git = { p1: gitInfo({ modified: 2, added: 1, total: 3 }) };
     render(TitleBar);
     const tab = screen.getByRole('button', { name: /demo-api/ });
     expect(tab).toHaveTextContent('Δ 3');

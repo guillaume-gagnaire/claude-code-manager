@@ -53,6 +53,10 @@ export const api = {
   gitDiff: (projectId: string, agentId: string | null, paths: string[]) => invoke<string>('git_diff', { projectId, agentId, paths }),
   gitLog: (projectId: string, agentId: string | null) => invoke<GitLog>('git_log', { projectId, agentId }),
   gitShow: (projectId: string, hash: string) => invoke<string>('git_show', { projectId, hash }),
+  /** Fetch, pull (fast-forward only) and push of the project's checkout; each returns a summary. */
+  gitFetch: (projectId: string) => invoke<string>('git_fetch', { projectId }),
+  gitPull: (projectId: string) => invoke<string>('git_pull', { projectId }),
+  gitPush: (projectId: string) => invoke<string>('git_push', { projectId }),
   setRemoteControl: (id: string, enabled: boolean) => invoke<void>('set_remote_control', { id, enabled }),
   stats: (range: string) => invoke<StatsView>('stats', { range }),
   refreshUsage: () => invoke<void>('refresh_usage'),

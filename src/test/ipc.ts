@@ -2,7 +2,7 @@
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { app } from '../lib/state.svelte';
-import type { Agent, Project, Settings } from '../lib/types';
+import type { Agent, GitInfo, Project, Settings } from '../lib/types';
 
 export interface Call {
   cmd: string;
@@ -87,6 +87,24 @@ export function agent(over: Partial<Agent> = {}): Agent {
     remoteSession: null,
     remoteUrl: null,
     remoteState: null,
+    ...over,
+  };
+}
+
+export function gitInfo(over: Partial<GitInfo> = {}): GitInfo {
+  return {
+    isRepo: true,
+    branch: 'main',
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    hasRemote: false,
+    lastFetch: null,
+    modified: 0,
+    added: 0,
+    deleted: 0,
+    total: 0,
+    agents: {},
     ...over,
   };
 }

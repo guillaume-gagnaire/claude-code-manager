@@ -107,7 +107,16 @@ export interface UiState {
 
 export interface GitInfo {
   isRepo: boolean;
+  /** "(detached)" for a detached HEAD. */
   branch: string;
+  /** The remote branch it tracks ("origin/main"), null when it tracks none. */
+  upstream: string | null;
+  /** Commits to push / to pull, against the upstream as last fetched. */
+  ahead: number;
+  behind: number;
+  hasRemote: boolean;
+  /** When the repository was last fetched (ms epoch). */
+  lastFetch: number | null;
   modified: number;
   added: number;
   deleted: number;

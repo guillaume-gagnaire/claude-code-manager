@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agent, fakeBackend, project, SETTINGS } from '../test/ipc';
+import { agent, fakeBackend, gitInfo, project, SETTINGS } from '../test/ipc';
 import { conversationOf } from './conversations.svelte';
 import { app } from './state.svelte';
 import type { InitialState, LaunchState, UiEvent } from './types';
@@ -74,10 +74,11 @@ describe('AppState', () => {
   it('only bumps the files refresh tick for the active project', async () => {
     const { emit } = await start();
     const before = app.gitTick;
-    const git = { isRepo: true, branch: 'main', modified: 1, added: 0, deleted: 0, total: 1, agents: {} };
+    const git = gitInfo({ modified: 1, total: 1, upstream: 'origin/main', behind: 2, hasRemote: true });
     emit({ type: 'git', projectId: 'p2', git });
     expect(app.gitTick).toBe(before);
     expect(app.git.p2.total).toBe(1);
+    expect(app.git.p2.behind).toBe(2);
     emit({ type: 'git', projectId: 'p1', git });
     expect(app.gitTick).toBe(before + 1);
   });

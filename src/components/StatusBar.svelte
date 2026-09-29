@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { fCountdown, fPct } from '../lib/format';
+  import { fAgo, fCountdown, fPct } from '../lib/format';
   import { api } from '../lib/ipc';
+  import { menu } from '../lib/menu.svelte';
   import { ESTIMATE_HINT, fSpentUsd } from '../lib/spend';
   import { app } from '../lib/state.svelte';
 
@@ -17,6 +18,57 @@
   }
 
   let installing = $state(false);
+
+  type SyncOp = 'pull' | 'push' | 'fetch';
+  const SYNC: Record<SyncOp, { label: string; call: (projectId: string) => Promise<string> }> = {
+    pull: { label: 'Pull', call: api.gitPull },
+    push: { label: 'Push', call: api.gitPush },
+    fetch: { label: 'Fetch', call: api.gitFetch },
+  };
+
+  /** The active project's checkout against its remote, when it can sync (a branch, a remote). */
+  const sync = $derived.by(() => {
+    const p = app.ui.view === 'project' ? app.project : null;
+    const g = p ? app.git[p.id] : undefined;
+    if (!p || !g?.isRepo || !g.hasRemote || !g.branch || g.branch === '(detached)') return null;
+    return { ...g, projectId: p.id };
+  });
+  /** Sync running, by project. */
+  let syncing = $state<Record<string, SyncOp>>({});
+  const busy = $derived(sync ? syncing[sync.projectId] : undefined);
+  let syncButton = $state<HTMLButtonElement>();
+
+  const syncTitle = $derived.by(() => {
+    if (!sync) return '';
+    const fetched = sync.lastFetch ? fAgo(sync.lastFetch / 1000, app.now) : 'jamais';
+    return [
+      sync.upstream
+        ? `Suit ${sync.upstream} : ${sync.behind} à tirer, ${sync.ahead} à pousser`
+        : 'Branche pas encore publiée sur le dépôt distant',
+      `Dernier fetch : ${fetched}`,
+    ].join('\n');
+  });
+
+  async function runSync(op: SyncOp, projectId: string) {
+    syncing[projectId] = op;
+    const summary = await app.run(SYNC[op].call(projectId));
+    delete syncing[projectId];
+    if (summary) app.toast(summary, 'ok');
+  }
+
+  function syncMenu() {
+    const s = sync;
+    if (!s || !syncButton || busy) return;
+    const go = (op: SyncOp) => () => runSync(op, s.projectId);
+    menu.showAt(syncButton, [
+      { label: 'Pull', hint: `↓${s.behind}`, disabled: !s.upstream || s.behind === 0, onClick: go('pull') },
+      s.upstream
+        ? { label: 'Push', hint: `↑${s.ahead}`, disabled: s.ahead === 0, onClick: go('push') }
+        : { label: 'Publier la branche', onClick: go('push') },
+      { label: '', separator: true },
+      { label: 'Fetch', hint: 'maintenant', onClick: go('fetch') },
+    ]);
+  }
 </script>
 
 <footer class="bar mono">
@@ -62,6 +114,20 @@
   <span class="it" title={app.liveCost > 0 ? ESTIMATE_HINT : undefined}
     >Aujourd'hui <span class="v strong">{fSpentUsd({ cost: app.usage.todayCost + app.liveCost, estimated: app.liveCost > 0 })}</span></span
   >
+  {#if sync}
+    <span class="vsep"></span>
+    <button class="it link sync" bind:this={syncButton} disabled={!!busy} onclick={syncMenu} title={syncTitle}>
+      <span class="v">⎇ {sync.branch}</span>
+      {#if busy}
+        <span>{SYNC[busy].label}…</span>
+      {:else if sync.upstream}
+        <span style:color={sync.behind ? 'var(--wait)' : 'var(--dim)'}>↓{sync.behind}</span>
+        <span style:color={sync.ahead ? 'var(--text)' : 'var(--dim)'}>↑{sync.ahead}</span>
+      {:else}
+        <span class="d">non publiée</span>
+      {/if}
+    </button>
+  {/if}
   <div style="flex:1"></div>
   {#if app.update}
     <button
@@ -111,6 +177,12 @@
     font: inherit;
     cursor: pointer;
     padding: 0;
+  }
+  .sync:hover:not(:disabled) .v {
+    text-decoration: underline;
+  }
+  .sync:disabled {
+    cursor: default;
   }
   .vsep {
     width: 1px;
