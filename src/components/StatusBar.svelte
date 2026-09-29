@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fAgo, fCountdown, fPct } from '../lib/format';
+  import { fAgo, fBytes, fCountdown, fPct } from '../lib/format';
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
   import { ESTIMATE_HINT, fSpentUsd } from '../lib/spend';
@@ -9,6 +9,14 @@
   const running = $derived(agents.filter((a) => a.status === 'running').length);
   const waiting = $derived(agents.filter((a) => a.status === 'waiting').length);
   const done = $derived(agents.filter((a) => a.status === 'done').length);
+  // The Claude processes running, each with the tools and MCP servers it started.
+  const procs = $derived(app.resources);
+  const procsTitle = $derived(
+    [
+      'Processus Claude en cours (avec les outils et serveurs MCP qu’ils lancent)',
+      ...procs.agents.map((r) => `${app.agents[r.id]?.name ?? '?'} : ${fBytes(r.memory)} · ${fPct(r.cpu)}`),
+    ].join('\n'),
+  );
   const five = $derived(app.usage.fiveHour);
   const week = $derived(app.usage.sevenDay);
 
@@ -89,6 +97,12 @@
     {waiting} en attente
   </button>
   <span class="it"><span style="color:var(--ok)">✓</span>{done} terminé{done > 1 ? 's' : ''}</span>
+  {#if procs.instances}
+    <span class="vsep"></span>
+    <span class="it" title={procsTitle}
+      >{procs.instances} Claude · <span class="v">{fBytes(procs.memory)}</span> · <span class="v">{fPct(procs.cpu)}</span> CPU</span
+    >
+  {/if}
   <span class="vsep"></span>
   <span
     class="it"

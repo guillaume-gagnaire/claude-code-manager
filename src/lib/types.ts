@@ -165,6 +165,16 @@ export interface Usage {
   updatedAt: number;
 }
 
+/** What the running Claude processes use (each with what it started), per agent and in all. */
+export interface Resources {
+  instances: number;
+  /** Bytes. */
+  memory: number;
+  /** Share of the whole machine, in percent. */
+  cpu: number;
+  agents: { id: string; memory: number; cpu: number }[];
+}
+
 export interface EditorInfo {
   id: string;
   label: string;
@@ -301,7 +311,8 @@ export type UiEvent =
   | { type: 'git'; projectId: string; git: GitInfo }
   | { type: 'usage'; usage: Usage }
   | { type: 'focus'; projectId: string; agentId: string | null }
-  | { type: 'terminalExit'; id: string; code: number | null };
+  | { type: 'terminalExit'; id: string; code: number | null }
+  | { type: 'resources'; resources: Resources };
 
 export interface InitialState {
   projects: Project[];

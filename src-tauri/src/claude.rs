@@ -1,6 +1,6 @@
 //! A `claude` process driven over the stream-json protocol (see docs/PROTOCOL.md).
 
-use crate::job::Job;
+use crate::job::{Job, JobUsage};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -160,6 +160,11 @@ impl ClaudeProcess {
 
     pub fn is_alive(&self) -> bool {
         !self.exited.load(Ordering::Acquire)
+    }
+
+    /// What the process and everything it started use.
+    pub fn usage(&self) -> Option<JobUsage> {
+        self.job.as_ref()?.usage()
     }
 
     pub fn send(&self, frame: &Value) -> Result<()> {

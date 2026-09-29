@@ -152,6 +152,18 @@ test('a PDF attached to a message reaches Claude as a document', async ({ app })
   ]);
 });
 
+test('the status bar counts the running Claude processes, with their memory and CPU', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  // The first agent's process starts with the project.
+  const procs = page.locator('footer .it', { hasText: 'Claude ·' });
+  await expect(procs).toHaveText(/^1 Claude · \d+ Mo · \d+ % CPU$/);
+  // Measured: the fake CLI is cmd.exe running node.
+  const memory = Number((await procs.textContent())!.match(/(\d+) Mo/)![1]);
+  expect(memory).toBeGreaterThan(10);
+  await expect(procs).toHaveAttribute('title', /: \d+ Mo · \d+ %/);
+});
+
 test('edits by Claude are attributed to the agent', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

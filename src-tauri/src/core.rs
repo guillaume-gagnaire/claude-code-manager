@@ -4,10 +4,12 @@ use crate::agent::{AgentHandle, AgentRt, Effects, NotifyKind};
 use crate::claude::{self, ClaudeProcess, SpawnOpts};
 use crate::git::{self, GitService};
 use crate::hub::Hub;
+use crate::job::JobUsage;
 use crate::model::*;
 use crate::notify;
 use crate::paths::{self, DataDir};
 use crate::pty::PtyManager;
+use crate::resources;
 use crate::stats::Stats;
 use crate::usage;
 use anyhow::{anyhow, bail, Context, Result};
@@ -161,6 +163,7 @@ pub struct Core<R: Runtime = Wry> {
     conv_buffer: Mutex<HashMap<String, Vec<ConvOp>>>,
     conv_flush: tokio::sync::Notify,
     last_oauth_call: Mutex<Option<i64>>,
+    resources: Mutex<resources::Sampler>,
     git_inflight: Mutex<std::collections::HashSet<String>>,
     /// One fetch, pull or push at a time per repository.
     sync_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -331,6 +334,7 @@ impl<R: Runtime> Core<R> {
             conv_buffer: Mutex::default(),
             conv_flush: tokio::sync::Notify::new(),
             last_oauth_call: Mutex::new(None),
+            resources: Mutex::default(),
             git_inflight: Mutex::default(),
             sync_locks: Mutex::default(),
             toplevels: Mutex::default(),
@@ -378,6 +382,19 @@ impl<R: Runtime> Core<R> {
             loop {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 c.stop_idle_processes();
+            }
+        });
+        let c = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut shown = false;
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let resources = c.sample_resources();
+                // Once more when the last process stops, then quiet until one runs.
+                if resources.instances > 0 || shown {
+                    shown = resources.instances > 0;
+                    c.hub.emit(UiEvent::Resources { resources });
+                }
             }
         });
         let c = self.clone();
@@ -925,6 +942,24 @@ impl<R: Runtime> Core<R> {
 
     /// Stops the processes of agents idle for longer than the configured delay. The session
     /// and the conversation stay: the next action on the agent resumes it (--resume).
+    /// The running Claude processes, with what they and everything they started use.
+    pub fn sample_resources(&self) -> resources::Resources {
+        let procs: Vec<(String, Arc<ClaudeProcess>)> = self
+            .agents
+            .read()
+            .iter()
+            .filter_map(|(id, h)| Some((id.clone(), h.lock().proc.clone()?)))
+            .filter(|(_, p)| p.is_alive())
+            .collect();
+        let mut usages: Vec<(String, JobUsage)> = procs
+            .into_iter()
+            .filter_map(|(id, p)| Some((id, p.usage()?)))
+            .collect();
+        usages.sort_by(|a, b| a.0.cmp(&b.0));
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+        self.resources.lock().sample(Instant::now(), cores, usages)
+    }
+
     pub(crate) fn stop_idle_processes(&self) {
         let minutes = self.settings.read().idle_stop_minutes;
         if minutes == 0 {

@@ -469,6 +469,24 @@ async fn deleting_an_agent_removes_its_worktree_and_branch() {
 }
 
 #[tokio::test]
+async fn the_running_claude_processes_are_counted_with_their_memory() {
+    let h = harness("resources");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.wait("warm-up", |h| h.alive(&id)).await;
+    let r = h.core.sample_resources();
+    assert_eq!(r.instances, 1);
+    assert_eq!(r.agents.len(), 1);
+    assert_eq!(r.agents[0].id, id);
+    // The fake CLI: cmd.exe running node.
+    assert!(r.memory > 10 * 1024 * 1024, "{r:?}");
+    if let Some(proc) = h.core.agent(&id).unwrap().lock().detach() {
+        proc.kill();
+    }
+    assert_eq!(h.core.sample_resources().instances, 0);
+}
+
+#[tokio::test]
 async fn deleting_an_agent_whose_worktree_vanished_still_removes_it() {
     let h = harness("delete-gone");
     let (p, _) = h.project(true).await;

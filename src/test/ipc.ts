@@ -118,6 +118,7 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.ui = { activeProject: projects[0]?.id ?? null, view: 'project', selectedAgent: {} };
   app.settings = { ...SETTINGS };
   app.usage = { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 };
+  app.resources = { instances: 0, memory: 0, cpu: 0, agents: [] };
   app.git = {};
   app.shells = [];
   app.editors = [];

@@ -1,5 +1,6 @@
 //! Types persisted on disk and exchanged with the frontend.
 
+use crate::resources::Resources;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -320,6 +321,9 @@ pub enum UiEvent {
     TerminalExit {
         id: String,
         code: Option<u32>,
+    },
+    Resources {
+        resources: Resources,
     },
 }
 

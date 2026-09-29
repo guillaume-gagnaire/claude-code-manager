@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fAgo, fCountdown, fDur, fTok, fUsd, plural, relPath, tildify } from './format';
+import { basename, dirname, fAgo, fBytes, fCountdown, fDur, fTok, fUsd, plural, relPath, tildify } from './format';
 
 describe('fTok', () => {
   it.each([
@@ -79,5 +79,16 @@ describe('fAgo', () => {
 
   it('gives the date beyond a month', () => {
     expect(ago(40 * 86400)).toBe(new Date(now - 40 * 86400e3).toLocaleDateString('fr-FR'));
+  });
+});
+
+describe('fBytes', () => {
+  const MB = 1024 * 1024;
+  it('says megabytes, then gigabytes with a decimal', () => {
+    expect(fBytes(0)).toBe('0 Mo');
+    expect(fBytes(312.4 * MB)).toBe('312 Mo');
+    expect(fBytes(1023 * MB)).toBe('1023 Mo');
+    expect(fBytes(1024 * MB)).toBe('1 Go');
+    expect(fBytes(1.26 * 1024 * MB)).toBe('1,3 Go');
   });
 });

@@ -16,6 +16,7 @@ mod pricing;
 #[cfg(test)]
 mod process_tests;
 mod pty;
+mod resources;
 mod stats;
 mod usage;
 

@@ -38,7 +38,7 @@ base64 = "0.22"
 log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
+windows-sys = { version = "0.60", features = ["Win32_Media_Audio", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 tauri-winrt-notification = "0.7"
 
 [profile.release]

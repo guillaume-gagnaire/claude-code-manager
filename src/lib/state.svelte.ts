@@ -4,7 +4,20 @@ import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
 import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
-import type { Agent, EditorInfo, GitInfo, LaunchState, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
+import type {
+  Agent,
+  EditorInfo,
+  GitInfo,
+  LaunchState,
+  Project,
+  Resources,
+  Settings,
+  ShellInfo,
+  TermInfo,
+  UiEvent,
+  UiState,
+  Usage,
+} from './types';
 
 export type Modal =
   | { kind: 'newProject' }
@@ -41,6 +54,7 @@ class AppState {
   ui = $state<UiState>({ activeProject: null, view: 'project', selectedAgent: {} });
   settings = $state<Settings>({} as Settings);
   usage = $state<Usage>({ fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 });
+  resources = $state<Resources>({ instances: 0, memory: 0, cpu: 0, agents: [] });
   git = $state<Record<string, GitInfo>>({});
   shells = $state<ShellInfo[]>([]);
   /** VS Code, Cursor and Zed when installed. */
@@ -158,6 +172,9 @@ class AppState {
         break;
       case 'usage':
         this.usage = e.usage;
+        break;
+      case 'resources':
+        this.resources = e.resources;
         break;
       case 'focus':
         this.selectProject(e.projectId);

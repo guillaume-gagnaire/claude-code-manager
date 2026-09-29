@@ -86,3 +86,10 @@ export function tildify(p: string): string {
   const m = p.replace(/\\/g, '/').match(/^[A-Za-z]:\/Users\/[^/]+(\/.*)?$/);
   return m ? '~' + (m[1] ?? '') : p;
 }
+
+/** A memory size: "312 Mo", "1,3 Go". */
+export function fBytes(n: number): string {
+  const MB = 1024 * 1024;
+  if (n < 1024 * MB) return `${Math.round(n / MB)} Mo`;
+  return `${(n / (1024 * MB)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`;
+}

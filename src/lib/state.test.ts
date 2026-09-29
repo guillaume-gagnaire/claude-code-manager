@@ -50,6 +50,13 @@ describe('AppState', () => {
     expect(app.project?.id).toBe('p1');
   });
 
+  it('keeps what the running Claude processes use', async () => {
+    const { emit } = await start();
+    const resources = { instances: 1, memory: 300, cpu: 4.5, agents: [{ id: 'a1', memory: 300, cpu: 4.5 }] };
+    emit({ type: 'resources', resources });
+    expect(app.resources).toEqual(resources);
+  });
+
   it('applies agent upserts and removals from the backend', async () => {
     const { emit } = await start();
     emit({ type: 'agent', agent: agent({ id: 'a2', name: 'tests-e2e', createdAt: 2, status: 'waiting' }) });
