@@ -148,7 +148,23 @@ export const test = base.extend<{ app: App }>({
             `--- WebView2 ---\n${webviewDiagnostics(root)}`,
         );
       }
-      await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
+      // What the app showed and logged, for a failure on CI (annotations are all we get there).
+      const state = async () => {
+        const shown = await Promise.race([
+          page
+            .evaluate(() =>
+              JSON.stringify({ ready: document.readyState, url: location.href, text: document.body?.innerText.slice(0, 300) }),
+            )
+            .catch((e) => `page unreachable: ${(e as Error).message.split('\n')[0]}`),
+          new Promise<string>((r) => setTimeout(() => r('page not answering'), 5000)),
+        ]);
+        return `--- page ---\n${shown}\n--- app (${stopped ?? 'running'}) ---\n${tail(path.join(data, 'app.log'), 25)}`;
+      };
+      try {
+        await expect(page.getByRole('button', { name: /Ajouter un projet/ }).first()).toBeVisible();
+      } catch (e) {
+        throw new Error(`${(e as Error).message.split('\n')[0]}\n${await state()}`);
+      }
       const launches = () =>
         fs.existsSync(log)
           ? fs
@@ -159,6 +175,7 @@ export const test = base.extend<{ app: App }>({
               .map((l) => JSON.parse(l))
           : [];
       await use({ page, repo, data, launches });
+      if (testInfo.status !== testInfo.expectedStatus) throw new Error(`the app after the failure\n${await state()}`);
     } finally {
       await browser?.close().catch(() => {});
       if (child.pid) {
