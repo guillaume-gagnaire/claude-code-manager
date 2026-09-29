@@ -105,3 +105,32 @@ describe('TitleBar', () => {
     expect(app.toasts.at(-1)?.text).toMatch(/projet verrouillé/);
   });
 });
+
+describe('TitleBar editor button', () => {
+  beforeEach(() => {
+    resetApp({ projects: [project(), project({ id: 'p2', name: 'studio-web', path: 'C:\\code\\studio-web' })] });
+    app.ui.activeProject = 'p2';
+    app.editors = [
+      { id: 'vscode', label: 'VS Code', command: 'code' },
+      { id: 'zed', label: 'Zed', command: 'zed' },
+    ];
+    menu.close();
+  });
+  const button = () => screen.queryByRole('button', { name: 'Ouvrir le projet dans un éditeur' });
+
+  it('opens the active project’s folder in an installed editor', async () => {
+    const backend = fakeBackend();
+    render(TitleBar);
+    await userEvent.click(button()!);
+    expect(menu.open!.items.map((i) => i.label)).toEqual(['Ouvrir dans VS Code', 'Ouvrir dans Zed', '', 'Ouvrir dans l’explorateur']);
+    menu.open!.items[1].onClick!();
+    expect(backend.called('open_in_editor')[0].args).toEqual({ path: 'C:\\code\\studio-web', editor: 'zed' });
+  });
+
+  it('is only there for a project', () => {
+    fakeBackend();
+    app.ui.view = 'stats';
+    render(TitleBar);
+    expect(button()).toBeNull();
+  });
+});

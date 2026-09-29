@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
 import type { FileChange } from '../lib/types';
 import { agent, fakeBackend, project, resetApp } from '../test/ipc';
@@ -179,5 +180,70 @@ describe('FilesPanel docked: the file being read stays put', () => {
     expect(await screen.findByText('diff de src/two.ts')).toBeInTheDocument();
     const pairs = backend.called('git_diff').map((c) => `${c.args.agentId}:${c.args.paths[0]}`);
     expect(pairs).not.toContain('a2:src/one.ts');
+  });
+});
+
+describe('FilesPanel context menu', () => {
+  beforeEach(() => {
+    resetApp({
+      projects: [project()],
+      agents: [agent(), agent({ id: 'a2', name: 'wt-agent', worktree: { path: 'C:/wt', branch: 'ccm/wt', baseBranch: 'main' } })],
+    });
+    app.editors = [
+      { id: 'vscode', label: 'VS Code', command: 'code' },
+      { id: 'zed', label: 'Zed', command: 'zed' },
+    ];
+    menu.close();
+  });
+  const entries = () => menu.open?.items.filter((i) => !i.separator) ?? [];
+  const click = (label: string) => entries().find((i) => i.label === label)!.onClick!();
+  const rightClick = async (name: RegExp) => fireEvent.contextMenu(await screen.findByRole('button', { name }));
+
+  it('edits a file with an installed editor, in the checkout of the agent that holds it', async () => {
+    app.filesScope = 'project';
+    const backend = fakeBackend({ git_files: () => [change('src/wt.ts', 'a2')] });
+    render(FilesPanel, { project: project(), agent: app.agents.a1 });
+    await rightClick(/wt\.ts/);
+    expect(entries().map((i) => i.label)).toEqual(['Éditer dans VS Code', 'Éditer dans Zed', 'Abandonner les modifications…']);
+    click('Éditer dans Zed');
+    expect(backend.called('open_file')[0].args).toEqual({ projectId: 'p1', agentId: 'a2', path: 'src/wt.ts', editor: 'zed' });
+    await rightClick(/wt\.ts/);
+    click('Éditer dans VS Code');
+    expect(backend.called('open_file')[1].args.editor).toBeNull();
+  });
+
+  it('reverts a modified file once confirmed', async () => {
+    const backend = fakeBackend({ git_files: () => [change('src/auth.ts', 'a1')] });
+    render(FilesPanel, { project: project(), agent: app.agents.a1 });
+    await rightClick(/auth\.ts/);
+    click('Abandonner les modifications…');
+    expect(backend.called('git_discard')).toHaveLength(0);
+    expect(app.modal).toMatchObject({ kind: 'confirm', danger: true, title: 'Abandonner les modifications de « auth.ts » ?' });
+    await (app.modal as Extract<typeof app.modal, { kind: 'confirm' }>).onConfirm(false);
+    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a1', path: 'src/auth.ts' });
+  });
+
+  it('deletes a new file once confirmed, and restores a deleted one right away', async () => {
+    const backend = fakeBackend({
+      git_files: () => [
+        { ...change('new.txt', 'a1'), status: 'A' },
+        { ...change('gone.ts', 'a1'), status: 'D' },
+      ],
+    });
+    render(FilesPanel, { project: project(), agent: app.agents.a1 });
+    await rightClick(/new\.txt/);
+    click('Supprimer le fichier…');
+    expect(app.modal).toMatchObject({ kind: 'confirm', danger: true, title: 'Supprimer « new.txt » ?' });
+    app.modal = null;
+    await rightClick(/gone\.ts/);
+    // A deleted file cannot be opened.
+    expect(
+      entries()
+        .filter((i) => i.label.startsWith('Éditer'))
+        .every((i) => i.disabled),
+    ).toBe(true);
+    click('Restaurer le fichier');
+    expect(app.modal).toBeNull();
+    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a1', path: 'gone.ts' });
   });
 });

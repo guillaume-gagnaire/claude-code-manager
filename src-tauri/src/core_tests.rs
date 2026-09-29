@@ -525,6 +525,46 @@ async fn the_git_log_shows_every_agent_branch_and_which_one_is_the_agents() {
 }
 
 #[tokio::test]
+async fn a_file_is_discarded_and_located_in_the_checkout_that_holds_it() {
+    let h = harness("core-git-discard");
+    let (p, r) = h.project(true).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let wt = PathBuf::from(a.meta.worktree.clone().unwrap().path);
+    std::fs::write(r.join("src").join("app.ts"), "const a = 2;\n").unwrap();
+    std::fs::write(wt.join("src").join("app.ts"), "const a = 3;\n").unwrap();
+    std::fs::write(wt.join("new.ts"), "x\n").unwrap();
+
+    let id = Some(a.meta.id.clone());
+    // git spells the repository's path its own way (long names, forward slashes).
+    let same = |a: PathBuf, b: PathBuf| {
+        assert!(!a.to_string_lossy().contains('/'), "{}", a.display());
+        assert_eq!(a.canonicalize().unwrap(), b.canonicalize().unwrap());
+    };
+    let located = h.core.file_path(&p.id, id.clone(), "src/app.ts").await;
+    same(located.unwrap(), wt.join("src").join("app.ts"));
+    let located = h.core.file_path(&p.id, None, "src/app.ts").await;
+    same(located.unwrap(), r.join("src").join("app.ts"));
+
+    h.core
+        .git_discard(&p.id, id.clone(), "new.ts")
+        .await
+        .unwrap();
+    h.core.git_discard(&p.id, id, "src/app.ts").await.unwrap();
+    assert!(!wt.join("new.ts").exists());
+    assert_eq!(
+        std::fs::read_to_string(wt.join("src").join("app.ts")).unwrap(),
+        "const a = 1;\n"
+    );
+    // The project's own checkout is untouched until discarded there.
+    assert_eq!(
+        std::fs::read_to_string(r.join("src").join("app.ts")).unwrap(),
+        "const a = 2;\n"
+    );
+    h.core.git_discard(&p.id, None, "src/app.ts").await.unwrap();
+    assert_eq!(git(&r, &["status", "--porcelain"]), "");
+}
+
+#[tokio::test]
 async fn git_counts_attribute_files_to_the_agent_that_edited_them() {
     let h = harness("git-counts");
     let (p, r) = h.project(false).await;

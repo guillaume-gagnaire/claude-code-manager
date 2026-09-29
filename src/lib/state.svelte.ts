@@ -4,7 +4,7 @@ import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
 import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
-import type { Agent, GitInfo, LaunchState, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
+import type { Agent, EditorInfo, GitInfo, LaunchState, Project, Settings, ShellInfo, TermInfo, UiEvent, UiState, Usage } from './types';
 
 export type Modal =
   | { kind: 'newProject' }
@@ -43,6 +43,8 @@ class AppState {
   usage = $state<Usage>({ fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 });
   git = $state<Record<string, GitInfo>>({});
   shells = $state<ShellInfo[]>([]);
+  /** VS Code, Cursor and Zed when installed. */
+  editors = $state<EditorInfo[]>([]);
   terminals = $state<TermInfo[]>([]);
   exitedTerms = $state<Record<string, number | null>>({});
   /** Launch commands' latest runs, by command id. */
@@ -128,6 +130,7 @@ class AppState {
     this.usage = s.usage;
     this.git = s.git;
     this.shells = s.shells;
+    this.editors = s.editors;
     this.claudeFound = s.claudeFound;
     this.version = s.version;
     const early = this.early;

@@ -22,6 +22,7 @@ function start(layout: '' | 'split') {
     usage: { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 },
     git: {},
     shells: [],
+    editors: [],
     terminals: [],
     claudeFound: true,
     version: '0.1.0',

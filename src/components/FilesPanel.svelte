@@ -1,7 +1,9 @@
 <script lang="ts">
   import { commitViaAgent, mergeAgent } from '../lib/agent-actions';
+  import { editorItems } from '../lib/editors';
   import { basename, dirname } from '../lib/format';
   import { api } from '../lib/ipc';
+  import { menu, type MenuItem } from '../lib/menu.svelte';
   import { app } from '../lib/state.svelte';
   import type { Agent, FileChange, Project } from '../lib/types';
   import FileDiff from './FileDiff.svelte';
@@ -97,6 +99,40 @@
     return f.agentId && app.agents[f.agentId]?.worktree ? f.agentId : null;
   }
 
+  function fileMenu(e: MouseEvent, f: FileChange) {
+    const owner = diffOwner(f);
+    const open = (editor: string | null) => app.run(api.openFile(project.id, owner, f.path, editor));
+    menu.show(e, [
+      // A deleted file has nothing to open.
+      ...editorItems('Éditer dans', app.editors, app.settings.editorCommand, open, f.status === 'D'),
+      { label: '', separator: true },
+      discardItem(f, owner),
+    ]);
+  }
+
+  function discardItem(f: FileChange, owner: string | null): MenuItem {
+    const discard = () => app.run(api.gitDiscard(project.id, owner, f.path));
+    if (f.status === 'D') return { label: 'Restaurer le fichier', onClick: discard };
+    const isNew = f.status === 'A';
+    const name = basename(f.path);
+    return {
+      label: isNew ? 'Supprimer le fichier…' : 'Abandonner les modifications…',
+      danger: true,
+      onClick: () => {
+        app.modal = {
+          kind: 'confirm',
+          title: isNew ? `Supprimer « ${name} » ?` : `Abandonner les modifications de « ${name} » ?`,
+          body: isNew
+            ? `${f.path} n’a jamais été commité : il est supprimé du disque, sans retour possible.`
+            : `${f.path} revient à son état du dernier commit : ses modifications non commitées sont perdues.`,
+          confirm: isNew ? 'Supprimer' : 'Abandonner les modifications',
+          danger: true,
+          onConfirm: discard,
+        };
+      },
+    };
+  }
+
   let picked = $state<string | null>(null);
   // The picked file (kept listed by setFiles), once the list matches the selected agent and scope.
   const current = $derived(docked && listFor === wanted ? (files.find((f) => keyOf(f) === picked) ?? null) : null);
@@ -132,6 +168,7 @@
         class:on
         aria-current={on ? 'true' : undefined}
         onclick={() => (docked ? (picked = keyOf(f)) : openDiff([f.path], diffOwner(f), f.path))}
+        oncontextmenu={(e) => fileMenu(e, f)}
       >
         <span class="st" style:color={SC[f.status]}>{f.status}</span>
         <span class="names">

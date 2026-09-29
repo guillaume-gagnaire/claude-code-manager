@@ -15,7 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1639,25 +1639,60 @@ impl<R: Runtime> Core<R> {
         Ok(out)
     }
 
+    /// The checkout holding the files listed for `agent_id` (its worktree), else the project's
+    /// repository: the files panel's paths are relative to it.
+    async fn files_root(&self, project_id: &str, agent_id: Option<String>) -> Result<String> {
+        let project = self.project(project_id)?;
+        let worktree = match &agent_id {
+            Some(a) => self.agent(a)?.lock().meta.worktree.clone(),
+            None => None,
+        };
+        match worktree {
+            Some(wt) => Ok(wt.path),
+            None => self
+                .toplevel(&project.path)
+                .await
+                .ok_or_else(|| anyhow!("pas un dépôt git")),
+        }
+    }
+
     pub async fn git_diff(
         self: &Arc<Self>,
         project_id: &str,
         agent_id: Option<String>,
         paths: Vec<String>,
     ) -> Result<String> {
-        let project = self.project(project_id)?;
-        let worktree = match &agent_id {
-            Some(a) => self.agent(a)?.lock().meta.worktree.clone(),
-            None => None,
-        };
-        let root = match worktree {
-            Some(wt) => wt.path,
-            None => self
-                .toplevel(&project.path)
-                .await
-                .ok_or_else(|| anyhow!("pas un dépôt git"))?,
-        };
+        let root = self.files_root(project_id, agent_id).await?;
         git::diff(&root, &paths).await
+    }
+
+    /// Reverts a file of the files panel to HEAD (a new file is deleted).
+    pub async fn git_discard(
+        self: &Arc<Self>,
+        project_id: &str,
+        agent_id: Option<String>,
+        path: &str,
+    ) -> Result<()> {
+        let root = self.files_root(project_id, agent_id).await?;
+        git::discard(&root, path).await?;
+        self.git.refresh(project_id);
+        Ok(())
+    }
+
+    /// Where a file of the files panel is on disk.
+    pub async fn file_path(
+        &self,
+        project_id: &str,
+        agent_id: Option<String>,
+        path: &str,
+    ) -> Result<PathBuf> {
+        let root = self.files_root(project_id, agent_id).await?;
+        let full = Path::new(&root).join(path);
+        // git answers with forward slashes: some editors want native ones.
+        Ok(PathBuf::from(
+            full.to_string_lossy()
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        ))
     }
 
     /// The repository graph (every branch, agents' worktree branches included) and the branch

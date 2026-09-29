@@ -101,6 +101,7 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.usage = { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 };
   app.git = {};
   app.shells = [];
+  app.editors = [];
   app.terminals = [];
   app.exitedTerms = {};
   app.launches = {};

@@ -268,6 +268,41 @@ pub async fn diff(root: &str, paths: &[String]) -> Result<String> {
     Ok(out)
 }
 
+/// Puts one dirty file of `root` back as in HEAD: a tracked file loses its changes (staged ones
+/// included), a new file is deleted. Only a path listed by `git status` is accepted.
+pub async fn discard(root: &str, path: &str) -> Result<()> {
+    if !status(root).await?.entries.iter().any(|e| e.path == path) {
+        bail!("« {path} » n'a pas de modification à annuler");
+    }
+    let in_head = run(root, &["cat-file", "-e", &format!("HEAD:{path}")])
+        .await
+        .is_ok();
+    // The path is a file name, not a pattern (`a[b].txt` must not also match `ab.txt`).
+    const LITERAL: &str = "--literal-pathspecs";
+    if in_head {
+        let args = [
+            LITERAL,
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+        ];
+        run(root, &[&args[..], &["--", path]].concat()).await?;
+    } else {
+        let args = [
+            LITERAL,
+            "rm",
+            "--cached",
+            "--force",
+            "--quiet",
+            "--ignore-unmatch",
+        ];
+        run(root, &[&args[..], &["--", path]].concat()).await?;
+        run(root, &[LITERAL, "clean", "--force", "--quiet", "--", path]).await?;
+    }
+    Ok(())
+}
+
 /// Tracked + untracked (non-ignored) files, for @-mention completion.
 const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e";
 
@@ -786,6 +821,89 @@ mod repo_tests {
         assert_eq!((changes[0].add, changes[0].del), (1, 1));
         let d = diff(&r, &[]).await.unwrap();
         assert!(d.contains("+++ b/résumé.md"), "{d}");
+    }
+
+    fn git(r: &str, args: &[&str]) {
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(r)
+            .args(args)
+            .status()
+            .unwrap()
+            .success())
+    }
+
+    async fn dirty(r: &str) -> Vec<(String, char)> {
+        status(r)
+            .await
+            .unwrap()
+            .entries
+            .into_iter()
+            .map(|e| (e.path, e.status))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn discarding_puts_files_back_as_committed() {
+        let r = repo("git-discard");
+        git(&r, &["config", "core.autocrlf", "false"]);
+        let root = Path::new(&r);
+        std::fs::write(root.join("keep.txt"), "kept\n").unwrap();
+        git(&r, &["add", "-A"]);
+        git(&r, &["commit", "-qm", "more"]);
+
+        // A modified file, its change partly staged.
+        std::fs::write(root.join("résumé.md"), "staged\n").unwrap();
+        git(&r, &["add", "résumé.md"]);
+        std::fs::write(root.join("résumé.md"), "staged\nand not\n").unwrap();
+        discard(&r, "résumé.md").await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("résumé.md")).unwrap(),
+            "a\n"
+        );
+
+        // New files, untracked or staged, are deleted.
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src").join("new.ts"), "x\n").unwrap();
+        std::fs::write(root.join("staged.ts"), "y\n").unwrap();
+        git(&r, &["add", "staged.ts"]);
+        discard(&r, "src/new.ts").await.unwrap();
+        discard(&r, "staged.ts").await.unwrap();
+        assert!(!root.join("src").join("new.ts").exists());
+        assert!(!root.join("staged.ts").exists());
+
+        // A deleted file comes back.
+        std::fs::remove_file(root.join("keep.txt")).unwrap();
+        discard(&r, "keep.txt").await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("keep.txt")).unwrap(),
+            "kept\n"
+        );
+
+        // A path is a file name, not a pattern: `a[b].txt` leaves `ab.txt` alone.
+        std::fs::write(root.join("a[b].txt"), "new\n").unwrap();
+        std::fs::write(root.join("ab.txt"), "new too\n").unwrap();
+        discard(&r, "a[b].txt").await.unwrap();
+        assert!(!root.join("a[b].txt").exists());
+        assert_eq!(dirty(&r).await, vec![("ab.txt".to_string(), 'A')]);
+    }
+
+    #[tokio::test]
+    async fn discarding_only_touches_a_listed_file() {
+        let r = repo("git-discard-guard");
+        let root = Path::new(&r);
+        std::fs::write(root.join("notes.txt"), "x\n").unwrap();
+        std::fs::write(root.join("résumé.md"), "b\n").unwrap();
+        for bad in [".", "", "../x", "*", "résumé.md/..", "clean.txt"] {
+            assert!(discard(&r, bad).await.is_err(), "{bad:?} was accepted");
+        }
+        assert_eq!(
+            dirty(&r).await,
+            vec![
+                ("résumé.md".to_string(), 'M'),
+                ("notes.txt".to_string(), 'A')
+            ]
+        );
     }
 
     #[tokio::test]

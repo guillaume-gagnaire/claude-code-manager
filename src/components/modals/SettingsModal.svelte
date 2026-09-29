@@ -10,6 +10,26 @@
   let busy = $state(false);
   let checking = $state(false);
 
+  // A command of one's own stays in its field while typed, even if it becomes a detected one's.
+  const knownCommand = (cmd: string) => app.editors.some((e) => e.command === cmd.trim());
+  let customEditor = $state(!knownCommand(s.editorCommand));
+  let editorTouched = false;
+  const editorChoice = $derived(customEditor ? '' : (app.editors.find((e) => e.command === s.editorCommand.trim())?.id ?? ''));
+
+  // Picks up an editor installed since the app started.
+  app.run(api.detectEditors()).then((found) => {
+    if (!found) return;
+    app.editors = found;
+    if (!editorTouched) customEditor = !knownCommand(s.editorCommand);
+  });
+
+  function pickEditor(id: string) {
+    const ed = app.editors.find((e) => e.id === id);
+    editorTouched = true;
+    customEditor = !ed;
+    if (ed) s.editorCommand = ed.command;
+  }
+
   async function save() {
     busy = true;
     // An emptied number field is null: the backend expects a number.
@@ -138,13 +158,26 @@
 
   <section>
     <h3>Éditeur</h3>
-    <label class="f"
-      ><span>Commande pour ouvrir un fichier ou un dossier</span><input
-        class="field mono"
-        bind:value={s.editorCommand}
-        placeholder="code"
-      /></label
-    >
+    <label class="f">
+      <span>Éditeur par défaut <em>(fichiers et dossiers)</em></span>
+      <select class="field" value={editorChoice} onchange={(e) => pickEditor(e.currentTarget.value)}>
+        {#each app.editors as ed (ed.id)}<option value={ed.id}>{ed.label}</option>{/each}
+        <option value="">Autre commande…</option>
+      </select>
+    </label>
+    {#if editorChoice === ''}
+      <label class="f"
+        ><span>Commande pour ouvrir un fichier ou un dossier</span><input
+          class="field mono"
+          bind:value={s.editorCommand}
+          oninput={() => (editorTouched = true)}
+          placeholder="code"
+        /></label
+      >
+    {/if}
+    {#if !app.editors.length}
+      <div class="detected">Aucun éditeur détecté parmi VS Code, Cursor et Zed.</div>
+    {/if}
   </section>
 
   <section>

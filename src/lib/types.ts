@@ -152,6 +152,13 @@ export interface Usage {
   updatedAt: number;
 }
 
+export interface EditorInfo {
+  id: string;
+  label: string;
+  /** Its value for the "Éditeur" setting. */
+  command: string;
+}
+
 export interface ShellInfo {
   id: string;
   label: string;
@@ -289,6 +296,7 @@ export interface InitialState {
   usage: Usage;
   git: Record<string, GitInfo>;
   shells: ShellInfo[];
+  editors: EditorInfo[];
   terminals: TermInfo[];
   claudeFound: boolean;
   version: string;

@@ -2,6 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
   Agent,
   ConvItem,
+  EditorInfo,
   FileChange,
   FolderInfo,
   GitLog,
@@ -55,7 +56,12 @@ export const api = {
   setRemoteControl: (id: string, enabled: boolean) => invoke<void>('set_remote_control', { id, enabled }),
   stats: (range: string) => invoke<StatsView>('stats', { range }),
   refreshUsage: () => invoke<void>('refresh_usage'),
-  openInEditor: (path: string) => invoke<void>('open_in_editor', { path }),
+  gitDiscard: (projectId: string, agentId: string | null, path: string) => invoke<void>('git_discard', { projectId, agentId, path }),
+  detectEditors: () => invoke<EditorInfo[]>('detect_editors'),
+  /** `editor`: an id from `detectEditors`; null for the one of the settings. */
+  openInEditor: (path: string, editor: string | null = null) => invoke<void>('open_in_editor', { path, editor }),
+  openFile: (projectId: string, agentId: string | null, path: string, editor: string | null = null) =>
+    invoke<void>('open_file', { projectId, agentId, path, editor }),
   termSpawn: (a: { projectId: string; shell: string; name: string; cols: number; rows: number }, onData: (d: ArrayBuffer) => void) => {
     const output = new Channel<ArrayBuffer>();
     output.onmessage = onData;
