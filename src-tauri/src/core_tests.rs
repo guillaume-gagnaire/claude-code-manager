@@ -1,10 +1,10 @@
 //! Integration tests of the application core: real git repositories, the fake `claude` CLI
 //! (tests/fixtures/fake-claude.cmd) and Tauri's mock runtime.
 
-use crate::core::Core;
+use crate::core::{Attachment, Core};
 use crate::model::*;
 use crate::paths::{test_dir, DataDir};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -173,19 +173,29 @@ impl Harness {
             .collect()
     }
 
-    /// Remote Control requests received by the fake CLI started in `cwd`.
-    fn remote_requests(&self, cwd: &Path) -> Vec<Value> {
+    /// The `<log>.<kind>.jsonl` side log of the fake CLI started in `cwd`.
+    fn fake_log(&self, cwd: &Path, kind: &str) -> Vec<Value> {
         let key: String = cwd
             .to_string_lossy()
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
             .collect();
-        let file = std::env::temp_dir().join(format!("fake-claude-{key}.control.jsonl"));
+        let file = std::env::temp_dir().join(format!("fake-claude-{key}.{kind}.jsonl"));
         std::fs::read_to_string(file)
             .unwrap_or_default()
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect()
+    }
+
+    /// Remote Control requests received by the fake CLI started in `cwd`.
+    fn remote_requests(&self, cwd: &Path) -> Vec<Value> {
+        self.fake_log(cwd, "control")
+    }
+
+    /// User messages written to the stdin of the fake CLI started in `cwd`.
+    fn stdin_messages(&self, cwd: &Path) -> Vec<Value> {
+        self.fake_log(cwd, "stdin")
     }
 
     fn removed_events(&self, id: &str) -> usize {
@@ -209,6 +219,64 @@ async fn a_message_runs_a_turn_and_records_the_cost() {
         .items(&a.meta.id)
         .iter()
         .any(|i| i["text"] == "Bonjour, tu as dit : Bonjour"));
+}
+
+#[tokio::test]
+async fn attached_files_reach_claude_as_content_blocks() {
+    let h = harness("attach");
+    let (p, r) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    let pdf = Attachment {
+        name: "rapport.pdf".into(),
+        media_type: "application/pdf".into(),
+        data: "JVBERi0xLjQK".into(),
+    };
+    h.core
+        .send_message(&id, "Résume".into(), vec![pdf])
+        .await
+        .unwrap();
+    h.wait("turn end", |h| {
+        h.items(&id).iter().any(|i| i["kind"] == "turn") && !h.agent(&id).status.is_active()
+    })
+    .await;
+    let sent = h
+        .stdin_messages(&r)
+        .pop()
+        .expect("message written to stdin");
+    assert_eq!(
+        sent["message"]["content"],
+        json!([
+            { "type": "document", "title": "rapport.pdf",
+              "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0xLjQK" } },
+            { "type": "text", "text": "Résume" },
+        ])
+    );
+    let user = h
+        .items(&id)
+        .into_iter()
+        .find(|i| i["kind"] == "user")
+        .unwrap();
+    assert_eq!(user["files"], json!(["rapport.pdf"]));
+}
+
+#[tokio::test]
+async fn an_unsupported_file_is_refused_before_it_reaches_claude() {
+    let h = harness("attach-refused");
+    let (p, r) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    let zip = Attachment {
+        name: "sources.zip".into(),
+        media_type: "application/zip".into(),
+        data: "UEsDBA==".into(),
+    };
+    let e = h
+        .core
+        .send_message(&id, "Regarde".into(), vec![zip])
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("sources.zip"), "{e}");
+    assert!(h.stdin_messages(&r).is_empty());
+    assert!(h.items(&id).iter().all(|i| i["kind"] != "user"));
 }
 
 #[tokio::test]

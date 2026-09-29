@@ -34,11 +34,78 @@ impl std::fmt::Display for StartupFailure {
 
 impl std::error::Error for StartupFailure {}
 
+/// A file attached to a message: `data` is base64 for images and PDFs, the text itself for
+/// text files (`text/plain`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImageInput {
+pub struct Attachment {
+    pub name: String,
     pub media_type: String,
     pub data: String,
+}
+
+impl Attachment {
+    fn is_image(&self) -> bool {
+        self.media_type.starts_with("image/")
+    }
+}
+
+/// The only image formats the API reads.
+const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MB: usize = 1024 * 1024;
+
+/// Content of a user message: its text alone, or the attached files as content blocks
+/// followed by the text.
+pub fn user_content(text: &str, attachments: &[Attachment]) -> Result<Value> {
+    if attachments.is_empty() {
+        return Ok(Value::String(text.to_string()));
+    }
+    let mut blocks = attachments
+        .iter()
+        .map(attachment_block)
+        .collect::<Result<Vec<_>>>()?;
+    if !text.is_empty() {
+        blocks.push(json!({ "type": "text", "text": text }));
+    }
+    Ok(Value::Array(blocks))
+}
+
+fn attachment_block(a: &Attachment) -> Result<Value> {
+    // Base64 carries 3 bytes in 4 characters.
+    let decoded = a.data.len() / 4 * 3;
+    let (block, size, max) = match a.media_type.as_str() {
+        t if IMAGE_TYPES.contains(&t) => (
+            json!({ "type": "image", "source": { "type": "base64", "media_type": t, "data": a.data } }),
+            decoded,
+            5 * MB,
+        ),
+        "application/pdf" => (
+            json!({
+                "type": "document",
+                "title": a.name,
+                "source": { "type": "base64", "media_type": "application/pdf", "data": a.data },
+            }),
+            decoded,
+            20 * MB,
+        ),
+        "text/plain" => (
+            json!({
+                "type": "document",
+                "title": a.name,
+                "source": { "type": "text", "media_type": "text/plain", "data": a.data },
+            }),
+            a.data.len(),
+            MB,
+        ),
+        t => bail!(
+            "« {} » ({t}) ne peut pas être joint : les fichiers acceptés sont les images (PNG, JPEG, GIF, WebP), les PDF et les fichiers texte.",
+            a.name
+        ),
+    };
+    if size > max {
+        bail!("{} dépasse {} Mo", a.name, max / MB);
+    }
+    Ok(block)
 }
 
 pub struct Core<R: Runtime = Wry> {
@@ -857,12 +924,14 @@ impl<R: Runtime> Core<R> {
         self: &Arc<Self>,
         id: &str,
         text: String,
-        images: Vec<ImageInput>,
+        attachments: Vec<Attachment>,
     ) -> Result<()> {
+        // Refused before starting Claude: the composer keeps the message.
+        let content = user_content(&text, &attachments)?;
         // Two attempts: the process may die between being started and receiving the message.
         for attempt in 0..2 {
             let proc = self.ensure_process(id).await?;
-            if self.deliver(id, &proc, &text, &images)? {
+            if self.deliver(id, &proc, &text, &content, &attachments)? {
                 return Ok(());
             }
             log::warn!("message not delivered (attempt {attempt}): the process exited");
@@ -876,7 +945,8 @@ impl<R: Runtime> Core<R> {
         id: &str,
         proc: &Arc<ClaudeProcess>,
         text: &str,
-        images: &[ImageInput],
+        content: &Value,
+        attachments: &[Attachment],
     ) -> Result<bool> {
         let h = self.agent(id)?;
         let mut fx = Effects::default();
@@ -886,23 +956,13 @@ impl<R: Runtime> Core<R> {
                 return Ok(false);
             }
             let uid = uuid::Uuid::new_v4().to_string();
-            let content = if images.is_empty() {
-                Value::String(text.to_string())
-            } else {
-                let mut blocks: Vec<Value> = images
-                    .iter()
-                    .map(|i| json!({ "type": "image", "source": { "type": "base64", "media_type": i.media_type, "data": i.data } }))
-                    .collect();
-                if !text.is_empty() {
-                    blocks.push(json!({ "type": "text", "text": text }));
-                }
-                Value::Array(blocks)
-            };
             let frame = json!({ "type": "user", "message": { "role": "user", "content": content }, "parent_tool_use_id": null, "uuid": uid });
             if proc.send(&frame).is_err() {
                 return Ok(false);
             }
-            rt.push_user(&uid, text, images.len() as u32, &mut fx);
+            let (images, files): (Vec<_>, Vec<_>) = attachments.iter().partition(|a| a.is_image());
+            let files: Vec<String> = files.into_iter().map(|a| a.name.clone()).collect();
+            rt.push_user(&uid, text, images.len() as u32, &files, &mut fx);
             let first = !rt.meta.named && rt.meta.prompts == 1;
             (
                 rt.meta.project_id.clone(),
@@ -1857,5 +1917,59 @@ mod tests {
             sub_prefix("C:/code/mono", "C:/code/mono/packages/web"),
             "packages/web/"
         );
+    }
+
+    fn att(name: &str, media_type: &str, data: &str) -> Attachment {
+        Attachment {
+            name: name.into(),
+            media_type: media_type.into(),
+            data: data.into(),
+        }
+    }
+
+    #[test]
+    fn a_message_without_attachments_is_plain_text() {
+        assert_eq!(user_content("Bonjour", &[]).unwrap(), json!("Bonjour"));
+    }
+
+    #[test]
+    fn attachments_come_before_the_text_as_content_blocks() {
+        let c = user_content(
+            "Résume",
+            &[
+                att("capture.png", "image/png", "iVBO"),
+                att("rapport.pdf", "application/pdf", "JVBE"),
+                att("notes.md", "text/plain", "# Notes\nà faire"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            c,
+            json!([
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBO" } },
+                { "type": "document", "title": "rapport.pdf",
+                  "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBE" } },
+                { "type": "document", "title": "notes.md",
+                  "source": { "type": "text", "media_type": "text/plain", "data": "# Notes\nà faire" } },
+                { "type": "text", "text": "Résume" },
+            ])
+        );
+    }
+
+    #[test]
+    fn a_file_alone_is_sent_without_an_empty_text_block() {
+        let c = user_content("", &[att("a.pdf", "application/pdf", "JVBE")]).unwrap();
+        assert_eq!(c.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn unsupported_or_oversized_attachments_are_refused() {
+        let e = user_content("x", &[att("plan.docx", "application/msword", "UEsD")]).unwrap_err();
+        assert!(e.to_string().contains("plan.docx"), "{e}");
+        // The API reads only these image formats.
+        assert!(user_content("x", &[att("a.bmp", "image/bmp", "Qk0=")]).is_err());
+        let big = "A".repeat(7 * 1024 * 1024);
+        let e = user_content("x", &[att("photo.png", "image/png", &big)]).unwrap_err();
+        assert!(e.to_string().contains("5 Mo"), "{e}");
     }
 }

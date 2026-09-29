@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { conversationOf } from '../lib/conversations.svelte';
@@ -117,7 +117,7 @@ describe('Composer', () => {
     const { a, backend, textarea } = setup();
     await userEvent.type(textarea, 'Ajoute des tests{Enter}');
     await waitFor(() => expect(backend.called('send_message')).toHaveLength(1));
-    expect(backend.called('send_message')[0].args).toMatchObject({ id: a.id, text: 'Ajoute des tests', images: [] });
+    expect(backend.called('send_message')[0].args).toMatchObject({ id: a.id, text: 'Ajoute des tests', attachments: [] });
     expect(textarea.value).toBe('');
   });
 
@@ -178,7 +178,7 @@ describe('Composer', () => {
     expect(backend.called('send_message')).toHaveLength(0);
   });
 
-  it('keeps attached images when the text answers a pending question', async () => {
+  it('keeps attached files when the text answers a pending question', async () => {
     const q = {
       kind: 'question',
       id: 'req-1',
@@ -190,11 +190,65 @@ describe('Composer', () => {
     const { a, textarea } = setup({ status: 'waiting', pending: ['req-1'] }, [q]);
     await waitFor(() => expect(conversationOf(a.id).loaded).toBe(true));
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'capture.png', { type: 'image/png' });
-    await userEvent.upload(screen.getByLabelText('Joindre une image', { selector: 'input' }), png);
+    await userEvent.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), png);
     await screen.findByAltText('capture.png');
     await userEvent.type(textarea, 'PostgreSQL{Enter}');
-    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/images/));
+    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/fichiers joints/));
     expect(screen.getByAltText('capture.png')).toBeInTheDocument();
+  });
+
+  it('attaches a PDF picked from the file dialog and sends it with the message', async () => {
+    const { a, backend, textarea } = setup();
+    const pdf = new File(['%PDF-1.4'], 'rapport.pdf', { type: 'application/pdf' });
+    await userEvent.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), pdf);
+    expect(await screen.findByText('rapport.pdf')).toBeInTheDocument();
+    await userEvent.type(textarea, 'Résume ce rapport{Enter}');
+    await waitFor(() => expect(backend.called('send_message')).toHaveLength(1));
+    expect(backend.called('send_message')[0].args).toEqual({
+      id: a.id,
+      text: 'Résume ce rapport',
+      attachments: [{ name: 'rapport.pdf', mediaType: 'application/pdf', data: btoa('%PDF-1.4') }],
+    });
+    expect(screen.queryByText('rapport.pdf')).not.toBeInTheDocument();
+  });
+
+  it('attaches a text file Windows gives no type as text', async () => {
+    const { backend } = setup();
+    const md = new File(['# Notes\nà faire'], 'notes.md', { type: '' });
+    await userEvent.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), md);
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    // A file alone is enough to send.
+    await userEvent.click(screen.getByRole('button', { name: 'Envoyer' }));
+    await waitFor(() => expect(backend.called('send_message')).toHaveLength(1));
+    expect(backend.called('send_message')[0].args.attachments).toEqual([
+      { name: 'notes.md', mediaType: 'text/plain', data: '# Notes\nà faire' },
+    ]);
+  });
+
+  it('refuses an unsupported file with a message saying what can be attached', async () => {
+    setup();
+    // "All files" chosen in the dialog.
+    const user = userEvent.setup({ applyAccept: false });
+    const zip = new File([new Uint8Array([80, 75, 3, 4])], 'sources.zip', { type: 'application/zip' });
+    await user.upload(screen.getByLabelText('Joindre un fichier', { selector: 'input' }), zip);
+    await waitFor(() => expect(app.toasts.at(-1)).toMatchObject({ kind: 'error' }));
+    expect(app.toasts.at(-1)?.text).toMatch(/sources\.zip.*images.*PDF.*texte/);
+    expect(screen.queryByText('sources.zip')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Envoyer' })).toBeDisabled();
+  });
+
+  it('takes a dropped file instead of letting the window open it', async () => {
+    setup();
+    const composer = screen.getByRole('group');
+    const drop = (f: File) => {
+      const e = createEvent.drop(composer, { dataTransfer: { files: [f], types: ['Files'] } });
+      fireEvent(composer, e);
+      return e.defaultPrevented;
+    };
+    expect(drop(new File(['a,b'], 'export.csv', { type: '' }))).toBe(true);
+    expect(await screen.findByText('export.csv')).toBeInTheDocument();
+    expect(drop(new File(['MZ'], 'setup.exe', { type: 'application/x-msdownload' }))).toBe(true);
+    await waitFor(() => expect(app.toasts.at(-1)?.text).toMatch(/setup\.exe/));
   });
 
   it('denies a pending permission with the typed explanation', async () => {

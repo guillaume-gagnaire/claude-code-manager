@@ -18,7 +18,7 @@ Une ligne JSON par message, dans les deux sens (stdin / stdout).
 
 - Message utilisateur :
   `{"type":"user","message":{"role":"user","content":<string|blocks>},"parent_tool_use_id":null,"uuid"?,"priority"?:"now"|"next"|"later"}`
-  - `content` peut contenir des blocs `image` (base64) ; `priority` gère la file d'attente pendant un tour en cours.
+  - `content` peut contenir des blocs `image` (base64) et `document` (`"title":<nom>` ; PDF : `"source":{"type":"base64","media_type":"application/pdf","data":…}`, texte : `"source":{"type":"text","media_type":"text/plain","data":<texte>}`) ; `priority` gère la file d'attente pendant un tour en cours.
 - Requête de contrôle : `{"type":"control_request","request_id":"req_N","request":{"subtype":...}}`
   - `initialize` → réponse : `commands` (slash commands + skills), `models`, `account`.
   - `interrupt` (`cancel_queued?: bool`).

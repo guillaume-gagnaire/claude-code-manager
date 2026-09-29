@@ -201,10 +201,18 @@ impl AgentRt {
         fx.save = true;
     }
 
-    /// Records a user message delivered to Claude under `id` (the frame uuid). Returns true
-    /// when it was queued behind a running turn.
-    pub fn push_user(&mut self, id: &str, text: &str, images: u32, fx: &mut Effects) -> bool {
-        self.push_user_from(id, text, images, None, fx)
+    /// Records a user message delivered to Claude under `id` (the frame uuid), with its image
+    /// count and the names of its other attached files. Returns true when it was queued behind
+    /// a running turn.
+    pub fn push_user(
+        &mut self,
+        id: &str,
+        text: &str,
+        images: u32,
+        files: &[String],
+        fx: &mut Effects,
+    ) -> bool {
+        self.push_user_from(id, text, images, files, None, fx)
     }
 
     /// `origin`: "remote" for a message sent from claude.ai / the Claude app (Remote Control).
@@ -213,11 +221,15 @@ impl AgentRt {
         id: &str,
         text: &str,
         images: u32,
+        files: &[String],
         origin: Option<&str>,
         fx: &mut Effects,
     ) -> bool {
         let queued = self.meta.status.is_active();
         let mut item = json!({ "kind": "user", "id": id, "text": text, "images": images, "ts": now_ms(), "queued": queued });
+        if !files.is_empty() {
+            item["files"] = json!(files);
+        }
         if let Some(o) = origin {
             item["origin"] = json!(o);
         }
@@ -624,7 +636,7 @@ impl AgentRt {
             return;
         }
         let content = &f["message"]["content"];
-        let (text, images) = match content.as_array() {
+        let (text, images, files) = match content.as_array() {
             Some(blocks) => (
                 blocks
                     .iter()
@@ -632,13 +644,18 @@ impl AgentRt {
                     .collect::<Vec<_>>()
                     .join("\n"),
                 blocks.iter().filter(|b| b["type"] == "image").count() as u32,
+                blocks
+                    .iter()
+                    .filter(|b| b["type"] == "document")
+                    .map(|b| b["title"].as_str().unwrap_or("document").to_string())
+                    .collect::<Vec<_>>(),
             ),
-            None => (content.as_str().unwrap_or_default().to_string(), 0),
+            None => (content.as_str().unwrap_or_default().to_string(), 0, vec![]),
         };
-        if text.trim().is_empty() && images == 0 {
+        if text.trim().is_empty() && images == 0 && files.is_empty() {
             return;
         }
-        self.push_user_from(&id, &text, images, Some("remote"), fx);
+        self.push_user_from(&id, &text, images, &files, Some("remote"), fx);
     }
 
     fn on_user(&mut self, f: &Value, fx: &mut Effects) {
@@ -1191,10 +1208,43 @@ mod tests {
     }
 
     #[test]
+    fn a_file_sent_from_claude_ai_is_listed_with_its_message() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":[
+                {"type":"document","title":"rapport.pdf","source":{"type":"base64","media_type":"application/pdf","data":"JVBE"}},
+                {"type":"document","source":{"type":"text","media_type":"text/plain","data":"x"}},
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBO"}}
+            ]},"parent_tool_use_id":null,"uuid":"r2","isReplay":true}),
+            &mut fx,
+        );
+        let item = a
+            .conv
+            .get("r2")
+            .expect("a message made only of files is listed");
+        assert_eq!(item["text"], "");
+        assert_eq!(item["images"], 1);
+        assert_eq!(item["files"], json!(["rapport.pdf", "document"]));
+    }
+
+    #[test]
+    fn the_names_of_the_attached_files_are_kept_with_the_message() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.push_user("u1", "Lis ça", 1, &["rapport.pdf".into()], &mut fx);
+        let item = a.conv.get("u1").unwrap();
+        assert_eq!(item["images"], 1);
+        assert_eq!(item["files"], json!(["rapport.pdf"]));
+        a.push_user("u2", "Et ça", 0, &[], &mut fx);
+        assert!(a.conv.get("u2").unwrap().get("files").is_none());
+    }
+
+    #[test]
     fn the_echo_of_a_message_sent_from_the_app_is_not_shown_twice() {
         let mut a = rt();
         let mut fx = Effects::default();
-        a.push_user("u1", "Bonjour", 0, &mut fx);
+        a.push_user("u1", "Bonjour", 0, &[], &mut fx);
         a.handle_frame(
             &json!({"type":"user","message":{"role":"user","content":"Bonjour"},"parent_tool_use_id":null,"uuid":"u1","isReplay":true}),
             &mut fx,

@@ -17,6 +17,20 @@ describe('UserMessage', () => {
   });
 });
 
+describe('UserMessage with attachments', () => {
+  it('shows the images count and each attached file by name', () => {
+    render(UserMessage, { item: { ...item(false), images: 2, files: ['rapport.pdf', 'notes.md'] } });
+    expect(screen.getByText('🖼 2 images')).toBeInTheDocument();
+    expect(screen.getByText('📄 rapport.pdf')).toBeInTheDocument();
+    expect(screen.getByText('📄 notes.md')).toBeInTheDocument();
+  });
+
+  it('shows a message saved before files could be attached as before', () => {
+    render(UserMessage, { item: item(false) });
+    expect(screen.queryByText(/📄/)).not.toBeInTheDocument();
+  });
+});
+
 describe('UserMessage from claude.ai', () => {
   it('says the message was sent from claude.ai or the Claude app', () => {
     render(UserMessage, { item: { ...item(false), origin: 'remote' as const } });

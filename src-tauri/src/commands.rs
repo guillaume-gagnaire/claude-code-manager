@@ -1,6 +1,6 @@
 //! Tauri commands invoked by the frontend.
 
-use crate::core::{Core, ImageInput};
+use crate::core::{Attachment, Core};
 use crate::editor::{self, EditorInfo};
 use crate::model::*;
 use crate::pty::{self, ShellInfo, TermInfo};
@@ -171,9 +171,9 @@ pub async fn send_message(
     core: CoreState<'_>,
     id: String,
     text: String,
-    images: Vec<ImageInput>,
+    attachments: Vec<Attachment>,
 ) -> Res<()> {
-    core.send_message(&id, text, images).await.map_err(err)
+    core.send_message(&id, text, attachments).await.map_err(err)
 }
 
 #[tauri::command]

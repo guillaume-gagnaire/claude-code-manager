@@ -209,6 +209,8 @@ export interface UserItem extends Base {
   kind: 'user';
   text: string;
   images: number;
+  /** Names of the other attached files (PDF, text); absent from older logs. */
+  files?: string[];
   ts: number;
   queued: boolean;
   /** "remote": sent from claude.ai / the Claude app (Remote Control). */
@@ -345,7 +347,10 @@ export interface SlashCommand {
   argumentHint?: string;
 }
 
-export interface ImageInput {
+/** A file attached to a message: `data` is base64 for images and PDFs, the text itself for
+ * text files (`text/plain`). */
+export interface Attachment {
+  name: string;
   mediaType: string;
   data: string;
 }

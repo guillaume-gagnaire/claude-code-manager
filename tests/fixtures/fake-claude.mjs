@@ -4,7 +4,8 @@
 // scenario: "question", "permission", "edit", "slow", "crash", "grandchild"; anything else is a
 // plain reply. A `--resume=missing…` session fails like an unknown session does.
 // Every launch appends {argv, cwd} to $FAKE_CLAUDE_LOG, by default
-// <tmp>/fake-claude-<cwd with non-alphanumerics replaced by _>.jsonl.
+// <tmp>/fake-claude-<cwd with non-alphanumerics replaced by _>.jsonl, and every user message
+// read on stdin to <log>.stdin.jsonl.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -244,6 +245,7 @@ function startSession() {
       }
     }
     if (m.type === 'user') {
+      fs.appendFileSync(logFile.replace(/\.jsonl$/, '') + '.stdin.jsonl', JSON.stringify(m) + '\n');
       // Real CLI: echoes stdin messages (same uuid) with --replay-user-messages.
       if (replay) out({ type: 'user', message: m.message, parent_tool_use_id: null, uuid: m.uuid, isReplay: true, session_id: sessionId });
       onUser(typeof m.message.content === 'string' ? m.message.content : m.message.content.map((b) => b.text ?? '').join(' '));

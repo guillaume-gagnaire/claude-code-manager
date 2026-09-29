@@ -9,6 +9,9 @@
     {#if item.images > 0}
       <span class="chip">🖼 {item.images} image{item.images > 1 ? 's' : ''}</span>
     {/if}
+    {#each item.files ?? [] as name, i (i)}
+      <span class="chip">📄 {name}</span>
+    {/each}
     <span class="text">{item.text}</span>
     <!-- Sent while Claude worked: the CLI takes it at the turn's next step (after the running tool). -->
     {#if item.queued}<span class="note" title="Claude en tient compte dès sa prochaine étape">transmis pendant le tour</span>{/if}

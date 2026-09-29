@@ -60,7 +60,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 - Carte « Tâche terminée » : durée, tokens, coût, fichiers ; « Revoir les fichiers », « Commit… ».
 - Indicateur « Claude travaille… » + bouton Stop (interrompre).
 - Composer : menus déroulants ouverts vers le haut — Modèle (Fable · Opus · Sonnet · Haiku, alias CLI), Effort (Bas · Moyen · Élevé · Très élevé · Max), Mode (Auto · Demander · Plan · Édits auto · Bypass ; **Auto par défaut**) — puis Envoyer (↵), toujours sur une seule ligne : dans une colonne étroite, les libellés des menus s'effacent et Stop se réduit à ■. Bordure jaune si une question attend.
-- Composer v1 : images (coller / glisser), autocomplétion `@fichier`, slash commands (intégrées + `.claude/commands` + skills), messages envoyés pendant que Claude travaille : transmis tout de suite, le CLI les intègre à l'étape suivante du tour (mention « transmis pendant le tour » jusqu'à la fin du tour).
+- Composer v1 : fichiers joints — images (PNG, JPEG, GIF, WebP ; 5 Mo), PDF (20 Mo), fichiers texte UTF-8 (1 Mo) — par le trombone, le collage ou le glisser-déposer (tout autre fichier est refusé avec un message), autocomplétion `@fichier`, slash commands (intégrées + `.claude/commands` + skills), messages envoyés pendant que Claude travaille : transmis tout de suite, le CLI les intègre à l'étape suivante du tour (mention « transmis pendant le tour » jusqu'à la fin du tour).
 
 ## Git & fichiers
 

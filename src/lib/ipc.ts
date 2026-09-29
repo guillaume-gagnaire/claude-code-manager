@@ -1,12 +1,12 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
   Agent,
+  Attachment,
   ConvItem,
   EditorInfo,
   FileChange,
   FolderInfo,
   GitLog,
-  ImageInput,
   InitialState,
   Project,
   Settings,
@@ -35,7 +35,7 @@ export const api = {
   createAgent: (projectId: string, model: string | null = null) => invoke<Agent>('create_agent', { projectId, model }),
   warmAgent: (id: string) => invoke<void>('warm_agent', { id }),
   getConversation: (id: string) => invoke<ConvItem[]>('get_conversation', { id }),
-  sendMessage: (id: string, text: string, images: ImageInput[] = []) => invoke<void>('send_message', { id, text, images }),
+  sendMessage: (id: string, text: string, attachments: Attachment[] = []) => invoke<void>('send_message', { id, text, attachments }),
   interrupt: (id: string) => invoke<void>('interrupt', { id }),
   answerQuestion: (id: string, requestId: string, answers: Record<string, string>) =>
     invoke<void>('answer_question', { id, requestId, answers }),

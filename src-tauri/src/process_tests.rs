@@ -80,7 +80,8 @@ fn send(h: &AgentHandle, proc: &ClaudeProcess, text: &str) {
     let uid = uuid::Uuid::new_v4().to_string();
     proc.send(&json!({ "type": "user", "message": { "role": "user", "content": text }, "parent_tool_use_id": null, "uuid": uid }))
         .unwrap();
-    h.lock().push_user(&uid, text, 0, &mut Effects::default());
+    h.lock()
+        .push_user(&uid, text, 0, &[], &mut Effects::default());
 }
 
 async fn wait_for(h: &AgentHandle, what: &str, pred: impl Fn(&mut AgentRt) -> bool) {

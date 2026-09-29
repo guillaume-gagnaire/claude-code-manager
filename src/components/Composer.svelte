@@ -1,16 +1,13 @@
 <script lang="ts" module>
-  import type { ImageInput } from '../lib/types';
+  import type { DraftAttachment } from '../lib/attachments';
 
-  interface Img extends ImageInput {
-    url: string;
-    name: string;
-  }
-  const drafts = new Map<string, { text: string; images: Img[] }>();
+  const drafts = new Map<string, { text: string; files: DraftAttachment[] }>();
   const commandCache = new Map<string, { name: string; description: string; argumentHint?: string }[]>();
 </script>
 
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { ACCEPT, readAttachment } from '../lib/attachments';
   import { applyCompletion, detectTrigger, filterCommands, type Trigger } from '../lib/complete';
   import { conversationOf } from '../lib/conversations.svelte';
   import { basename, dirname } from '../lib/format';
@@ -28,7 +25,7 @@
   let draftFor = untrack(() => agent.id);
   const initial = drafts.get(draftFor);
   let text = $state(initial?.text ?? '');
-  let images = $state<Img[]>(initial?.images ?? []);
+  let files = $state<DraftAttachment[]>(initial?.files ?? []);
   let ta = $state<HTMLTextAreaElement>();
   let trigger = $state<Trigger | null>(null);
   let suggestions = $state<{ label: string; detail: string; value: string }[]>([]);
@@ -76,7 +73,7 @@
       draftFor = id;
       const d = drafts.get(id);
       text = d?.text ?? '';
-      images = d?.images ?? [];
+      files = d?.files ?? [];
       trigger = null;
       suggestions = [];
       queueMicrotask(autosize);
@@ -85,9 +82,9 @@
 
   // Drafts are saved as they are typed, so they survive agent switches.
   $effect(() => {
-    const draft = { text, images: images.slice() };
+    const draft = { text, files: files.slice() };
     untrack(() => {
-      if (draft.text || draft.images.length) drafts.set(draftFor, draft);
+      if (draft.text || draft.files.length) drafts.set(draftFor, draft);
       else drafts.delete(draftFor);
     });
   });
@@ -212,49 +209,45 @@
     }
   }
 
-  async function addFiles(files: Iterable<File>) {
-    for (const f of files) {
-      if (!f.type.startsWith('image/')) continue;
-      if (f.size > 5 * 1024 * 1024) {
-        app.toast(`${f.name} dépasse 5 Mo`, 'error');
-        continue;
+  // A file that cannot be attached is named in a toast, never silently dropped.
+  async function addFiles(list: Iterable<File>) {
+    for (const f of list) {
+      try {
+        files.push(await readAttachment(f));
+      } catch (e) {
+        app.toast(e instanceof Error ? e.message : String(e), 'error');
       }
-      const url = await new Promise<string>((res) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.readAsDataURL(f);
-      });
-      images.push({ url, name: f.name || 'image', mediaType: f.type, data: url.slice(url.indexOf(',') + 1) });
     }
   }
 
   function onPaste(e: ClipboardEvent) {
-    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
-    if (files.length) {
+    const list = [...(e.clipboardData?.files ?? [])];
+    if (list.length) {
       e.preventDefault();
-      addFiles(files);
+      addFiles(list);
     }
   }
 
   function onDrop(e: DragEvent) {
     dragOver = false;
-    const files = [...(e.dataTransfer?.files ?? [])];
-    if (files.some((f) => f.type.startsWith('image/'))) {
+    const list = [...(e.dataTransfer?.files ?? [])];
+    if (list.length) {
+      // Left to the WebView, a dropped file would replace the app.
       e.preventDefault();
-      addFiles(files);
+      addFiles(list);
     }
   }
 
   async function send() {
     const body = text.trim();
-    if ((!body && !images.length) || sending) return;
+    if ((!body && !files.length) || sending) return;
     // Text typed while Claude waits answers the question / refuses the permission.
     const answering = body ? pendingItem : undefined;
     sending = true;
     const prevText = text;
-    const prevImages = images;
+    const prevFiles = files;
     text = '';
-    if (!answering) images = [];
+    if (!answering) files = [];
     try {
       if (answering?.kind === 'question') {
         const q = answering as QuestionItem;
@@ -265,15 +258,15 @@
         await api.sendMessage(
           agent.id,
           body,
-          prevImages.map(({ mediaType, data }) => ({ mediaType, data })),
+          prevFiles.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
         );
       }
-      if (answering && prevImages.length) {
-        app.toast("Les images n'accompagnent pas une réponse : elles restent prêtes pour ton prochain message.");
+      if (answering && prevFiles.length) {
+        app.toast("Les fichiers joints n'accompagnent pas une réponse : ils restent prêts pour ton prochain message.");
       }
     } catch (e) {
       text = prevText;
-      images = prevImages;
+      files = prevFiles;
       app.toast(String(e), 'error');
     }
     sending = false;
@@ -341,13 +334,21 @@
         {/each}
       </div>
     {/if}
-    {#if images.length}
-      <div class="imgs">
-        {#each images as img, i (i)}
-          <div class="img">
-            <img src={img.url} alt={img.name} />
-            <button class="rm" aria-label="Retirer l'image" onclick={() => images.splice(i, 1)}>×</button>
-          </div>
+    {#if files.length}
+      <div class="atts">
+        {#each files as f, i (i)}
+          {#if f.url}
+            <div class="img">
+              <img src={f.url} alt={f.name} />
+              <button class="rm" aria-label="Retirer {f.name}" onclick={() => files.splice(i, 1)}>×</button>
+            </div>
+          {:else}
+            <div class="file" title={f.name}>
+              <span aria-hidden="true">📄</span>
+              <span class="fname">{f.name}</span>
+              <button class="rm" aria-label="Retirer {f.name}" onclick={() => files.splice(i, 1)}>×</button>
+            </div>
+          {/if}
         {/each}
       </div>
     {/if}
@@ -406,10 +407,10 @@
       <input
         bind:this={fileInput}
         type="file"
-        accept="image/*"
+        accept={ACCEPT}
         multiple
         hidden
-        aria-label="Joindre une image"
+        aria-label="Joindre un fichier"
         onchange={(e) => {
           addFiles(e.currentTarget.files ?? []);
           e.currentTarget.value = '';
@@ -417,8 +418,8 @@
       />
       <button
         class="icon-btn attach"
-        title="Joindre une image (ou colle / glisse-la)"
-        aria-label="Joindre une image"
+        title="Joindre une image, un PDF ou un fichier texte (ou colle / glisse-le)"
+        aria-label="Joindre un fichier"
         onclick={() => fileInput?.click()}
       >
         <svg
@@ -438,7 +439,7 @@
         title={busy && !pendingItem
           ? 'Claude en tiendra compte dès sa prochaine étape · Entrée pour envoyer'
           : 'Entrée pour envoyer · Maj+Entrée pour aller à la ligne'}
-        disabled={sending || (!text.trim() && !images.length)}
+        disabled={sending || (!text.trim() && !files.length)}
         onclick={send}
       >
         Envoyer
@@ -500,11 +501,35 @@
   .stop.icon {
     padding: 0 10px;
   }
-  .imgs {
+  .atts {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     padding: 12px 14px 0;
+  }
+  .file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 260px;
+    height: 30px;
+    padding: 0 5px 0 10px;
+    border-radius: 99px;
+    border: 1px solid var(--line2);
+    background: var(--elev2);
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .fname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file .rm {
+    position: static;
+    flex: none;
   }
   .img {
     position: relative;
