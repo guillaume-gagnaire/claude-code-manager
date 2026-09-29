@@ -67,6 +67,7 @@ impl Sampler {
             });
         }
         self.last = last;
+        out.cpu = out.cpu.min(100.0);
         out
     }
 }
@@ -133,6 +134,24 @@ mod tests {
                 ],
             }
         );
+    }
+
+    #[test]
+    fn the_total_stays_within_the_machine() {
+        // Each agent's share is measured on its own: rounded, they can add up past 100 %.
+        let mut s = Sampler::default();
+        let t0 = Instant::now();
+        s.sample(
+            t0,
+            1,
+            vec![("a".into(), usage(0, 1)), ("b".into(), usage(0, 1))],
+        );
+        let r = s.sample(
+            t0 + S,
+            1,
+            vec![("a".into(), usage(600, 1)), ("b".into(), usage(600, 1))],
+        );
+        assert_eq!(r.cpu, 100.0);
     }
 
     #[test]

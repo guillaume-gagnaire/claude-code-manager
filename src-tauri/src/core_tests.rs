@@ -474,12 +474,15 @@ async fn the_running_claude_processes_are_counted_with_their_memory() {
     let (p, _) = h.project(false).await;
     let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
     h.wait("warm-up", |h| h.alive(&id)).await;
+    // The fake CLI: cmd.exe, then the node it starts.
+    h.wait("node in the job", |h| {
+        h.core.sample_resources().memory > 10 * 1024 * 1024
+    })
+    .await;
     let r = h.core.sample_resources();
     assert_eq!(r.instances, 1);
     assert_eq!(r.agents.len(), 1);
     assert_eq!(r.agents[0].id, id);
-    // The fake CLI: cmd.exe running node.
-    assert!(r.memory > 10 * 1024 * 1024, "{r:?}");
     if let Some(proc) = h.core.agent(&id).unwrap().lock().detach() {
         proc.kill();
     }

@@ -940,8 +940,6 @@ impl<R: Runtime> Core<R> {
         }
     }
 
-    /// Stops the processes of agents idle for longer than the configured delay. The session
-    /// and the conversation stay: the next action on the agent resumes it (--resume).
     /// The running Claude processes, with what they and everything they started use.
     pub fn sample_resources(&self) -> resources::Resources {
         let procs: Vec<(String, Arc<ClaudeProcess>)> = self
@@ -960,6 +958,8 @@ impl<R: Runtime> Core<R> {
         self.resources.lock().sample(Instant::now(), cores, usages)
     }
 
+    /// Stops the processes of agents idle for longer than the configured delay. The session
+    /// and the conversation stay: the next action on the agent resumes it (--resume).
     pub(crate) fn stop_idle_processes(&self) {
         let minutes = self.settings.read().idle_stop_minutes;
         if minutes == 0 {

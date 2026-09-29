@@ -29,16 +29,16 @@ describe('StatusBar', () => {
       memory: 1.5 * GB,
       cpu: 12.4,
       agents: [
-        { id: 'a1', memory: GB, cpu: 10 },
-        { id: 'a4', memory: 0.5 * GB, cpu: 2.4 },
+        { id: 'a1', memory: 0.5 * GB, cpu: 2.4 },
+        { id: 'a4', memory: GB, cpu: 10 },
       ],
     };
     render(StatusBar);
     const item = screen.getByText(/2 Claude/).closest('.it')!;
     expect(item).toHaveTextContent('2 Claude · 1,5 Go · 12 % CPU');
     const title = item.getAttribute('title')!;
-    expect(title).toContain('refacto-auth : 1 Go · 10 %');
-    expect(title).toContain('tests-e2e : 512 Mo · 2 %');
+    // The biggest first.
+    expect(title.split('\n').slice(1)).toEqual(['tests-e2e : 1 Go · 10 %', 'refacto-auth : 512 Mo · 2 %']);
   });
 
   it('says nothing about processes when none runs', () => {

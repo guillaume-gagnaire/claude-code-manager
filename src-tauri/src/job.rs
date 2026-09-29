@@ -16,11 +16,12 @@ mod imp {
     use super::JobUsage;
     use std::ffi::c_void;
     use std::time::Duration;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_MORE_DATA, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
-        JobObjectBasicProcessIdList, JobObjectExtendedLimitInformation, QueryInformationJobObject,
-        SetInformationJobObject, TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+        JobObjectBasicAccountingInformation, JobObjectBasicProcessIdList,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+        TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
@@ -92,7 +93,11 @@ mod imp {
                 let ticks = (acc.TotalUserTime + acc.TotalKernelTime).max(0) as u64;
                 Some(JobUsage {
                     cpu: Duration::from_nanos(ticks * 100),
-                    memory: self.pids().into_iter().map(working_set).sum(),
+                    memory: self
+                        .pids()
+                        .into_iter()
+                        .map(|pid| self.working_set(pid))
+                        .sum(),
                     processes: acc.ActiveProcesses,
                 })
             }
@@ -102,7 +107,8 @@ mod imp {
             const MAX: usize = 1024;
             // u64 cells: the list's header and ids need 8-byte alignment.
             let mut buf = vec![0u64; 1 + MAX];
-            // SAFETY: `buf` holds a JOBOBJECT_BASIC_PROCESS_ID_LIST with room for MAX ids.
+            // SAFETY: `buf` holds a JOBOBJECT_BASIC_PROCESS_ID_LIST with room for MAX ids; the ids
+            // are read through a pointer derived from the whole buffer, not from the 1-item array.
             unsafe {
                 let ok = QueryInformationJobObject(
                     self.0,
@@ -111,35 +117,41 @@ mod imp {
                     (buf.len() * 8) as u32,
                     std::ptr::null_mut(),
                 );
-                if ok == 0 {
+                // More processes than room: the list holds the first ones.
+                if ok == 0 && GetLastError() != ERROR_MORE_DATA {
                     return Vec::new();
                 }
-                let list = &*(buf.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST);
-                let n = (list.NumberOfProcessIdsInList as usize).min(MAX);
-                std::slice::from_raw_parts(list.ProcessIdList.as_ptr(), n)
+                let list = buf.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST;
+                let n = ((*list).NumberOfProcessIdsInList as usize).min(MAX);
+                let ids = std::ptr::addr_of!((*list).ProcessIdList) as *const usize;
+                std::slice::from_raw_parts(ids, n)
                     .iter()
                     .map(|&pid| pid as u32)
                     .collect()
             }
         }
-    }
 
-    /// The working set of a process, 0 when it is gone.
-    fn working_set(pid: u32) -> u64 {
-        // SAFETY: the handle is checked, used for one query and closed.
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return 0;
-            }
-            let mut mem: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
-            let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-            let ok = K32GetProcessMemoryInfo(h, &mut mem, size);
-            CloseHandle(h);
-            if ok == 0 {
-                0
-            } else {
-                mem.WorkingSetSize as u64
+        /// The working set of one of the job's processes, 0 when it is gone (its id may already
+        /// be another process's).
+        fn working_set(&self, pid: u32) -> u64 {
+            // SAFETY: the handle is checked, used for two queries and closed.
+            unsafe {
+                let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                if h.is_null() {
+                    return 0;
+                }
+                let mut in_job = 0;
+                let mut mem: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+                let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+                let ok = IsProcessInJob(h, self.0, &mut in_job) != 0
+                    && in_job != 0
+                    && K32GetProcessMemoryInfo(h, &mut mem, size) != 0;
+                CloseHandle(h);
+                if ok {
+                    mem.WorkingSetSize as u64
+                } else {
+                    0
+                }
             }
         }
     }
@@ -202,29 +214,26 @@ mod tests {
 
     #[test]
     fn tells_the_cpu_time_and_memory_of_its_processes() {
-        // Busy for a second, then idle.
         let mut child = Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
-                "$end = (Get-Date).AddSeconds(1); while ((Get-Date) -lt $end) {}; Start-Sleep 60",
+                // Busy until it used 1.5 s of CPU, however loaded the machine.
+                "while ((Get-Process -Id $PID).TotalProcessorTime.TotalSeconds -lt 1.5) {}; Start-Sleep 60",
             ])
             .spawn()
             .unwrap();
         let job = Job::new().unwrap();
         assert!(job.assign_handle(std::os::windows::io::AsRawHandle::as_raw_handle(&child)));
         let mut usage = job.usage().unwrap();
-        for _ in 0..200 {
-            if usage.cpu > std::time::Duration::from_millis(500) {
+        for _ in 0..300 {
+            if usage.cpu > std::time::Duration::from_secs(1) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
             usage = job.usage().unwrap();
         }
-        assert!(
-            usage.cpu > std::time::Duration::from_millis(500),
-            "{usage:?}"
-        );
+        assert!(usage.cpu > std::time::Duration::from_secs(1), "{usage:?}");
         assert_eq!(usage.processes, 1);
         assert!(usage.memory > 10 * 1024 * 1024, "{usage:?}");
         drop(job);

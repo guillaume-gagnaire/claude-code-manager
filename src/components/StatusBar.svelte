@@ -14,7 +14,9 @@
   const procsTitle = $derived(
     [
       'Processus Claude en cours (avec les outils et serveurs MCP qu’ils lancent)',
-      ...procs.agents.map((r) => `${app.agents[r.id]?.name ?? '?'} : ${fBytes(r.memory)} · ${fPct(r.cpu)}`),
+      ...[...procs.agents]
+        .sort((a, b) => b.memory - a.memory)
+        .map((r) => `${app.agents[r.id]?.name ?? '?'} : ${fBytes(r.memory)} · ${fPct(r.cpu)}`),
     ].join('\n'),
   );
   const five = $derived(app.usage.fiveHour);
