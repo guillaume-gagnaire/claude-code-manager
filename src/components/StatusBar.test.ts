@@ -125,6 +125,18 @@ describe('StatusBar sync with the remote', () => {
     expect(item('Publier la branche').disabled).toBeFalsy();
   });
 
+  it('offers to publish again a branch deleted from the remote', async () => {
+    fakeBackend();
+    app.git = { p1: gitInfo({ hasRemote: true, branch: 'feat/x', upstream: 'origin/feat/x', upstreamGone: true }) };
+    render(StatusBar);
+    const button = screen.getByRole('button', { name: /⎇ feat\/x/ });
+    expect(button).toHaveTextContent('distante supprimée');
+    expect(button.title).toContain("origin/feat/x n'existe plus");
+    await userEvent.click(button);
+    expect(item('Pull').disabled).toBe(true);
+    expect(item('Publier la branche').disabled).toBeFalsy();
+  });
+
   it('pulls, then says what came in', async () => {
     const backend = fakeBackend({ git_pull: () => '3 commits tirés' });
     app.git = { p1: gitInfo({ ...tracked, behind: 3 }) };

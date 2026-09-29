@@ -200,6 +200,8 @@ pub struct GitInfo {
     pub branch: String,
     /// The remote branch it tracks ("origin/main"), if any.
     pub upstream: Option<String>,
+    /// The upstream no longer exists on the remote (deleted, e.g. once merged).
+    pub upstream_gone: bool,
     /// Commits to push / to pull, against the upstream as last fetched.
     pub ahead: u32,
     pub behind: u32,

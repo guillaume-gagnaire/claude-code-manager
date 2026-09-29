@@ -31,7 +31,8 @@
     const p = app.ui.view === 'project' ? app.project : null;
     const g = p ? app.git[p.id] : undefined;
     if (!p || !g?.isRepo || !g.hasRemote || !g.branch || g.branch === '(detached)') return null;
-    return { ...g, projectId: p.id };
+    // Pull and push need an upstream that still exists; otherwise the branch is (re)published.
+    return { ...g, projectId: p.id, tracked: !!g.upstream && !g.upstreamGone };
   });
   /** Sync running, by project. */
   let syncing = $state<Record<string, SyncOp>>({});
@@ -42,9 +43,11 @@
     if (!sync) return '';
     const fetched = sync.lastFetch ? fAgo(sync.lastFetch / 1000, app.now) : 'jamais';
     return [
-      sync.upstream
+      sync.tracked
         ? `Suit ${sync.upstream} : ${sync.behind} à tirer, ${sync.ahead} à pousser`
-        : 'Branche pas encore publiée sur le dépôt distant',
+        : sync.upstream
+          ? `La branche suivie ${sync.upstream} n'existe plus sur le dépôt distant`
+          : 'Branche pas encore publiée sur le dépôt distant',
       `Dernier fetch : ${fetched}`,
     ].join('\n');
   });
@@ -61,8 +64,8 @@
     if (!s || !syncButton || busy) return;
     const go = (op: SyncOp) => () => runSync(op, s.projectId);
     menu.showAt(syncButton, [
-      { label: 'Pull', hint: `↓${s.behind}`, disabled: !s.upstream || s.behind === 0, onClick: go('pull') },
-      s.upstream
+      { label: 'Pull', hint: `↓${s.behind}`, disabled: !s.tracked || s.behind === 0, onClick: go('pull') },
+      s.tracked
         ? { label: 'Push', hint: `↑${s.ahead}`, disabled: s.ahead === 0, onClick: go('push') }
         : { label: 'Publier la branche', onClick: go('push') },
       { label: '', separator: true },
@@ -120,11 +123,11 @@
       <span class="v">⎇ {sync.branch}</span>
       {#if busy}
         <span>{SYNC[busy].label}…</span>
-      {:else if sync.upstream}
+      {:else if sync.tracked}
         <span style:color={sync.behind ? 'var(--wait)' : 'var(--dim)'}>↓{sync.behind}</span>
         <span style:color={sync.ahead ? 'var(--text)' : 'var(--dim)'}>↑{sync.ahead}</span>
       {:else}
-        <span class="d">non publiée</span>
+        <span class="d">{sync.upstream ? 'distante supprimée' : 'non publiée'}</span>
       {/if}
     </button>
   {/if}

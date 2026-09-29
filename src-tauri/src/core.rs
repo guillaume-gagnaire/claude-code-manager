@@ -1629,6 +1629,7 @@ impl<R: Runtime> Core<R> {
                     is_repo: true,
                     branch: st.branch.clone(),
                     upstream: st.upstream.clone(),
+                    upstream_gone: st.upstream_gone,
                     ahead: st.ahead,
                     behind: st.behind,
                     has_remote: !remotes.is_empty(),

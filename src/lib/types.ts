@@ -111,6 +111,8 @@ export interface GitInfo {
   branch: string;
   /** The remote branch it tracks ("origin/main"), null when it tracks none. */
   upstream: string | null;
+  /** The upstream no longer exists on the remote (deleted, e.g. once merged). */
+  upstreamGone: boolean;
   /** Commits to push / to pull, against the upstream as last fetched. */
   ahead: number;
   behind: number;

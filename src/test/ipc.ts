@@ -96,6 +96,7 @@ export function gitInfo(over: Partial<GitInfo> = {}): GitInfo {
     isRepo: true,
     branch: 'main',
     upstream: null,
+    upstreamGone: false,
     ahead: 0,
     behind: 0,
     hasRemote: false,

@@ -693,7 +693,7 @@ fn git_info(h: &Harness, project_id: &str) -> GitInfo {
 async fn git_state_tells_how_the_branch_stands_against_its_remote() {
     let h = harness("git-sync-state");
     let (p, r) = h.project(false).await;
-    // Without a remote, the background fetch leaves the project alone.
+    // Without a remote: nothing fetched, nothing to sync.
     h.core.fetch_all().await;
     h.core.compute_git(&p.id).await;
     let info = git_info(&h, &p.id);
@@ -720,6 +720,7 @@ async fn git_state_tells_how_the_branch_stands_against_its_remote() {
         .cloned()
         .unwrap();
     assert_eq!(sent["git"]["hasRemote"], true);
+    assert_eq!(sent["git"]["upstreamGone"], false);
     assert_eq!(sent["git"]["upstream"], "origin/main");
     assert_eq!(
         (sent["git"]["ahead"].clone(), sent["git"]["behind"].clone()),

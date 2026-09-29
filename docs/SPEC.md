@@ -70,7 +70,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 - « Commit… » : envoie à l'agent une demande de commit de ses changements (il rédige le message).
 - Mode worktree : `<projet>/.claude/worktrees/<agent>`, branche dédiée. Bouton « Merger dans <branche> » (merge ou squash) ; suppression de l'agent → nettoyage worktree + branche.
 - Compteurs git rafraîchis par watcher de fichiers (debounce), pas par polling.
-- Synchro du checkout principal du projet avec son dépôt distant : commits à tirer / à pousser par rapport à la branche suivie. Fetch en arrière-plan peu après le démarrage puis toutes les 5 min, un dépôt à la fois, sans jamais demander d'identifiants (ni fenêtre Git Credential Manager) ; échecs seulement journalisés. Pull en avance rapide uniquement (branches divergées : message clair, rebase ou merge à faire à la main), Push (une branche sans branche suivie est publiée sur origin, ou l'unique dépôt distant), Fetch à la demande. Rien à synchroniser en HEAD détachée ou sans dépôt distant.
+- Synchro du checkout principal du projet avec son dépôt distant : commits à tirer / à pousser par rapport à la branche suivie. Fetch en arrière-plan peu après le démarrage puis toutes les 5 min, un dépôt à la fois, sans jamais demander d'identifiants (ni fenêtre Git Credential Manager) ; échecs seulement journalisés. Pull en avance rapide uniquement (branches divergées : message clair, rebase ou merge à faire à la main), Push (une branche sans branche suivie, ou dont la branche distante a été supprimée, est publiée sur origin, ou l'unique dépôt distant), Fetch à la demande. Rien à synchroniser en HEAD détachée ou sans dépôt distant.
 
 ## Notifications
 
@@ -82,7 +82,7 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 
 Actifs · en attente · terminés │ Session 5 h (barre, %, reset dans) · Hebdo (barre, %) │ Coût du jour │ ⎇ branche ↓ à tirer ↑ à pousser │ ♪ · ⚙ (réglages).
 
-- Synchro git : pour le projet affiché, si son dépôt a un dépôt distant et une branche. ↓ en couleur d'attente quand il y a des commits à tirer ; infobulle : branche suivie et dernier fetch. Clic → menu Pull · Push (« Publier la branche » sans branche suivie) · Fetch ; l'action en cours s'affiche (« Pull… »), puis un toast résume (« 3 commits tirés »).
+- Synchro git : pour le projet affiché, si son dépôt a un dépôt distant et une branche. ↓ en couleur d'attente quand il y a des commits à tirer ; infobulle : branche suivie et dernier fetch. Clic → menu Pull · Push (« Publier la branche » sans branche suivie ou si elle a été supprimée du dépôt distant) · Fetch ; l'action en cours s'affiche (« Pull… »), puis un toast résume (« 3 commits tirés »).
 
 - Quotas : endpoint utilisé par `/usage` (token OAuth de Claude Code, lecture seule), sauf si une source officielle équivalente existe dans le stream.
 - Coûts : équivalent API (compte Max). Le coût exact de chaque tour vient de Claude Code à la fin du tour ; pendant le tour, tokens et coût (préfixé « ≈ ») montent en direct, estimés à partir des tarifs publics (`pricing.rs`), puis remplacés par le chiffre exact. Les statistiques n'enregistrent que les coûts exacts.

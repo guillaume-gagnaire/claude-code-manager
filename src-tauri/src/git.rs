@@ -38,18 +38,30 @@ pub async fn run(cwd: &str, args: &[&str]) -> Result<Vec<u8>> {
 const NET_TIMEOUT: Duration = Duration::from_secs(180);
 const NET_TIMEOUT_BACKGROUND: Duration = Duration::from_secs(60);
 
-/// Runs a command that reaches a remote, killed with everything it started (credential
-/// helper, ssh…) past its time limit. In the background nothing may ask for credentials: no
-/// Git Credential Manager window, no ssh passphrase prompt.
+/// Nothing may ask for credentials in the background: no Git Credential Manager window, no
+/// askpass program (GIT_ASKPASS set but empty also skips core.askPass and SSH_ASKPASS), no ssh
+/// passphrase prompt.
+fn never_prompt(cmd: &mut tokio::process::Command) {
+    cmd.env("GCM_INTERACTIVE", "never")
+        .env("GIT_ASKPASS", "")
+        .env_remove("SSH_ASKPASS")
+        .env("SSH_ASKPASS_REQUIRE", "never");
+}
+
+/// Runs a command that reaches a remote, killed past its time limit. A background one never
+/// asks for credentials and dies with everything it started (credential helper, ssh…). The
+/// user's may ask: Git Credential Manager can then start a browser, which must outlive the
+/// command, so no job object for those.
 async fn run_net(cwd: &str, args: &[&str], background: bool) -> Result<Vec<u8>> {
     let mut cmd = command(cwd, args);
     cmd.kill_on_drop(true);
-    if background {
-        cmd.env("GCM_INTERACTIVE", "never")
-            .env("SSH_ASKPASS_REQUIRE", "never");
-    }
+    let job = if background {
+        never_prompt(&mut cmd);
+        crate::job::Job::new()
+    } else {
+        None
+    };
     let child = cmd.spawn()?;
-    let job = crate::job::Job::new();
     #[cfg(windows)]
     if let (Some(j), Some(h)) = (&job, child.raw_handle()) {
         j.assign_handle(h);
@@ -66,7 +78,7 @@ async fn run_net(cwd: &str, args: &[&str], background: bool) -> Result<Vec<u8>> 
                 j.terminate();
             }
             bail!(
-                "git {} : pas de réponse du dépôt distant après {} s",
+                "git {} interrompu : toujours pas terminé après {} s",
                 args.first().unwrap_or(&""),
                 limit.as_secs()
             )
@@ -129,6 +141,8 @@ pub struct Status {
     pub branch: String,
     /// The branch it tracks ("origin/main"), if any.
     pub upstream: Option<String>,
+    /// The upstream no longer exists on the remote (deleted, e.g. once merged).
+    pub upstream_gone: bool,
     /// Commits not in the upstream / in the upstream only, as of the last fetch.
     pub ahead: u32,
     pub behind: u32,
@@ -154,6 +168,7 @@ pub fn parse_status(out: &[u8]) -> Status {
     let text = String::from_utf8_lossy(out);
     let tokens: Vec<&str> = text.split('\0').collect();
     let mut st = Status::default();
+    let mut counted = false;
     let mut i = 0;
     while i < tokens.len() {
         let t = tokens[i];
@@ -173,6 +188,7 @@ pub fn parse_status(out: &[u8]) -> Status {
                 .map(|s| s.trim_start_matches(['+', '-']).parse().unwrap_or(0));
             st.ahead = n.next().unwrap_or(0);
             st.behind = n.next().unwrap_or(0);
+            counted = true;
             continue;
         }
         let mut orig = None;
@@ -212,6 +228,8 @@ pub fn parse_status(out: &[u8]) -> Status {
             orig,
         });
     }
+    // Git counts only against an upstream that still exists.
+    st.upstream_gone = st.upstream.is_some() && !counted;
     st
 }
 
@@ -710,15 +728,22 @@ pub async fn fetch(repo: &str, background: bool) -> Result<()> {
     }
     let upstream = st.ok().and_then(|s| s.upstream);
     let target = sync_remote(&remotes, upstream.as_deref()).unwrap_or("--all");
-    run_net(repo, &["fetch", "--quiet", "--prune", target], background)
-        .await
-        .map(|_| ())
+    let mut args = vec!["fetch", "--quiet", "--prune"];
+    if background {
+        // Windows cannot run it detached: it would count against the time limit.
+        args.push("--no-auto-maintenance");
+    }
+    args.push(target);
+    run_net(repo, &args, background).await.map(|_| ())
 }
 
 /// What a fetch brought, for the user.
 pub fn fetch_summary(st: &Status) -> String {
     match (&st.upstream, st.behind) {
         (None, _) => "Fetch terminé".into(),
+        (Some(up), _) if st.upstream_gone => {
+            format!("Fetch terminé : la branche distante {up} n'existe plus")
+        }
         (Some(_), 0) => "Fetch terminé : déjà à jour".into(),
         (Some(_), n) => format!("Fetch terminé : {} à tirer", n_commits(n)),
     }
@@ -733,6 +758,9 @@ pub async fn pull(repo: &str) -> Result<String> {
     };
     fetch(repo, false).await?;
     let st = status(repo).await?;
+    if st.upstream_gone {
+        bail!("La branche distante {upstream} n'existe plus : rien à tirer.");
+    }
     if st.behind == 0 {
         return Ok("Déjà à jour".into());
     }
@@ -755,8 +783,8 @@ pub async fn pull(repo: &str) -> Result<String> {
     ))
 }
 
-/// Pushes the current branch. A branch without upstream is published on the remote (origin,
-/// else the only one) and tracks it from then on.
+/// Pushes the current branch. A branch without upstream, or whose upstream was deleted, is
+/// published on the remote (the upstream's, else origin, else the only one) and tracks it.
 pub async fn push(repo: &str) -> Result<String> {
     let st = status(repo).await?;
     let branch = sync_branch(&st)?;
@@ -764,13 +792,14 @@ pub async fn push(repo: &str) -> Result<String> {
         let msg = e.to_string();
         if msg.contains("[rejected]") || msg.contains("fetch first") {
             anyhow::anyhow!(
-                "Le dépôt distant a des commits que tu n'as pas : fais d'abord un pull."
+                "Le dépôt distant a des commits que tu n'as pas : récupère-les d'abord \
+                 (pull, ou rebase si les branches ont divergé)."
             )
         } else {
             e
         }
     };
-    if st.upstream.is_some() {
+    if st.upstream.is_some() && !st.upstream_gone {
         run_net(repo, &["push"], false).await.map_err(rejected)?;
         return Ok(match st.ahead {
             0 => "Rien à pousser".into(),
@@ -778,7 +807,7 @@ pub async fn push(repo: &str) -> Result<String> {
         });
     }
     let remotes = remotes(repo).await;
-    let Some(remote) = sync_remote(&remotes, None) else {
+    let Some(remote) = sync_remote(&remotes, st.upstream.as_deref()) else {
         if remotes.is_empty() {
             bail!(NO_REMOTE);
         }
@@ -969,6 +998,7 @@ mod tests {
         let st = parse_status(raw);
         assert_eq!(st.branch, "main");
         assert_eq!(st.upstream.as_deref(), Some("origin/main"));
+        assert!(!st.upstream_gone);
         assert_eq!((st.ahead, st.behind), (2, 3));
         assert_eq!(st.entries.len(), 1);
     }
@@ -978,6 +1008,7 @@ mod tests {
         let st = parse_status(b"# branch.oid abc\0# branch.head feat/x\0");
         assert_eq!(st.branch, "feat/x");
         assert_eq!(st.upstream, None);
+        assert!(!st.upstream_gone);
         assert_eq!((st.ahead, st.behind), (0, 0));
     }
 
@@ -988,6 +1019,7 @@ mod tests {
             b"# branch.oid abc\0# branch.head feat/x\0# branch.upstream origin/feat/x\0",
         );
         assert_eq!(st.upstream.as_deref(), Some("origin/feat/x"));
+        assert!(st.upstream_gone);
         assert_eq!((st.ahead, st.behind), (0, 0));
     }
 
@@ -1377,6 +1409,39 @@ mod repo_tests {
     }
 
     #[tokio::test]
+    async fn a_branch_deleted_from_the_remote_can_be_published_again() {
+        let (local, other, bare) = with_remote("git-sync-gone");
+        git_in(&local, &["checkout", "-qb", "feat/x"]);
+        commit_file(&local, "e.txt", "e\n");
+        push(&s(&local)).await.unwrap();
+        // Merged and deleted on the remote; the next (pruning) fetch notices.
+        git_in(&other, &["push", "-q", "origin", "--delete", "feat/x"]);
+        commit_file(&local, "f.txt", "f\n");
+        fetch(&s(&local), true).await.unwrap();
+        let st = status(&s(&local)).await.unwrap();
+        assert!(st.upstream_gone);
+        assert_eq!(
+            fetch_summary(&st),
+            "Fetch terminé : la branche distante origin/feat/x n'existe plus"
+        );
+        let err = pull(&s(&local)).await.unwrap_err().to_string();
+        assert!(
+            err.contains("La branche distante origin/feat/x n'existe plus"),
+            "{err}"
+        );
+        assert_eq!(
+            push(&s(&local)).await.unwrap(),
+            "Branche feat/x publiée sur origin"
+        );
+        let st = status(&s(&local)).await.unwrap();
+        assert!(!st.upstream_gone);
+        assert_eq!(
+            git_in(&bare, &["rev-parse", "feat/x"]),
+            git_in(&local, &["rev-parse", "HEAD"])
+        );
+    }
+
+    #[tokio::test]
     async fn diverged_branches_are_neither_pushed_nor_pulled() {
         let (local, other, _) = with_remote("git-sync-diverged");
         commit_file(&other, "b.txt", "theirs\n");
@@ -1385,7 +1450,7 @@ mod repo_tests {
         let head = git_in(&local, &["rev-parse", "HEAD"]);
 
         let err = push(&s(&local)).await.unwrap_err().to_string();
-        assert!(err.contains("fais d'abord un pull"), "{err}");
+        assert!(err.contains("récupère-les d'abord"), "{err}");
         let err = pull(&s(&local)).await.unwrap_err().to_string();
         assert!(
             err.contains("La branche locale et origin/main ont divergé"),
@@ -1394,6 +1459,59 @@ mod repo_tests {
         assert_eq!(git_in(&local, &["rev-parse", "HEAD"]), head);
         let st = status(&s(&local)).await.unwrap();
         assert_eq!((st.ahead, st.behind), (1, 1));
+    }
+
+    /// Asks git for credentials the way a fetch does, with an askpass program configured (as
+    /// `core.askPass`, or `SSH_ASKPASS` which Git Bash exports). True when it was run.
+    async fn askpass_runs(name: &str, background: bool) -> bool {
+        use tokio::io::AsyncWriteExt;
+        let dir = crate::paths::test_dir(name);
+        let marker = dir.join("asked");
+        let script = dir.join("askpass.sh");
+        let slash = |p: &Path| p.to_string_lossy().replace('\\', "/");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho asked > '{}'\necho secret\n",
+                slash(&marker)
+            ),
+        )
+        .unwrap();
+        let config = format!("core.askPass={}", slash(&script));
+        let mut cmd = command(
+            &s(&dir),
+            &[
+                "-c",
+                &config,
+                "-c",
+                "credential.helper=",
+                "credential",
+                "fill",
+            ],
+        );
+        cmd.env_remove("GIT_ASKPASS")
+            .env("SSH_ASKPASS", &script)
+            .stdin(Stdio::piped());
+        if background {
+            never_prompt(&mut cmd);
+        }
+        let mut child = cmd.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin
+            .write_all(b"protocol=https\nhost=example.invalid\n\n")
+            .await
+            .unwrap();
+        drop(stdin);
+        child.wait_with_output().await.unwrap();
+        marker.exists()
+    }
+
+    #[tokio::test]
+    async fn background_commands_never_run_an_askpass_program() {
+        // The setup does detect a prompt...
+        assert!(askpass_runs("git-askpass-user", false).await);
+        // ...which a background command never shows.
+        assert!(!askpass_runs("git-askpass-background", true).await);
     }
 
     #[tokio::test]
