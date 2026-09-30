@@ -25,6 +25,16 @@ describe('SettingsModal', () => {
     expect(app.shells.map((s) => s.id)).toEqual(['pwsh']);
   });
 
+  it('resumes an agent stopped by the usage limit by default, which can be turned off', async () => {
+    const backend = fakeBackend({ save_settings: () => [] });
+    render(SettingsModal);
+    const resume = screen.getByRole('switch', { name: 'Reprise automatique après la limite d’usage' });
+    expect(resume).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(resume);
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+    expect(backend.called('save_settings')[0].args.settings.autoResume).toBe(false);
+  });
+
   it('turns an emptied number field into 0 instead of sending null', async () => {
     const backend = fakeBackend({ save_settings: () => [] });
     render(SettingsModal);

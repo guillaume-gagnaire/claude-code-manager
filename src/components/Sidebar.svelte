@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/ipc';
-  import { fDur, fTok, fUsd, tildify } from '../lib/format';
+  import { fDur, fTok, fUsd, fWhen, tildify } from '../lib/format';
   import { copyRemoteLink, openRemote, toggleRemote } from '../lib/agent-actions';
   import { shortBranch } from '../lib/branches';
   import { menu, type MenuItem } from '../lib/menu.svelte';
@@ -173,6 +173,13 @@
           {/if}
           {#if a.status === 'waiting'}
             <span class="pill">Question</span>
+          {:else if a.resumeAt}
+            <span
+              class="status"
+              style:color="var(--wait)"
+              title="Arrêté par la limite d’usage : reprise automatique {fWhen(a.resumeAt, app.now)}"
+              >Reprise {fWhen(a.resumeAt, app.now)}</span
+            >
           {:else}
             <span class="status" style:color={SC[a.status]}>{SL[a.status]}</span>
           {/if}

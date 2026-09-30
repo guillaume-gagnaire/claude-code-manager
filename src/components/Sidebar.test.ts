@@ -55,6 +55,15 @@ describe('Sidebar', () => {
     expect(app.agent?.id).toBe('a4');
   });
 
+  it('tells when an agent stopped by the usage limit resumes', () => {
+    fakeBackend();
+    app.now = new Date(2026, 8, 30, 12, 0).getTime();
+    app.agents.a1 = { ...app.agents.a1, status: 'error', resumeAt: new Date(2026, 8, 30, 15, 0).getTime() };
+    render(Sidebar, { project: project() });
+    const status = screen.getByText('Reprise à 15:00');
+    expect(status).toHaveAttribute('title', 'Arrêté par la limite d’usage : reprise automatique à 15:00');
+  });
+
   it('leaves the project’s color to its tab menu', () => {
     fakeBackend();
     render(Sidebar, { project: project() });

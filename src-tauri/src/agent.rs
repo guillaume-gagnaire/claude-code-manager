@@ -38,6 +38,8 @@ pub struct Effects {
     pub notify: Option<NotifyKind>,
     pub turns: Vec<TurnRow>,
     pub rate: Option<(Option<RateWindow>, Option<RateWindow>)>,
+    /// The turn was stopped by the usage limit, which resets then (if Claude Code told).
+    pub limited: Option<Option<i64>>,
     pub files_changed: bool,
 }
 
@@ -73,6 +75,9 @@ pub struct AgentRt {
     pub context_window: u64,
     /// Model of the conversation's latest message (it may be switched mid-process).
     main_model: String,
+    /// This turn met the usage limit, and when the limit resets.
+    rate_limited: bool,
+    limit_resets_at: Option<i64>,
     /// Tasks run in the foreground: their tool rows show them end.
     foreground_tasks: HashSet<String>,
     /// Background tasks whose end was shown, until Claude Code also replays it to Claude.
@@ -113,6 +118,8 @@ impl AgentRt {
             context_tokens: 0,
             context_window: 0,
             main_model: String::new(),
+            rate_limited: false,
+            limit_resets_at: None,
             foreground_tasks: HashSet::new(),
             announced_tasks: HashMap::new(),
             commands: Vec::new(),
@@ -247,6 +254,8 @@ impl AgentRt {
         if let Some(o) = origin {
             item["origin"] = json!(o);
         }
+        // Someone took over: no resume by itself after the usage limit.
+        self.meta.resume_at = None;
         self.append(item, fx);
         if queued {
             self.queued += 1;
@@ -411,7 +420,13 @@ impl AgentRt {
             "result" => self.on_result(f, fx),
             "control_request" => self.on_control_request(f, fx),
             "control_cancel_request" => self.on_cancel(f, fx),
-            "rate_limit_event" => fx.rate = Some(parse_rate_event(&f["rate_limit_info"])),
+            "rate_limit_event" => {
+                let info = &f["rate_limit_info"];
+                if info["status"] == "rejected" {
+                    self.limit_resets_at = info["resetsAt"].as_i64().map(|s| s * 1000);
+                }
+                fx.rate = Some(parse_rate_event(info));
+            }
             _ => {}
         }
     }
@@ -609,6 +624,9 @@ impl AgentRt {
         let mid = msg["id"].as_str().unwrap_or("").to_string();
         let parent = f["parent_tool_use_id"].as_str().map(str::to_string);
         if let Some(err) = f["error"].as_str() {
+            if err == "rate_limit" && parent.is_none() {
+                self.rate_limited = true;
+            }
             let text = msg["content"][0]["text"]
                 .as_str()
                 .unwrap_or(err)
@@ -811,6 +829,10 @@ impl AgentRt {
 
     fn on_result(&mut self, f: &Value, fx: &mut Effects) {
         let interrupted = std::mem::take(&mut self.interrupted);
+        let resets = self.limit_resets_at.take();
+        if std::mem::take(&mut self.rate_limited) {
+            fx.limited = Some(resets);
+        }
         // The exact figures below replace the running estimate.
         self.live.clear();
         let is_error = f["is_error"].as_bool().unwrap_or(false) || f["subtype"] != "success";
@@ -1398,6 +1420,45 @@ mod tests {
             &mut fx,
         );
         assert_eq!(a.conv.items().len(), 2);
+    }
+
+    #[test]
+    fn a_turn_stopped_by_the_usage_limit_tells_when_it_resets() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.handle_frame(
+            &json!({"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790800000,"rateLimitType":"five_hour"}}),
+            &mut fx,
+        );
+        // Claude Code's own message, typed as a rate limit.
+        a.handle_frame(
+            &json!({"type":"assistant","error":"rate_limit","parent_tool_use_id":null,
+                    "message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"You've hit your limit · resets 3pm"}]}}),
+            &mut fx,
+        );
+        let mut end = Effects::default();
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":true,"result":"You've hit your limit · resets 3pm"}),
+            &mut end,
+        );
+        assert_eq!(end.limited, Some(Some(1_790_800_000_000)));
+        // The next turn is a normal one.
+        let mut next = Effects::default();
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,"result":"ok"}),
+            &mut next,
+        );
+        assert_eq!(next.limited, None);
+    }
+
+    #[test]
+    fn a_message_of_the_user_s_cancels_the_planned_resume() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.meta.resume_at = Some(1_790_800_030_000);
+        a.push_user("u1", "je reprends la main", 0, &[], &mut fx);
+        assert_eq!(a.meta.resume_at, None);
+        assert!(fx.save);
     }
 
     #[test]

@@ -192,6 +192,20 @@ test('a background task that ends while the agent waits is shown before what Cla
   expect(order.indexOf('Tâche de fond terminée')).toBeLessThan(order.indexOf('Les tests sont passés.'));
 });
 
+test('an agent stopped by the usage limit is to resume by itself once it resets, which can be cancelled', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await send(page, 'jusqu’à la limite');
+  await expect(page.getByText("Le tour s'est terminé en erreur")).toBeVisible();
+  // The fake CLI's quota resets in an hour.
+  const resume = page.getByText(/^Reprise automatique à \d\d:\d\d$/);
+  await expect(resume).toBeVisible();
+  await expect(page.locator('.card .status', { hasText: /^Reprise à \d\d:\d\d$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Annuler la reprise' }).click();
+  await expect(resume).toBeHidden();
+  await expect(page.locator('.card .status', { hasText: 'Reprise' })).toBeHidden();
+});
+
 test('edits by Claude are attributed to the agent', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

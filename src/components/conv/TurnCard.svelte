@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { fDur, fTok, fUsd, plural } from '../../lib/format';
+  import { fDur, fTok, fUsd, fWhen, plural } from '../../lib/format';
+  import { api } from '../../lib/ipc';
+  import { app } from '../../lib/state.svelte';
   import type { FileEdit } from '../../lib/tools';
   import type { Agent, TurnItem } from '../../lib/types';
 
@@ -13,6 +15,12 @@
   <div class="card error">
     <div class="title"><span class="dot" style="width:8px;height:8px;background:var(--del)"></span>Le tour s'est terminé en erreur</div>
     {#if item.error}<pre class="err">{item.error}</pre>{/if}
+    {#if last && agent.resumeAt}
+      <div class="resume">
+        <span>Reprise automatique {fWhen(agent.resumeAt, app.now)}</span>
+        <button class="btn small" onclick={() => app.run(api.cancelResume(agent.id))}>Annuler la reprise</button>
+      </div>
+    {/if}
   </div>
 {:else if big}
   <div class="card done" data-testid="turn-done">
@@ -110,6 +118,13 @@
   }
   .del {
     color: var(--del);
+  }
+  .resume {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12.5px;
+    color: var(--text);
   }
   .err {
     margin: 0;

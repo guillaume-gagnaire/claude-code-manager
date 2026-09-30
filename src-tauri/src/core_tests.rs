@@ -469,6 +469,70 @@ async fn deleting_an_agent_removes_its_worktree_and_branch() {
 }
 
 #[tokio::test]
+async fn an_agent_stopped_by_the_usage_limit_is_sent_continue_once_it_resets() {
+    let h = harness("auto-resume");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.wait("warm-up", |h| h.alive(&id)).await;
+    // Not due yet: nothing sent.
+    h.core.plan_resume(&id, Some(now_ms() + 3_600_000));
+    let at = h.agent(&id).resume_at.expect("a resume is planned");
+    assert!(at > now_ms() + 3_600_000, "with a margin after the reset");
+    h.core.resume_due().await;
+    assert!(h.agent(&id).resume_at.is_some());
+    // The reset has passed.
+    h.core.plan_resume(&id, Some(now_ms() - 60_000));
+    h.core.resume_due().await;
+    h.wait("continue sent", |h| {
+        h.items(&id)
+            .iter()
+            .any(|i| i["kind"] == "user" && i["text"] == "continue")
+    })
+    .await;
+    assert_eq!(h.agent(&id).resume_at, None);
+}
+
+#[tokio::test]
+async fn a_turn_stopped_by_the_usage_limit_plans_the_resume_at_its_reset() {
+    let h = harness("auto-resume-limit");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    h.core
+        .send_message(&id, "la limite".into(), vec![])
+        .await
+        .unwrap();
+    h.wait("resume planned", |h| h.agent(&id).resume_at.is_some())
+        .await;
+    let at = h.agent(&id).resume_at.unwrap();
+    // The fake CLI's reset is in an hour.
+    let hour = now_ms() + 3_600_000;
+    assert!(at > hour - 5_000 && at < hour + 60_000, "{at} vs {hour}");
+    assert_eq!(h.agent(&id).status, AgentStatus::Error);
+}
+
+#[tokio::test]
+async fn a_resume_takes_the_saturated_window_s_reset_and_can_be_turned_off_or_cancelled() {
+    let h = harness("auto-resume-plan");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    // Claude Code did not tell the reset: the full window's.
+    let reset = now_ms() + 7_200_000;
+    h.core.usage.lock().five_hour = Some(RateWindow {
+        pct: 100.0,
+        resets_at: Some(reset),
+    });
+    h.core.plan_resume(&id, None);
+    let at = h.agent(&id).resume_at.expect("planned from the window");
+    assert!(at > reset && at < reset + 120_000, "{at} vs {reset}");
+    h.core.cancel_resume(&id).unwrap();
+    assert_eq!(h.agent(&id).resume_at, None);
+    // Off in the settings: nothing planned.
+    h.core.settings.write().auto_resume = false;
+    h.core.plan_resume(&id, Some(reset));
+    assert_eq!(h.agent(&id).resume_at, None);
+}
+
+#[tokio::test]
 async fn the_running_claude_processes_are_counted_with_their_memory() {
     let h = harness("resources");
     let (p, _) = h.project(false).await;

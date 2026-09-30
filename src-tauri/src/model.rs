@@ -28,6 +28,8 @@ pub struct Settings {
     pub no_proxy: String,
     /// Also export the proxy variables in integrated terminals.
     pub proxy_terminals: bool,
+    /// Send "continue" by itself to an agent stopped by the usage limit, once the quota resets.
+    pub auto_resume: bool,
 }
 
 impl Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             proxy_url: String::new(),
             no_proxy: "localhost,127.0.0.1".into(),
             proxy_terminals: false,
+            auto_resume: true,
         }
     }
 }
@@ -154,6 +157,8 @@ pub struct AgentMeta {
     /// Remote session to reattach to when the process restarts, and its claude.ai link.
     pub remote_session: Option<String>,
     pub remote_url: Option<String>,
+    /// Stopped by the usage limit: when the agent is sent "continue" by itself (quota reset).
+    pub resume_at: Option<i64>,
 }
 
 /// Agent as shown by the UI: persisted metadata plus live runtime fields.

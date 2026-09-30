@@ -86,6 +86,17 @@
           >{/each}
       </div>
     </div>
+    <div class="toggle">
+      <span>Reprise automatique après la limite d’usage <em>(« continue » envoyé une fois le quota réinitialisé)</em></span>
+      <button
+        class="switch"
+        role="switch"
+        aria-checked={s.autoResume}
+        class:on={s.autoResume}
+        aria-label="Reprise automatique après la limite d’usage"
+        onclick={() => (s.autoResume = !s.autoResume)}
+      ></button>
+    </div>
     <label class="f">
       <span>Arrêter les processus Claude inactifs après (minutes, 0 = jamais)</span>
       <input class="field mono" type="number" min="0" style="width:120px" bind:value={s.idleStopMinutes} />

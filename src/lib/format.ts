@@ -93,3 +93,10 @@ export function fBytes(n: number): string {
   if (n < 1024 * MB) return `${Math.round(n / MB)} Mo`;
   return `${(n / (1024 * MB)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`;
 }
+
+/** When something happens: "à 15:00" today, "le vendredi 2 octobre à 09:30" another day. */
+export function fWhen(ts: number, now: number): string {
+  const d = new Date(ts);
+  if (d.toDateString() === new Date(now).toDateString()) return `à ${fTime(ts)}`;
+  return `le ${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à ${fTime(ts)}`;
+}

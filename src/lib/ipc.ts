@@ -62,6 +62,7 @@ export const api = {
   refreshUsage: () => invoke<void>('refresh_usage'),
   gitDiscard: (projectId: string, agentId: string | null, path: string) => invoke<void>('git_discard', { projectId, agentId, path }),
   detectEditors: () => invoke<EditorInfo[]>('detect_editors'),
+  cancelResume: (id: string) => invoke<void>('cancel_resume', { id }),
   /** `editor`: an id from `detectEditors`; null for the one of the settings. */
   openInEditor: (path: string, editor: string | null = null) => invoke<void>('open_in_editor', { path, editor }),
   openFile: (projectId: string, agentId: string | null, path: string, editor: string | null = null) =>

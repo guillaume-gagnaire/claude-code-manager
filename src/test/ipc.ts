@@ -41,6 +41,7 @@ export const SETTINGS: Settings = {
   proxyUrl: '',
   noProxy: 'localhost',
   proxyTerminals: false,
+  autoResume: true,
 };
 
 export function project(over: Partial<Project> = {}): Project {
@@ -88,6 +89,7 @@ export function agent(over: Partial<Agent> = {}): Agent {
     remoteSession: null,
     remoteUrl: null,
     remoteState: null,
+    resumeAt: null,
     ...over,
   };
 }

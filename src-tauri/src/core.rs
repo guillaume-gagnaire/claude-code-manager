@@ -44,6 +44,9 @@ pub enum SyncOp {
     Push,
 }
 
+/// After the usage limit resets, before sending "continue": clocks may differ a little.
+const RESUME_MARGIN_MS: i64 = 30_000;
+
 /// How often every repository with a remote is fetched in the background.
 const FETCH_EVERY: Duration = Duration::from_secs(5 * 60);
 
@@ -386,6 +389,13 @@ impl<R: Runtime> Core<R> {
         });
         let c = self.clone();
         tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(20)).await;
+                c.resume_due().await;
+            }
+        });
+        let c = self.clone();
+        tauri::async_runtime::spawn(async move {
             let mut shown = false;
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
@@ -590,6 +600,9 @@ impl<R: Runtime> Core<R> {
             }
             u.updated_at = now_ms();
             self.hub.emit(UiEvent::Usage { usage: u.clone() });
+        }
+        if let Some(resets_at) = fx.limited {
+            self.plan_resume(id, resets_at);
         }
         if fx.files_changed {
             self.git.refresh(project_id);
@@ -937,6 +950,67 @@ impl<R: Runtime> Core<R> {
                     log::warn!("agent {id}: remote control start failed: {e:#}");
                 }
             });
+        }
+    }
+
+    /// Stopped by the usage limit: plans to send the agent "continue" once the limit resets (as
+    /// Claude Code told, else the saturated window's), unless turned off in the settings.
+    pub fn plan_resume(self: &Arc<Self>, id: &str, resets_at: Option<i64>) {
+        if !self.settings.read().auto_resume {
+            return;
+        }
+        let when = resets_at.or_else(|| {
+            let u = self.usage.lock();
+            [u.five_hour.as_ref(), u.seven_day.as_ref()]
+                .into_iter()
+                .flatten()
+                .filter(|w| w.pct >= 100.0)
+                .filter_map(|w| w.resets_at)
+                .max()
+        });
+        if let Some(when) = when {
+            self.set_resume(id, Some(when + RESUME_MARGIN_MS));
+        }
+    }
+
+    pub fn cancel_resume(self: &Arc<Self>, id: &str) -> Result<()> {
+        self.agent(id)?;
+        self.set_resume(id, None);
+        Ok(())
+    }
+
+    fn set_resume(self: &Arc<Self>, id: &str, at: Option<i64>) {
+        let Ok(h) = self.agent(id) else {
+            return;
+        };
+        let view = {
+            let mut rt = h.lock();
+            rt.meta.resume_at = at;
+            rt.view()
+        };
+        self.hub.emit(UiEvent::Agent { agent: view });
+        self.request_save();
+    }
+
+    /// Sends "continue" to the agents whose planned resume is due.
+    pub async fn resume_due(self: &Arc<Self>) {
+        let now = now_ms();
+        let due: Vec<String> = self
+            .agents
+            .read()
+            .values()
+            .filter_map(|h| {
+                let rt = h.lock();
+                let due =
+                    rt.meta.resume_at.is_some_and(|t| t <= now) && !rt.meta.status.is_active();
+                due.then(|| rt.meta.id.clone())
+            })
+            .collect();
+        for id in due {
+            self.set_resume(&id, None);
+            if let Err(e) = self.send_message(&id, "continue".into(), vec![]).await {
+                log::warn!("agent {id}: resume after the usage limit failed: {e:#}");
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fAgo, fBytes, fCountdown, fDur, fTok, fUsd, plural, relPath, tildify } from './format';
+import { basename, dirname, fAgo, fBytes, fCountdown, fDur, fTok, fUsd, fWhen, plural, relPath, tildify } from './format';
 
 describe('fTok', () => {
   it.each([
@@ -90,5 +90,13 @@ describe('fBytes', () => {
     expect(fBytes(1023 * MB)).toBe('1023 Mo');
     expect(fBytes(1024 * MB)).toBe('1 Go');
     expect(fBytes(1.26 * 1024 * MB)).toBe('1,3 Go');
+  });
+});
+
+describe('fWhen', () => {
+  it('gives the time alone today, and the day before it otherwise', () => {
+    const now = new Date(2026, 8, 30, 12, 0).getTime();
+    expect(fWhen(new Date(2026, 8, 30, 15, 0).getTime(), now)).toBe('à 15:00');
+    expect(fWhen(new Date(2026, 9, 2, 9, 30).getTime(), now)).toBe('le vendredi 2 octobre à 09:30');
   });
 });

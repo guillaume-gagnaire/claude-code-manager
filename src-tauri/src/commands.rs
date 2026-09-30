@@ -332,6 +332,11 @@ fn editor_command(core: &Core, editor: Option<&str>) -> anyhow::Result<String> {
 }
 
 #[tauri::command(async)]
+pub fn cancel_resume(core: CoreState, id: String) -> Res<()> {
+    core.cancel_resume(&id).map_err(err)
+}
+
+#[tauri::command(async)]
 pub fn detect_editors() -> Vec<EditorInfo> {
     editor::detect()
 }

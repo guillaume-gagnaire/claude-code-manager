@@ -109,6 +109,37 @@ function startSession() {
       result();
       return;
     }
+    if (text.includes('limite')) {
+      // The usage limit, as Claude Code tells it: the rejected window with its reset, its own
+      // message typed as a rate limit, and a failed turn.
+      const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+      out({
+        type: 'rate_limit_event',
+        rate_limit_info: {
+          status: 'rejected',
+          resetsAt,
+          rateLimitType: 'five_hour',
+          unifiedWindows: { five_hour: { utilization: 1, resetsAt } },
+        },
+        session_id: sessionId,
+      });
+      out({
+        type: 'assistant',
+        error: 'rate_limit',
+        message: { id: `msg_limit${msg}`, role: 'assistant', content: [{ type: 'text', text: "You've hit your limit · resets 3pm" }] },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      });
+      out({
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        duration_ms: 100,
+        session_id: sessionId,
+        result: "You've hit your limit · resets 3pm",
+      });
+      return;
+    }
     if (text.includes('tâche de fond')) {
       // A command left running in the background: it ends once the turn is over, and Claude Code
       // only tells it with a system frame before starting a turn by itself.

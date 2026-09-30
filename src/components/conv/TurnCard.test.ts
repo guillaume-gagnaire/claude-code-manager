@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TurnItem } from '../../lib/types';
-import { agent, resetApp } from '../../test/ipc';
+import { app } from '../../lib/state.svelte';
+import { agent, fakeBackend, resetApp } from '../../test/ipc';
 import TurnCard from './TurnCard.svelte';
 
 const turn = (over: Partial<TurnItem> = {}): TurnItem => ({
@@ -46,6 +48,16 @@ describe('TurnCard', () => {
     render(TurnCard, { item: turn(), agent: agent({ status: 'done' }), last: false });
     expect(screen.queryByText('Tâche terminée')).not.toBeInTheDocument();
     expect(screen.getByText(/182,4 k tokens/)).toBeInTheDocument();
+  });
+
+  it('tells when an agent stopped by the usage limit resumes by itself, and cancels it', async () => {
+    const backend = fakeBackend();
+    app.now = new Date(2026, 8, 30, 12, 0).getTime();
+    const a = agent({ status: 'error', resumeAt: new Date(2026, 8, 30, 15, 0).getTime() });
+    render(TurnCard, { item: turn({ isError: true, error: "You've hit your limit · resets 3pm" }), agent: a, last: true });
+    expect(screen.getByText('Reprise automatique à 15:00')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Annuler la reprise' }));
+    expect(backend.called('cancel_resume')[0].args).toEqual({ id: 'a1' });
   });
 
   it('shows the error of a failed turn', () => {

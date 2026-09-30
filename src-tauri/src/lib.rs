@@ -194,6 +194,7 @@ pub fn run() {
             commands::open_in_editor,
             commands::open_file,
             commands::detect_editors,
+            commands::cancel_resume,
             commands::git_discard,
             commands::term_spawn,
             commands::run_start,

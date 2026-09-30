@@ -17,6 +17,8 @@ export interface Settings {
   proxyUrl: string;
   noProxy: string;
   proxyTerminals: boolean;
+  /** Send "continue" by itself to an agent stopped by the usage limit, once the quota resets. */
+  autoResume: boolean;
 }
 
 export interface Project {
@@ -96,6 +98,8 @@ export interface Agent {
   /** The session on claude.ai. */
   remoteUrl: string | null;
   /** Link state reported by Claude Code ("ready", "connected"…), null without a live link. */
+  /** Stopped by the usage limit: when it is sent "continue" by itself (epoch ms). */
+  resumeAt: number | null;
   remoteState: string | null;
 }
 
