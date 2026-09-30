@@ -164,6 +164,20 @@ test('the status bar counts the running Claude processes, with their memory and 
   await expect(procs).toHaveAttribute('title', /: \d+ Mo · \d+ %/);
 });
 
+test('a subagent’s report and a background task are shown as such, not as the user’s messages', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await send(page, 'lance un sous-agent');
+  await expect(page.getByText('Rapport reçu.')).toBeVisible();
+  await expect(page.getByText('Rapport du sous-agent « Chercher la cause du bug »')).toBeVisible();
+  await expect(page.getByText('Cause trouvée')).toBeVisible();
+  await expect(page.getByText('Tâche de fond terminée')).toBeVisible();
+  await expect(page.locator('.bubble')).toHaveCount(1);
+  await expect(page.locator('.bubble')).toContainText('lance un sous-agent');
+  // The context, out of the window the CLI told.
+  await expect(page.locator('header.head .m', { hasText: 'Contexte' })).toContainText('/ 200 k');
+});
+
 test('edits by Claude are attributed to the agent', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

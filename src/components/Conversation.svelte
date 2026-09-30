@@ -2,13 +2,15 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/ipc';
   import { conversationOf } from '../lib/conversations.svelte';
-  import { fDur, fTok } from '../lib/format';
+  import { fDur, fInt, fTok } from '../lib/format';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
+  import { injectedSource, parseAgentMessage, subagentLabel } from '../lib/events';
   import { editsByTurn } from '../lib/tools';
   import { app } from '../lib/state.svelte';
   import type { Agent, ConvItem, Project } from '../lib/types';
   import Composer from './Composer.svelte';
+  import EventMessage from './conv/EventMessage.svelte';
   import Markdown from './conv/Markdown.svelte';
   import Notice from './conv/Notice.svelte';
   import PermissionCard from './conv/PermissionCard.svelte';
@@ -52,6 +54,19 @@
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
   const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
   const used = $derived(spent(agent));
+  // How full the context is, out of the window of the conversation's model (once a turn told it).
+  const context = $derived.by(() => {
+    const used = agent.contextTokens;
+    const size = agent.contextWindow;
+    if (!size) return { shown: used ? fTok(used) : '—', title: 'Contexte actuel', full: false };
+    const pct = Math.round((used / size) * 100);
+    const window = size >= 1e6 ? `${size / 1e6} M` : `${Math.round(size / 1e3)} k`;
+    return {
+      shown: `${fTok(used)} / ${window}`,
+      title: `Contexte : ${pct} % de la fenêtre du modèle (${fInt(used)} tokens sur ${fInt(size)})`,
+      full: pct >= 80,
+    };
+  });
   const duration = $derived(fDur(agent.activeMs + (agent.activeSince ? app.now - agent.activeSince : 0)));
   const running = $derived(agent.status === 'running');
 
@@ -134,7 +149,10 @@
     </div>
     <div style="flex:1"></div>
     <div class="metrics">
-      <span class="model mono" title="Contexte actuel : {fTok(agent.contextTokens)} tokens">{modelLabel(agent.model)}</span>
+      <span class="model mono">{modelLabel(agent.model)}</span>
+      <div class="m" title={context.title}>
+        <span class="k">Contexte</span><span class="v mono" class:full={context.full}>{context.shown}</span>
+      </div>
       <div class="m opt"><span class="k">Tokens</span><span class="v mono">{fTok(used.tokens)}</span></div>
       <div class="m opt2" title={used.estimated ? ESTIMATE_HINT : undefined}>
         <span class="k">Coût</span><span class="v mono">{fSpentUsd(used)}</span>
@@ -219,7 +237,14 @@
       {/if}
       {#each top as item, i (item.id)}
         {#if item.kind === 'user'}
-          <UserMessage {item} />
+          {@const injected = injectedSource(item)}
+          {#if injected}
+            <EventMessage source={injected} text={item.text} label={subagentLabel(conv.items, parseAgentMessage(item.text).from)} />
+          {:else}
+            <UserMessage {item} />
+          {/if}
+        {:else if item.kind === 'event'}
+          <EventMessage source={item.source} text={item.text} label={subagentLabel(conv.items, item.from ?? null)} />
         {:else if item.kind === 'text'}
           {#if item.text.trim() || item.streaming}
             <div class="assistant">
@@ -340,6 +365,9 @@
   }
   .v {
     font-size: 12.5px;
+  }
+  .v.full {
+    color: var(--wait);
   }
   .files {
     align-items: flex-start;

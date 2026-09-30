@@ -84,6 +84,8 @@ export interface Agent {
   alive: boolean;
   pending: string[];
   contextTokens: number;
+  /** Size of the context window of the conversation's model (0 until a turn told it). */
+  contextWindow: number;
   /** Tokens of the running turn so far; `tokens` includes them once the turn ends. */
   liveTokens: number;
   /** Estimated cost (list prices) of the running turn so far; `cost` gets the exact figure at its end. */
@@ -297,7 +299,17 @@ export interface NoticeItem extends Base {
   text: string;
 }
 
-export type ConvItem = UserItem | TextItem | ThinkingItem | ToolItem | QuestionItem | PermissionItem | TurnItem | NoticeItem;
+/** Passed on to Claude by Claude Code itself: a background task that ended, a subagent's message. */
+export interface EventItem extends Base {
+  kind: 'event';
+  source: 'task' | 'agent';
+  /** The subagent that sent it. */
+  from?: string;
+  text: string;
+  ts: number;
+}
+
+export type ConvItem = UserItem | TextItem | ThinkingItem | ToolItem | QuestionItem | PermissionItem | TurnItem | NoticeItem | EventItem;
 
 export type ConvOp =
   | { op: 'append'; item: ConvItem }

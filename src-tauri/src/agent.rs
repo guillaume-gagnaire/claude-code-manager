@@ -70,6 +70,7 @@ pub struct AgentRt {
     pub conv: Conv,
     pub active_since: Option<i64>,
     pub context_tokens: u64,
+    pub context_window: u64,
     pub commands: Vec<Value>,
     pub interrupted: bool,
     pub saw_init: bool,
@@ -104,6 +105,7 @@ impl AgentRt {
             gen: 0,
             active_since: None,
             context_tokens: 0,
+            context_window: 0,
             commands: Vec::new(),
             interrupted: false,
             saw_init: false,
@@ -136,6 +138,7 @@ impl AgentRt {
             alive: self.proc.is_some(),
             pending: self.pending.keys().cloned().collect(),
             context_tokens: self.context_tokens,
+            context_window: self.context_window,
             live_tokens,
             live_cost,
             remote_state: self.remote_state.clone(),
@@ -636,22 +639,36 @@ impl AgentRt {
             return;
         }
         let content = &f["message"]["content"];
-        let (text, images, files) = match content.as_array() {
-            Some(blocks) => (
-                blocks
-                    .iter()
-                    .filter_map(|b| b["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                blocks.iter().filter(|b| b["type"] == "image").count() as u32,
-                blocks
-                    .iter()
-                    .filter(|b| b["type"] == "document")
-                    .map(|b| b["title"].as_str().unwrap_or("document").to_string())
-                    .collect::<Vec<_>>(),
-            ),
-            None => (content.as_str().unwrap_or_default().to_string(), 0, vec![]),
+        let blocks = content.as_array().map(Vec::as_slice).unwrap_or_default();
+        let text = match content.as_str() {
+            Some(s) => s.to_string(),
+            None => blocks
+                .iter()
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
         };
+        // Passed on to Claude by Claude Code itself: an event, not a message from the user.
+        let source = match f["origin"]["kind"].as_str() {
+            Some("task-notification") => Some("task"),
+            Some("peer") => Some("agent"),
+            _ => None,
+        };
+        if let Some(source) = source {
+            let mut item = json!({ "kind": "event", "id": id, "source": source, "text": text, "ts": now_ms() });
+            if let Some(from) = f["origin"]["from"].as_str() {
+                item["from"] = from.into();
+            }
+            self.append(item, fx);
+            fx.save = true;
+            return;
+        }
+        let images = blocks.iter().filter(|b| b["type"] == "image").count() as u32;
+        let files: Vec<String> = blocks
+            .iter()
+            .filter(|b| b["type"] == "document")
+            .map(|b| b["title"].as_str().unwrap_or("document").to_string())
+            .collect();
         if text.trim().is_empty() && images == 0 && files.is_empty() {
             return;
         }
@@ -733,6 +750,20 @@ impl AgentRt {
         let is_error = f["is_error"].as_bool().unwrap_or(false) || f["subtype"] != "success";
         let (mut tokens, mut cost) = (0u64, 0f64);
         if let Some(models) = f["modelUsage"].as_object() {
+            // The conversation's model is the one that read the most (subagents may use others).
+            let main = models.values().max_by_key(|u| {
+                [
+                    "inputTokens",
+                    "cacheReadInputTokens",
+                    "cacheCreationInputTokens",
+                ]
+                .iter()
+                .filter_map(|k| u[*k].as_u64())
+                .sum::<u64>()
+            });
+            if let Some(window) = main.and_then(|u| u["contextWindow"].as_u64()) {
+                self.context_window = window;
+            }
             for (model, u) in models {
                 let cur = Counters {
                     input: u["inputTokens"].as_u64().unwrap_or(0),
@@ -1252,6 +1283,60 @@ mod tests {
         let users = a.conv.ids_where(|v| v["kind"] == "user");
         assert_eq!(users, vec!["u1".to_string()]);
         assert_eq!(a.meta.prompts, 1);
+    }
+
+    #[test]
+    fn what_claude_code_passes_on_by_itself_is_an_event_not_a_message_from_the_user() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        // Queued during a turn, then passed to Claude: a background task that ended…
+        let notification = "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Background command \"ping\" completed (exit code 0)</summary>\n</task-notification>";
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":notification},"parent_tool_use_id":null,
+                    "uuid":"n1","isReplay":true,"origin":{"kind":"task-notification","producer":"session-task"}}),
+            &mut fx,
+        );
+        // …and the report of a subagent.
+        let report = "<agent-message from=\"a42\">\n[Subagent hand-back] The report follows:\n  **Fini**\n</agent-message>";
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":[{"type":"text","text":report}]},"parent_tool_use_id":null,
+                    "uuid":"n2","isReplay":true,"origin":{"kind":"peer","from":"a42","senderTaskId":"a42"}}),
+            &mut fx,
+        );
+        let items = a.conv.items();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["kind"], "event");
+        assert_eq!(items[0]["source"], "task");
+        assert_eq!(items[0]["text"], notification);
+        assert_eq!(items[1]["kind"], "event");
+        assert_eq!(items[1]["source"], "agent");
+        assert_eq!(items[1]["from"], "a42");
+        assert_eq!(items[1]["text"], report);
+        // Not a prompt of the user's, nor a turn started for them.
+        assert_eq!(a.meta.prompts, 0);
+        assert!(!a.meta.status.is_active());
+        // Replayed again (resume): kept once.
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":notification},"uuid":"n1","isReplay":true,
+                    "origin":{"kind":"task-notification"}}),
+            &mut fx,
+        );
+        assert_eq!(a.conv.items().len(), 2);
+    }
+
+    #[test]
+    fn knows_the_context_window_of_the_conversation_s_model() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        assert_eq!(a.view().context_window, 0);
+        // The conversation's model reads the most; a subagent's may have a smaller window.
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,"modelUsage":{
+                "claude-opus-5-5":{"inputTokens":120,"outputTokens":900,"cacheReadInputTokens":80000,"cacheCreationInputTokens":4000,"costUSD":0.5,"contextWindow":1000000},
+                "claude-haiku-4-5":{"inputTokens":3000,"outputTokens":200,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01,"contextWindow":200000}}}),
+            &mut fx,
+        );
+        assert_eq!(a.view().context_window, 1_000_000);
     }
 
     #[test]

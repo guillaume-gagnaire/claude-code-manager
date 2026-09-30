@@ -80,7 +80,7 @@ function startSession() {
       duration_ms: 1200,
       session_id: sessionId,
       result: isError ? 'Erreur simulée' : 'ok',
-      modelUsage: { [`claude-${model}-test`]: { ...usage, canonicalModel: `claude-${model}-test` } },
+      modelUsage: { [`claude-${model}-test`]: { ...usage, contextWindow: 200000, canonicalModel: `claude-${model}-test` } },
     });
     out({
       type: 'rate_limit_event',
@@ -106,6 +106,36 @@ function startSession() {
       // Like a dev server started by the Bash tool: must die with the agent's process tree.
       const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
       streamText(`pid:${child.pid}`);
+      result();
+      return;
+    }
+    if (text.includes('sous-agent')) {
+      // A background subagent: launched, then its report and the end of its task are passed on
+      // to Claude by Claude Code itself (replayed with their origin), as mid-turn.
+      const tuid = `toolu_a${msg}`;
+      assistant({ type: 'tool_use', id: tuid, name: 'Agent', input: { description: 'Chercher la cause du bug', prompt: '…' } });
+      toolResult(tuid, 'Async agent launched successfully.\nagentId: fakeagent1 (internal ID)');
+      const passOn = (uuid, content, origin) =>
+        out({
+          type: 'user',
+          message: { role: 'user', content },
+          parent_tool_use_id: null,
+          uuid,
+          isReplay: true,
+          origin,
+          session_id: sessionId,
+        });
+      passOn(
+        `peer-${msg}`,
+        '<agent-message from="fakeagent1">\n[Subagent hand-back] The text below is the final report of a subagent. The report follows:\n  **Cause trouvée** : le filtre refuse les PDF.\n</agent-message>',
+        { kind: 'peer', from: 'fakeagent1', senderTaskId: 'fakeagent1' },
+      );
+      passOn(
+        `notif-${msg}`,
+        `<task-notification>\n<task-id>fakeagent1</task-id>\n<tool-use-id>${tuid}</tool-use-id>\n<status>completed</status>\n<summary>Agent "Chercher la cause du bug" finished</summary>\n</task-notification>`,
+        { kind: 'task-notification', producer: 'session-task' },
+      );
+      streamText('Rapport reçu.');
       result();
       return;
     }

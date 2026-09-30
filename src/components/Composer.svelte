@@ -10,6 +10,7 @@
   import { ACCEPT, MAX_TOTAL, readAttachment, sizeLabel } from '../lib/attachments';
   import { applyCompletion, detectTrigger, filterCommands, type Trigger } from '../lib/complete';
   import { conversationOf } from '../lib/conversations.svelte';
+  import { injectedSource } from '../lib/events';
   import { basename, dirname } from '../lib/format';
   import { api } from '../lib/ipc';
   import { EFFORTS, MODELS, MODES, supportsAuto, supportsEffort } from '../lib/models';
@@ -158,7 +159,7 @@
   function lastUserMessage(): string | null {
     for (let i = conv.items.length - 1; i >= 0; i--) {
       const it = conv.items[i];
-      if (it.kind === 'user') return it.text;
+      if (it.kind === 'user' && !injectedSource(it)) return it.text;
     }
     return null;
   }

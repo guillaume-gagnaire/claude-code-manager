@@ -153,6 +153,37 @@ describe('Conversation', () => {
     expect(app.agents[a.id]).toBeDefined();
   });
 
+  it('shows what Claude Code passed on by itself as such, older conversations included', async () => {
+    const report = '<agent-message from="a42">\n[Subagent hand-back] … The report follows:\n  **Cause trouvée**\n</agent-message>';
+    const { container } = setup({ status: 'done' }, [
+      { kind: 'user', id: 'u1', text: 'Enquête sur le bug', images: 0, ts: 1, queued: false },
+      {
+        kind: 'tool',
+        id: 't1',
+        name: 'Agent',
+        input: { description: 'Investigate PDF upload bug' },
+        status: 'ok',
+        ts: 1,
+        result: { isError: false, text: 'Async agent launched successfully.\nagentId: a42' },
+      },
+      // Saved before events had their kind: a message "from claude.ai".
+      {
+        kind: 'user',
+        id: 'u2',
+        origin: 'remote',
+        text: '<task-notification>\n<status>completed</status>\n<summary>Agent "Investigate PDF upload bug" finished</summary>\n</task-notification>',
+        images: 0,
+        ts: 2,
+        queued: false,
+      },
+      { kind: 'event', id: 'e1', source: 'agent', from: 'a42', text: report, ts: 3 },
+    ]);
+    expect(await screen.findByText('Rapport du sous-agent « Investigate PDF upload bug »')).toBeInTheDocument();
+    expect(screen.getByText('Tâche de fond terminée')).toBeInTheDocument();
+    // Only the user's own message is in a bubble.
+    expect([...container.querySelectorAll('.bubble')].map((b) => b.textContent?.trim())).toEqual(['Enquête sur le bug']);
+  });
+
   it('ends a finished task with the files its last turn edited', async () => {
     const edit = (id: string, file: string, add: number) => ({
       kind: 'tool',
@@ -206,6 +237,24 @@ describe('Conversation header', () => {
 });
 
 describe('Conversation header usage', () => {
+  it('shows how full the context is, out of the model’s window', () => {
+    setup({ contextTokens: 45_200, contextWindow: 200_000 });
+    const ctx = screen.getByText('Contexte').closest('.m')!;
+    expect(ctx).toHaveTextContent('45,2 k / 200 k');
+    expect(ctx).toHaveAttribute('title', expect.stringContaining('23 %'));
+    expect(ctx.querySelector('.v')).not.toHaveClass('full');
+  });
+
+  it('warns when the context is nearly full', () => {
+    setup({ contextTokens: 900_000, contextWindow: 1_000_000 });
+    expect(screen.getByText('900,0 k / 1 M')).toHaveClass('full');
+  });
+
+  it('shows the context alone while the window is unknown', () => {
+    setup({ contextTokens: 12_300, contextWindow: 0 });
+    expect(screen.getByText('Contexte').closest('.m')).toHaveTextContent('12,3 k');
+  });
+
   it('counts the running turn in the tokens and the estimated cost', () => {
     setup({ tokens: 2000, cost: 0.4, liveTokens: 1000, liveCost: 0.2 });
     expect(screen.getByText('3,0 k')).toBeInTheDocument();

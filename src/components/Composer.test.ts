@@ -113,6 +113,26 @@ describe('Composer', () => {
     expect(backend.called('interrupt')).toHaveLength(0);
   });
 
+  it('brings back the last message of the user’s on ↑, not what Claude Code passed on', async () => {
+    const { a, textarea } = setup({}, [
+      { kind: 'user', id: 'u1', text: 'Lance les tests', images: 0, ts: 1, queued: false },
+      {
+        kind: 'user',
+        id: 'u2',
+        origin: 'remote',
+        text: '<task-notification>\n<status>completed</status>\n</task-notification>',
+        images: 0,
+        ts: 2,
+        queued: false,
+      },
+      { kind: 'event', id: 'e1', source: 'task', text: '<task-notification></task-notification>', ts: 3 },
+    ]);
+    await waitFor(() => expect(conversationOf(a.id).loaded).toBe(true));
+    textarea.focus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(textarea).toHaveValue('Lance les tests');
+  });
+
   it('sends the typed message on Enter and clears the field', async () => {
     const { a, backend, textarea } = setup();
     await userEvent.type(textarea, 'Ajoute des tests{Enter}');
