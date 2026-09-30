@@ -47,6 +47,20 @@ describe('StatusBar', () => {
     expect(screen.queryByText(/Claude ·/)).not.toBeInTheDocument();
   });
 
+  it('shows when the weekly quota resets too', () => {
+    fakeBackend();
+    app.usage = {
+      fiveHour: { pct: 10, resetsAt: null },
+      sevenDay: { pct: 38.4, resetsAt: app.now + (2 * 86400 + 5 * 3600) * 1000 },
+      todayCost: 0,
+      updatedAt: 1,
+    };
+    render(StatusBar);
+    const week = screen.getByText(/Hebdo/).closest('.it')!;
+    expect(week).toHaveTextContent('38 %');
+    expect(week).toHaveTextContent('reset 2j 5h');
+  });
+
   it('counts active, waiting and finished agents (archived excluded)', () => {
     fakeBackend();
     render(StatusBar);

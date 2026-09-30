@@ -128,6 +128,7 @@
       ></span></span
     >
     <span class="v">{week ? fPct(week.pct) : '—'}</span>
+    {#if week?.resetsAt}<span class="d">reset {fCountdown(week.resetsAt, app.now)}</span>{/if}
   </span>
   <span class="vsep"></span>
   <span class="it" title={app.liveCost > 0 ? ESTIMATE_HINT : undefined}
