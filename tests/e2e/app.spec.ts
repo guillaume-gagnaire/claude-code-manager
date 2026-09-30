@@ -198,9 +198,10 @@ test('an agent stopped by the usage limit is to resume by itself once it resets,
   await send(page, 'jusqu’à la limite');
   await expect(page.getByText("Le tour s'est terminé en erreur")).toBeVisible();
   // The fake CLI's quota resets in an hour.
-  const resume = page.getByText(/^Reprise automatique à \d\d:\d\d$/);
+  // At 23:00 or later, the reset falls the next day: its day is told too.
+  const resume = page.getByText(/^Reprise automatique (le .+ )?à \d\d:\d\d$/);
   await expect(resume).toBeVisible();
-  await expect(page.locator('.card .status', { hasText: /^Reprise à \d\d:\d\d$/ })).toBeVisible();
+  await expect(page.locator('.card .status', { hasText: /^Reprise (le .+ )?à \d\d:\d\d$/ })).toBeVisible();
   await page.getByRole('button', { name: 'Annuler la reprise' }).click();
   await expect(resume).toBeHidden();
   await expect(page.locator('.card .status', { hasText: 'Reprise' })).toBeHidden();

@@ -184,6 +184,13 @@ describe('Conversation', () => {
     expect([...container.querySelectorAll('.bubble')].map((b) => b.textContent?.trim())).toEqual(['Enquête sur le bug']);
   });
 
+  it('keeps telling when a stopped agent resumes, even with a notice after its turn', async () => {
+    const end = { kind: 'turn', id: 'r1', ts: 1, durationMs: 1, cost: 0, tokens: 0, isError: true, interrupted: false, error: 'limit' };
+    const notice = { kind: 'notice', id: 'n1', ts: 2, level: 'info', text: 'Contexte compacté' };
+    setup({ status: 'error', resumeAt: Date.now() + 3_600_000 }, [end, notice]);
+    expect(await screen.findByText(/^Reprise automatique/)).toBeInTheDocument();
+  });
+
   it('ends a finished task with the files its last turn edited', async () => {
     const edit = (id: string, file: string, add: number) => ({
       kind: 'tool',

@@ -51,6 +51,11 @@
     const last = top.at(-1);
     return last?.kind === 'turn' ? (editsByTurn(conv.items, cwd).get(last.id) ?? []) : [];
   });
+  // The conversation's latest turn, which tells when an agent stopped by the usage limit resumes.
+  const latestTurn = $derived.by(() => {
+    for (let i = top.length - 1; i >= 0; i--) if (top[i].kind === 'turn') return top[i].id;
+    return null;
+  });
   // Subagents named after their tasks, for their messages.
   const labels = $derived(subagentLabels(conv.items));
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
@@ -265,7 +270,13 @@
         {:else if item.kind === 'permission'}
           <PermissionCard {item} agentId={agent.id} cwd={agent.cwd} pending={agent.pending.includes(item.id)} />
         {:else if item.kind === 'turn'}
-          <TurnCard {item} {agent} last={i === top.length - 1} edits={i === top.length - 1 ? lastEdits : []} />
+          <TurnCard
+            {item}
+            {agent}
+            last={i === top.length - 1}
+            latest={item.id === latestTurn}
+            edits={i === top.length - 1 ? lastEdits : []}
+          />
         {:else if item.kind === 'notice'}
           <Notice {item} />
         {/if}

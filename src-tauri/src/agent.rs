@@ -830,12 +830,17 @@ impl AgentRt {
     fn on_result(&mut self, f: &Value, fx: &mut Effects) {
         let interrupted = std::mem::take(&mut self.interrupted);
         let resets = self.limit_resets_at.take();
-        if std::mem::take(&mut self.rate_limited) {
-            fx.limited = Some(resets);
-        }
+        let limited = std::mem::take(&mut self.rate_limited);
         // The exact figures below replace the running estimate.
         self.live.clear();
         let is_error = f["is_error"].as_bool().unwrap_or(false) || f["subtype"] != "success";
+        if limited && is_error && !interrupted {
+            fx.limited = Some(resets);
+        } else if self.meta.resume_at.take().is_some() {
+            // It went on anyway (a turn Claude Code started by itself): nothing left to resume.
+            fx.save = true;
+            fx.agent_changed = true;
+        }
         let (mut tokens, mut cost) = (0u64, 0f64);
         if let Some(models) = f["modelUsage"].as_object() {
             // The conversation's latest model, else the one that read the most (subagents may use
@@ -1449,6 +1454,40 @@ mod tests {
             &mut next,
         );
         assert_eq!(next.limited, None);
+    }
+
+    #[test]
+    fn only_a_failed_turn_of_the_conversation_s_own_is_stopped_by_the_limit() {
+        let limit = |parent: Value| {
+            json!({"type":"assistant","error":"rate_limit","parent_tool_use_id":parent,
+                   "message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"You've hit your limit"}]}})
+        };
+        let end = |is_error: bool| json!({"type":"result","subtype":"success","is_error":is_error,"result":"x"});
+        // A subagent met it: the conversation's turn goes on.
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.handle_frame(&limit(json!("toolu_sub")), &mut fx);
+        let mut done = Effects::default();
+        a.handle_frame(&end(true), &mut done);
+        assert_eq!(done.limited, None);
+        // The turn succeeded all the same (a fallback model).
+        a.handle_frame(&limit(Value::Null), &mut fx);
+        let mut done = Effects::default();
+        a.handle_frame(&end(false), &mut done);
+        assert_eq!(done.limited, None);
+    }
+
+    #[test]
+    fn a_turn_that_goes_through_drops_an_old_planned_resume() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        a.meta.resume_at = Some(1_790_800_030_000);
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,"result":"ok"}),
+            &mut fx,
+        );
+        assert_eq!(a.meta.resume_at, None);
+        assert!(fx.save && fx.agent_changed);
     }
 
     #[test]

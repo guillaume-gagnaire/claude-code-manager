@@ -459,7 +459,27 @@ impl<R: Runtime> Core<R> {
     pub fn save_settings(&self, s: Settings) -> Result<()> {
         let bytes = serde_json::to_vec_pretty(&s)?;
         paths::write_atomic(&self.data.settings_file(), &bytes)?;
+        let auto_resume = s.auto_resume;
         *self.settings.write() = s;
+        if !auto_resume {
+            // Turned off: the resumes already planned go too.
+            let dropped: Vec<AgentView> = self
+                .agents
+                .read()
+                .values()
+                .filter_map(|h| {
+                    let mut rt = h.lock();
+                    rt.meta.resume_at.take()?;
+                    Some(rt.view())
+                })
+                .collect();
+            if !dropped.is_empty() {
+                for agent in dropped {
+                    self.hub.emit(UiEvent::Agent { agent });
+                }
+                self.request_save();
+            }
+        }
         Ok(())
     }
 
@@ -959,13 +979,16 @@ impl<R: Runtime> Core<R> {
         if !self.settings.read().auto_resume {
             return;
         }
-        let when = resets_at.or_else(|| {
+        // Only a reset still to come: past one, retrying would only meet the limit again.
+        let now = now_ms();
+        let when = resets_at.filter(|t| *t > now).or_else(|| {
             let u = self.usage.lock();
             [u.five_hour.as_ref(), u.seven_day.as_ref()]
                 .into_iter()
                 .flatten()
                 .filter(|w| w.pct >= 100.0)
                 .filter_map(|w| w.resets_at)
+                .filter(|t| *t > now)
                 .max()
         });
         if let Some(when) = when {
@@ -994,22 +1017,40 @@ impl<R: Runtime> Core<R> {
 
     /// Sends "continue" to the agents whose planned resume is due.
     pub async fn resume_due(self: &Arc<Self>) {
+        if !self.settings.read().auto_resume {
+            return;
+        }
         let now = now_ms();
-        let due: Vec<String> = self
+        // Taken under the agent's lock: a message or a cancel just before wins.
+        let due: Vec<(String, AgentView)> = self
             .agents
             .read()
             .values()
             .filter_map(|h| {
-                let rt = h.lock();
-                let due =
-                    rt.meta.resume_at.is_some_and(|t| t <= now) && !rt.meta.status.is_active();
-                due.then(|| rt.meta.id.clone())
+                let mut rt = h.lock();
+                let due = rt.meta.resume_at.is_some_and(|t| t <= now)
+                    && !rt.meta.status.is_active()
+                    && !rt.meta.archived;
+                if !due {
+                    return None;
+                }
+                rt.meta.resume_at = None;
+                Some((rt.meta.id.clone(), rt.view()))
             })
             .collect();
-        for id in due {
-            self.set_resume(&id, None);
+        for (id, view) in due {
+            self.hub.emit(UiEvent::Agent { agent: view });
+            self.request_save();
             if let Err(e) = self.send_message(&id, "continue".into(), vec![]).await {
                 log::warn!("agent {id}: resume after the usage limit failed: {e:#}");
+                let _ = self.with_agent(&id, |rt, fx| {
+                    rt.notice(
+                        "warn",
+                        format!("Reprise automatique impossible : {e:#}"),
+                        fx,
+                    );
+                    Ok(())
+                });
             }
         }
     }
@@ -1466,6 +1507,7 @@ impl<R: Runtime> Core<R> {
         self.with_agent(id, |rt, fx| {
             rt.meta.archived = archived;
             if archived {
+                rt.meta.resume_at = None;
                 if let Some(p) = rt.detach() {
                     p.close_input();
                 }

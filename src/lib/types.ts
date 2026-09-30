@@ -98,9 +98,9 @@ export interface Agent {
   /** The session on claude.ai. */
   remoteUrl: string | null;
   /** Link state reported by Claude Code ("ready", "connected"…), null without a live link. */
+  remoteState: string | null;
   /** Stopped by the usage limit: when it is sent "continue" by itself (epoch ms). */
   resumeAt: number | null;
-  remoteState: string | null;
 }
 
 export interface UiState {

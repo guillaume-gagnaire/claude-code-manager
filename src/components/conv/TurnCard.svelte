@@ -5,8 +5,15 @@
   import type { FileEdit } from '../../lib/tools';
   import type { Agent, TurnItem } from '../../lib/types';
 
-  // `edits`: the files this turn edited, recapped once the agent is done.
-  let { item, agent, last, edits = [] }: { item: TurnItem; agent: Agent; last: boolean; edits?: FileEdit[] } = $props();
+  // `edits`: the files this turn edited, recapped once the agent is done. `latest`: the conversation's
+  // latest turn (notices may follow it).
+  let {
+    item,
+    agent,
+    last,
+    latest = last,
+    edits = [],
+  }: { item: TurnItem; agent: Agent; last: boolean; latest?: boolean; edits?: FileEdit[] } = $props();
 
   const big = $derived(last && agent.status === 'done' && !item.isError && !item.interrupted);
 </script>
@@ -15,7 +22,7 @@
   <div class="card error">
     <div class="title"><span class="dot" style="width:8px;height:8px;background:var(--del)"></span>Le tour s'est terminé en erreur</div>
     {#if item.error}<pre class="err">{item.error}</pre>{/if}
-    {#if last && agent.resumeAt}
+    {#if latest && agent.resumeAt}
       <div class="resume">
         <span>Reprise automatique {fWhen(agent.resumeAt, app.now)}</span>
         <button class="btn small" onclick={() => app.run(api.cancelResume(agent.id))}>Annuler la reprise</button>

@@ -480,8 +480,8 @@ async fn an_agent_stopped_by_the_usage_limit_is_sent_continue_once_it_resets() {
     assert!(at > now_ms() + 3_600_000, "with a margin after the reset");
     h.core.resume_due().await;
     assert!(h.agent(&id).resume_at.is_some());
-    // The reset has passed.
-    h.core.plan_resume(&id, Some(now_ms() - 60_000));
+    // The planned time has come.
+    h.core.agent(&id).unwrap().lock().meta.resume_at = Some(now_ms() - 1_000);
     h.core.resume_due().await;
     h.wait("continue sent", |h| {
         h.items(&id)
@@ -490,6 +490,60 @@ async fn an_agent_stopped_by_the_usage_limit_is_sent_continue_once_it_resets() {
     })
     .await;
     assert_eq!(h.agent(&id).resume_at, None);
+}
+
+#[tokio::test]
+async fn nothing_is_planned_without_a_reset_still_to_come() {
+    let h = harness("auto-resume-none");
+    let (p, _) = h.project(false).await;
+    let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    // No reset told, no full window: a passing rate limit of the server's.
+    h.core.plan_resume(&id, None);
+    assert_eq!(h.agent(&id).resume_at, None);
+    // A reset already passed (an old reading): retrying would only meet the limit again.
+    h.core.plan_resume(&id, Some(now_ms() - 60_000));
+    assert_eq!(h.agent(&id).resume_at, None);
+    h.core.usage.lock().five_hour = Some(RateWindow {
+        pct: 100.0,
+        resets_at: Some(now_ms() - 60_000),
+    });
+    h.core.plan_resume(&id, None);
+    assert_eq!(h.agent(&id).resume_at, None);
+}
+
+#[tokio::test]
+async fn a_planned_resume_skips_archived_or_busy_agents_and_stops_when_turned_off() {
+    let h = harness("auto-resume-skip");
+    let (p, _) = h.project(false).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    let b = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+    let due = || Some(now_ms() - 1_000);
+    // Archived: its planned resume goes with it.
+    h.core.plan_resume(&a, Some(now_ms() + 3_600_000));
+    h.core.archive_agent(&a, true).await.unwrap();
+    assert_eq!(h.agent(&a).resume_at, None);
+    h.core.agent(&a).unwrap().lock().meta.resume_at = due();
+    // Busy: its turn goes on.
+    {
+        let hb = h.core.agent(&b).unwrap();
+        let mut rt = hb.lock();
+        rt.meta.status = AgentStatus::Running;
+        rt.meta.resume_at = due();
+    }
+    h.core.resume_due().await;
+    assert!(h.agent(&a).resume_at.is_some() && h.agent(&b).resume_at.is_some());
+    assert!(!h.items(&a).iter().any(|i| i["text"] == "continue"));
+    // Turned off: planned resumes are dropped, and none is sent.
+    h.core.agent(&b).unwrap().lock().meta.status = AgentStatus::Error;
+    let off = Settings {
+        auto_resume: false,
+        ..h.core.settings.read().clone()
+    };
+    h.core.save_settings(off).unwrap();
+    assert_eq!(h.agent(&b).resume_at, None);
+    h.core.agent(&b).unwrap().lock().meta.resume_at = due();
+    h.core.resume_due().await;
+    assert!(h.agent(&b).resume_at.is_some());
 }
 
 #[tokio::test]
