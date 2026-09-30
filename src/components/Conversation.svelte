@@ -5,7 +5,7 @@
   import { fDur, fInt, fTok } from '../lib/format';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
-  import { injectedSource, parseAgentMessage, subagentLabel } from '../lib/events';
+  import { injectedSource, parseAgentMessage, subagentLabels } from '../lib/events';
   import { editsByTurn } from '../lib/tools';
   import { app } from '../lib/state.svelte';
   import type { Agent, ConvItem, Project } from '../lib/types';
@@ -51,6 +51,8 @@
     const last = top.at(-1);
     return last?.kind === 'turn' ? (editsByTurn(conv.items, cwd).get(last.id) ?? []) : [];
   });
+  // Subagents named after their tasks, for their messages.
+  const labels = $derived(subagentLabels(conv.items));
   const branch = $derived(agent.worktree?.branch ?? app.git[project.id]?.branch ?? '');
   const files = $derived(app.git[project.id]?.agents[agent.id] ?? 0);
   const used = $derived(spent(agent));
@@ -239,12 +241,12 @@
         {#if item.kind === 'user'}
           {@const injected = injectedSource(item)}
           {#if injected}
-            <EventMessage source={injected} text={item.text} label={subagentLabel(conv.items, parseAgentMessage(item.text).from)} />
+            <EventMessage source={injected} text={item.text} label={labels.get(parseAgentMessage(item.text).from ?? '')} />
           {:else}
             <UserMessage {item} />
           {/if}
         {:else if item.kind === 'event'}
-          <EventMessage source={item.source} text={item.text} label={subagentLabel(conv.items, item.from ?? null)} />
+          <EventMessage source={item.source} text={item.text} label={labels.get(item.from ?? '')} />
         {:else if item.kind === 'text'}
           {#if item.text.trim() || item.streaming}
             <div class="assistant">

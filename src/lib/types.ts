@@ -302,7 +302,8 @@ export interface NoticeItem extends Base {
 /** Passed on to Claude by Claude Code itself: a background task that ended, a subagent's message. */
 export interface EventItem extends Base {
   kind: 'event';
-  source: 'task' | 'agent';
+  /** 'task' (a background task), 'agent' (a subagent or another session), else the origin Claude Code gave. */
+  source: string;
   /** The subagent that sent it. */
   from?: string;
   text: string;

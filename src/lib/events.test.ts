@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { injectedSource, parseAgentMessage, parseTaskNotification, subagentLabel } from './events';
+import { injectedSource, parseAgentMessage, parseTaskNotification, subagentLabels } from './events';
 import type { ConvItem } from './types';
 
 const NOTIFICATION = `<task-notification>
@@ -41,6 +41,7 @@ describe('parseAgentMessage', () => {
   it('keeps the report alone, without the frame around it nor its indent', () => {
     expect(parseAgentMessage(REPORT)).toEqual({
       from: 'a896620c226a4a3c5',
+      handback: true,
       report: '**Root cause: PDFs never leave the composer.**\n\n- `Composer.svelte:409` uses `accept="image/*"`.\n  - nested detail',
     });
   });
@@ -48,6 +49,7 @@ describe('parseAgentMessage', () => {
   it('shows the whole message when it is not a hand-back', () => {
     expect(parseAgentMessage('Another Claude session sent a message:\n<agent-message from="b2">\nsalut\n</agent-message>')).toEqual({
       from: 'b2',
+      handback: false,
       report: 'salut',
     });
   });
@@ -65,21 +67,35 @@ describe('injectedSource', () => {
   });
 });
 
-describe('subagentLabel', () => {
-  it('names a subagent after the task it was given', () => {
-    const items: ConvItem[] = [
-      {
-        kind: 'tool',
-        id: 'toolu_01Fs',
-        name: 'Agent',
-        input: { description: 'Investigate PDF upload bug' },
-        status: 'ok',
-        ts: 1,
-        result: { isError: false, text: 'Async agent launched successfully.\nagentId: a896620c226a4a3c5 (internal ID)' },
-      },
-    ];
-    expect(subagentLabel(items, 'a896620c226a4a3c5')).toBe('Investigate PDF upload bug');
-    expect(subagentLabel(items, 'unknown')).toBeNull();
-    expect(subagentLabel(items, null)).toBeNull();
+describe('subagentLabels', () => {
+  const agent = (id: string, description: string, agentId: string): ConvItem => ({
+    kind: 'tool',
+    id,
+    name: 'Agent',
+    input: { description },
+    status: 'ok',
+    ts: 1,
+    result: { isError: false, text: `Async agent launched successfully.\nagentId: ${agentId} (internal ID)` },
+  });
+
+  it('names each subagent after the task it was given', () => {
+    const labels = subagentLabels([agent('t1', 'Investigate PDF upload bug', 'a896620c226a4a3c5'), agent('t2', 'Dixième', 'fakeagent10')]);
+    expect(labels.get('a896620c226a4a3c5')).toBe('Investigate PDF upload bug');
+    // An id is not the start of a longer one.
+    expect(labels.get('fakeagent1')).toBeUndefined();
+    expect(labels.get('fakeagent10')).toBe('Dixième');
+  });
+});
+
+describe('parseAgentMessage, the report quoting the frame', () => {
+  it('keeps what follows a quoted closing tag, and tells a hand-back from a message', () => {
+    const quoting =
+      '<agent-message from="a1">\n[Subagent hand-back] The report follows:\n  Found it: events.ts closes on `</agent-message>` too early.\n  Fixed.\n</agent-message>';
+    expect(parseAgentMessage(quoting)).toEqual({
+      from: 'a1',
+      handback: true,
+      report: 'Found it: events.ts closes on `</agent-message>` too early.\nFixed.',
+    });
+    expect(parseAgentMessage('<agent-message from="b2">\nsalut\n</agent-message>').handback).toBe(false);
   });
 });

@@ -71,6 +71,8 @@ pub struct AgentRt {
     pub active_since: Option<i64>,
     pub context_tokens: u64,
     pub context_window: u64,
+    /// Model of the conversation's latest message (it may be switched mid-process).
+    main_model: String,
     pub commands: Vec<Value>,
     pub interrupted: bool,
     pub saw_init: bool,
@@ -106,6 +108,7 @@ impl AgentRt {
             active_since: None,
             context_tokens: 0,
             context_window: 0,
+            main_model: String::new(),
             commands: Vec::new(),
             interrupted: false,
             saw_init: false,
@@ -464,6 +467,9 @@ impl AgentRt {
                 );
                 fx.agent_changed = true;
                 if parent.is_none() {
+                    if let Some(m) = ev["message"]["model"].as_str() {
+                        self.main_model = m.to_string();
+                    }
                     let u = &ev["message"]["usage"];
                     self.context_tokens = [
                         &u["input_tokens"],
@@ -648,13 +654,20 @@ impl AgentRt {
                 .collect::<Vec<_>>()
                 .join("\n"),
         };
-        // Passed on to Claude by Claude Code itself: an event, not a message from the user.
-        let source = match f["origin"]["kind"].as_str() {
-            Some("task-notification") => Some("task"),
-            Some("peer") => Some("agent"),
-            _ => None,
-        };
-        if let Some(source) = source {
+        // Only a human's message is the user's (no origin, or "human", as Claude Code tells). The
+        // rest Claude Code passes on to Claude by itself (a subagent's report, a background task
+        // that ended, an MCP channel, a meta message): an event.
+        let kind = f["origin"]["kind"].as_str();
+        if kind.is_some_and(|k| k != "human") || f["isSynthetic"] == true {
+            if text.trim().is_empty() {
+                return;
+            }
+            let source = match kind {
+                Some("task-notification") => "task",
+                Some("peer") => "agent",
+                Some(k) => k,
+                None => "synthetic",
+            };
             let mut item = json!({ "kind": "event", "id": id, "source": source, "text": text, "ts": now_ms() });
             if let Some(from) = f["origin"]["from"].as_str() {
                 item["from"] = from.into();
@@ -750,16 +763,26 @@ impl AgentRt {
         let is_error = f["is_error"].as_bool().unwrap_or(false) || f["subtype"] != "success";
         let (mut tokens, mut cost) = (0u64, 0f64);
         if let Some(models) = f["modelUsage"].as_object() {
-            // The conversation's model is the one that read the most (subagents may use others).
-            let main = models.values().max_by_key(|u| {
-                [
-                    "inputTokens",
-                    "cacheReadInputTokens",
-                    "cacheCreationInputTokens",
-                ]
+            // The conversation's latest model, else the one that read the most (subagents may use
+            // others; the figures are cumulative, so an earlier model may still read more).
+            let m = &self.main_model;
+            let current = models
                 .iter()
-                .filter_map(|k| u[*k].as_u64())
-                .sum::<u64>()
+                .find(|(k, _)| {
+                    !m.is_empty() && (k.starts_with(m.as_str()) || m.starts_with(k.as_str()))
+                })
+                .map(|(_, u)| u);
+            let main = current.or_else(|| {
+                models.values().max_by_key(|u| {
+                    [
+                        "inputTokens",
+                        "cacheReadInputTokens",
+                        "cacheCreationInputTokens",
+                    ]
+                    .iter()
+                    .filter_map(|k| u[*k].as_u64())
+                    .sum::<u64>()
+                })
             });
             if let Some(window) = main.and_then(|u| u["contextWindow"].as_u64()) {
                 self.context_window = window;
@@ -1322,6 +1345,92 @@ mod tests {
             &mut fx,
         );
         assert_eq!(a.conv.items().len(), 2);
+    }
+
+    #[test]
+    fn only_a_human_s_message_is_the_user_s() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        let replay = |uuid: &str, content: &str, extra: Value| {
+            let mut f = json!({"type":"user","message":{"role":"user","content":content},"parent_tool_use_id":null,
+                               "uuid":uuid,"isReplay":true});
+            f.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            f
+        };
+        for f in [
+            // From claude.ai (Remote Control), or with no origin at all: the user's.
+            replay(
+                "h1",
+                "depuis le téléphone",
+                json!({"origin":{"kind":"human"}}),
+            ),
+            replay("n1", "sans origine", json!({})),
+            // Queued by Claude Code itself: an MCP channel, a meta message…
+            replay(
+                "c1",
+                "alerte du canal",
+                json!({"origin":{"kind":"channel","server":"slack"}}),
+            ),
+            replay("s1", "continue", json!({"isSynthetic":true})),
+            // …and nothing to show.
+            replay("e1", "  ", json!({"origin":{"kind":"peer"}})),
+        ] {
+            a.handle_frame(&f, &mut fx);
+        }
+        let kinds: Vec<(String, String, String)> = a
+            .conv
+            .items()
+            .iter()
+            .map(|i| {
+                let s = |k: &str| i[k].as_str().unwrap_or_default().to_string();
+                (
+                    s("id"),
+                    s("kind"),
+                    format!("{}{}", s("source"), s("origin")),
+                )
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("h1".into(), "user".into(), "remote".into()),
+                ("n1".into(), "user".into(), "remote".into()),
+                ("c1".into(), "event".into(), "channel".into()),
+                ("s1".into(), "event".into(), "synthetic".into()),
+            ]
+        );
+        assert_eq!(a.meta.prompts, 2);
+    }
+
+    #[test]
+    fn the_context_window_follows_a_switch_of_model() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        let start = |a: &mut AgentRt, id: &str, model: &str, fx: &mut Effects| {
+            a.handle_frame(
+                &json!({"type":"stream_event","parent_tool_use_id":null,
+                        "event":{"type":"message_start","message":{"id":id,"model":model,"usage":{"input_tokens":10}}}}),
+                fx,
+            );
+        };
+        let usage = |read: u64, window: u64| json!({"inputTokens":10,"outputTokens":10,"cacheReadInputTokens":read,"cacheCreationInputTokens":0,"costUSD":0.1,"contextWindow":window});
+        start(&mut a, "m1", "claude-sonnet-5", &mut fx);
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,
+                    "modelUsage":{"claude-sonnet-5":usage(900_000, 200_000)}}),
+            &mut fx,
+        );
+        assert_eq!(a.view().context_window, 200_000);
+        // Switched to Opus mid-process: Sonnet's figures, cumulative, still read the most.
+        start(&mut a, "m2", "claude-opus-5-5", &mut fx);
+        a.handle_frame(
+            &json!({"type":"result","subtype":"success","is_error":false,
+                    "modelUsage":{"claude-sonnet-5":usage(900_000, 200_000),"claude-opus-5-5":usage(50_000, 1_000_000)}}),
+            &mut fx,
+        );
+        assert_eq!(a.view().context_window, 1_000_000);
     }
 
     #[test]

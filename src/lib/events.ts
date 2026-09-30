@@ -1,5 +1,5 @@
 // What Claude Code passes on to Claude by itself: a background task that ended, a subagent's
-// message. Shown as such, not as messages from the user.
+// message, an MCP channel's… Shown as such, not as messages from the user.
 
 import type { ConvItem, UserItem } from './types';
 
@@ -11,15 +11,35 @@ export function parseTaskNotification(text: string) {
   return { status: tag(text, 'status'), summary: tag(text, 'summary'), toolUseId: tag(text, 'tool-use-id') };
 }
 
-/** The report of a subagent, without the frame Claude Code wraps it in nor its indent. */
-export function parseAgentMessage(text: string): { from: string | null; report: string } {
+/** A notification's words, without its tags. */
+export function plainText(text: string): string {
+  return text
+    .replace(/<\/?[a-z][\w-]*[^>]*>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * The message of a subagent (a hand-back: its report) or of another session, without the frame
+ * Claude Code wraps it in nor its indent.
+ */
+export function parseAgentMessage(text: string): { from: string | null; handback: boolean; report: string } {
   const from = text.match(/<agent-message from="([^"]+)"/)?.[1] ?? null;
-  const body = text.match(/<agent-message[^>]*>([\s\S]*?)(?:<\/agent-message>|$)/)?.[1] ?? text;
+  const open = text.match(/<agent-message[^>]*>/);
+  let body = text;
+  if (open?.index !== undefined) {
+    // The last closing tag: a report may quote the tag itself.
+    const close = text.lastIndexOf('</agent-message>');
+    const start = open.index + open[0].length;
+    body = text.slice(start, close > start ? close : undefined);
+  }
+  const handback = body.includes('[Subagent hand-back]');
   const follows = body.indexOf('The report follows:');
-  if (follows < 0) return { from, report: body.trim() };
+  if (follows < 0) return { from, handback, report: body.trim() };
   const lines = body.slice(follows + 'The report follows:'.length).split('\n');
   return {
     from,
+    handback,
     report: lines
       .map((l) => l.replace(/^ {2}/, ''))
       .join('\n')
@@ -36,12 +56,14 @@ export function injectedSource(item: UserItem): 'task' | 'agent' | null {
   return null;
 }
 
-/** The task a subagent was given (its Agent tool call answered with its id). */
-export function subagentLabel(items: ConvItem[], from: string | null): string | null {
-  if (!from) return null;
-  const call = items.find(
-    (i) => i.kind === 'tool' && (i.name === 'Agent' || i.name === 'Task') && i.result?.text?.includes(`agentId: ${from}`),
-  );
-  const description = call?.kind === 'tool' ? call.input?.description : null;
-  return typeof description === 'string' && description ? description : null;
+/** Each subagent's task, by its id (given by the Agent tool call that launched it). */
+export function subagentLabels(items: ConvItem[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const i of items) {
+    if (i.kind !== 'tool' || (i.name !== 'Agent' && i.name !== 'Task')) continue;
+    const id = i.result?.text?.match(/agentId: ([\w-]+)/)?.[1];
+    const description = i.input?.description;
+    if (id && typeof description === 'string' && description) labels.set(id, description);
+  }
+  return labels;
 }

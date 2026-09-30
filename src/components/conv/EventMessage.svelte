@@ -1,28 +1,38 @@
 <script lang="ts">
-  import { parseAgentMessage, parseTaskNotification } from '../../lib/events';
+  import { parseAgentMessage, parseTaskNotification, plainText } from '../../lib/events';
   import Markdown from './Markdown.svelte';
 
-  // What Claude Code passed on to Claude by itself. `label`: the task a subagent was given.
-  let { source, text, label = null }: { source: 'task' | 'agent'; text: string; label?: string | null } = $props();
+  // What Claude Code passed on to Claude by itself: `source` "task" (a background task), "agent"
+  // (a subagent or another session), or another origin. `label`: the task a subagent was given.
+  let { source, text, label = null }: { source: string; text: string; label?: string | null } = $props();
 
   const STATUS: Record<string, string> = { completed: 'terminée', failed: 'en échec', killed: 'arrêtée', stopped: 'arrêtée' };
 
   const task = $derived(source === 'task' ? parseTaskNotification(text) : null);
-  const report = $derived(source === 'agent' ? parseAgentMessage(text).report : '');
+  const message = $derived(source === 'agent' ? parseAgentMessage(text) : null);
+  const line = $derived.by(() => {
+    if (task?.status) return { what: `Tâche de fond ${STATUS[task.status] ?? task.status}`, detail: task.summary };
+    // A notification that does not say a task ended (a scheduled trigger, a check-in…).
+    if (task) return { what: 'Notification', detail: task.summary ?? plainText(text) };
+    return { what: `Message de Claude Code (${source})`, detail: plainText(text) };
+  });
+  const title = $derived.by(() => {
+    if (!message) return '';
+    if (message.handback) return label ? `Rapport du sous-agent « ${label} »` : 'Rapport d’un sous-agent';
+    return label ? `Message de « ${label} »` : 'Message d’une autre session Claude';
+  });
 </script>
 
-{#if task}
-  <div class="event task" class:failed={task.status === 'failed'}>
-    <span class="ico" aria-hidden="true">◷</span>
-    <span class="what">Tâche de fond {STATUS[task.status ?? ''] ?? task.status ?? 'terminée'}</span>
-    {#if task.summary}<span class="sum">{task.summary}</span>{/if}
+{#if message}
+  <div class="event agent">
+    <div class="head"><span class="ico" aria-hidden="true">↩</span>{title}</div>
+    <Markdown text={message.report} />
   </div>
 {:else}
-  <div class="event agent">
-    <div class="head">
-      <span class="ico" aria-hidden="true">↩</span>{label ? `Rapport du sous-agent « ${label} »` : 'Message d’un sous-agent'}
-    </div>
-    <Markdown text={report} />
+  <div class="event line" class:failed={task?.status === 'failed'}>
+    <span class="ico" aria-hidden="true">◷</span>
+    <span class="what">{line.what}</span>
+    {#if line.detail}<span class="detail" title={line.detail}>{line.detail}</span>{/if}
   </div>
 {/if}
 
@@ -30,7 +40,7 @@
   .event {
     margin-left: 34px;
   }
-  .task {
+  .line {
     display: flex;
     align-items: baseline;
     gap: 8px;
@@ -39,14 +49,14 @@
     color: var(--dim);
     min-width: 0;
   }
-  .task .what {
+  .line .what {
     flex: none;
     color: var(--muted);
   }
-  .task.failed .what {
+  .line.failed .what {
     color: var(--del);
   }
-  .sum {
+  .detail {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
