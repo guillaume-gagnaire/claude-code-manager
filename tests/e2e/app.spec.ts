@@ -178,6 +178,20 @@ test('a subagent’s report and a background task are shown as such, not as the 
   await expect(page.locator('header.head .m', { hasText: 'Contexte' })).toContainText('/ 200 k');
 });
 
+test('a background task that ends while the agent waits is shown before what Claude says of it', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await send(page, 'lance la tâche de fond');
+  await expect(page.getByText('Lancé en arrière-plan.')).toBeVisible();
+  await expect(page.getByText('Les tests sont passés.')).toBeVisible();
+  const done = page.getByText('Tâche de fond terminée');
+  await expect(done).toHaveCount(1);
+  // In the conversation's order: the end of the task, then Claude's answer to it.
+  const order = await page.locator('.msgs').innerText();
+  expect(order.indexOf('Tâche de fond terminée')).toBeGreaterThan(order.indexOf('Lancé en arrière-plan.'));
+  expect(order.indexOf('Tâche de fond terminée')).toBeLessThan(order.indexOf('Les tests sont passés.'));
+});
+
 test('edits by Claude are attributed to the agent', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

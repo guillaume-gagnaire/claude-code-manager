@@ -8,7 +8,7 @@ use crate::paths::relative_slash;
 use crate::pricing::{self, Usage};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub type AgentHandle = Arc<parking_lot::Mutex<AgentRt>>;
@@ -73,6 +73,10 @@ pub struct AgentRt {
     pub context_window: u64,
     /// Model of the conversation's latest message (it may be switched mid-process).
     main_model: String,
+    /// Tasks run in the foreground: their tool rows show them end.
+    foreground_tasks: HashSet<String>,
+    /// Background tasks whose end was shown, until Claude Code also replays it to Claude.
+    announced_tasks: HashMap<String, u32>,
     pub commands: Vec<Value>,
     pub interrupted: bool,
     pub saw_init: bool,
@@ -109,6 +113,8 @@ impl AgentRt {
             context_tokens: 0,
             context_window: 0,
             main_model: String::new(),
+            foreground_tasks: HashSet::new(),
+            announced_tasks: HashMap::new(),
             commands: Vec::new(),
             interrupted: false,
             saw_init: false,
@@ -162,6 +168,8 @@ impl AgentRt {
         self.remote_linked = false;
         self.saw_init = false;
         self.queued = 0;
+        self.foreground_tasks.clear();
+        self.announced_tasks.clear();
     }
 
     fn push(&mut self, op: ConvOp, fx: &mut Effects) {
@@ -432,6 +440,39 @@ impl AgentRt {
                 }
             }
             "compact_boundary" => self.notice("info", "Contexte compacté", fx),
+            "task_started" => {
+                if let (Some(id), false) = (f["task_id"].as_str(), f["is_backgrounded"] == true) {
+                    self.foreground_tasks.insert(id.to_string());
+                }
+            }
+            // A task ended. Idle, Claude Code only tells this before starting a turn by itself;
+            // mid-turn, it also replays the notification to Claude (not shown again).
+            "task_notification" => {
+                let Some(id) = f["task_id"].as_str() else {
+                    return;
+                };
+                if self.foreground_tasks.remove(id) {
+                    return;
+                }
+                let field = |k: &str| f[k].as_str().unwrap_or_default();
+                // Written as Claude Code writes it for Claude, read the same way.
+                let text = format!(
+                    "<task-notification>\n<task-id>{id}</task-id>\n<tool-use-id>{}</tool-use-id>\n<status>{}</status>\n<summary>{}</summary>\n</task-notification>",
+                    field("tool_use_id"),
+                    field("status"),
+                    field("summary")
+                );
+                let item_id = f["uuid"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(new_id);
+                self.append(
+                    json!({ "kind": "event", "id": item_id, "source": "task", "text": text, "ts": now_ms() }),
+                    fx,
+                );
+                *self.announced_tasks.entry(id.to_string()).or_default() += 1;
+                fx.save = true;
+            }
             "bridge_state" => {
                 self.remote_state = f["state"].as_str().map(str::to_string);
                 fx.agent_changed = true;
@@ -661,6 +702,18 @@ impl AgentRt {
         if kind.is_some_and(|k| k != "human") || f["isSynthetic"] == true {
             if text.trim().is_empty() {
                 return;
+            }
+            if kind == Some("task-notification") {
+                let task = text
+                    .split_once("<task-id>")
+                    .and_then(|(_, rest)| rest.split_once("</task-id>"))
+                    .map(|(id, _)| id.trim().to_string());
+                if let Some(n) = task.and_then(|t| self.announced_tasks.get_mut(&t)) {
+                    if *n > 0 {
+                        *n -= 1;
+                        return;
+                    }
+                }
             }
             let source = match kind {
                 Some("task-notification") => "task",
@@ -1345,6 +1398,56 @@ mod tests {
             &mut fx,
         );
         assert_eq!(a.conv.items().len(), 2);
+    }
+
+    #[test]
+    fn a_background_task_that_ends_while_the_agent_waits_is_shown_once() {
+        let mut a = rt();
+        let mut fx = Effects::default();
+        let system = |a: &mut AgentRt, f: Value, fx: &mut Effects| a.handle_frame(&f, fx);
+        system(
+            &mut a,
+            json!({"type":"system","subtype":"task_started","task_id":"bg1","tool_use_id":"t1","description":"npm test","is_backgrounded":true}),
+            &mut fx,
+        );
+        system(
+            &mut a,
+            json!({"type":"system","subtype":"task_started","task_id":"fg1","tool_use_id":"t2","description":"ls","is_backgrounded":false}),
+            &mut fx,
+        );
+        // A command in the foreground: its tool row already shows it ended.
+        system(
+            &mut a,
+            json!({"type":"system","subtype":"task_notification","task_id":"fg1","tool_use_id":"t2","status":"completed","summary":"ls","uuid":"s0"}),
+            &mut fx,
+        );
+        // Idle, Claude Code only tells this (then starts a turn without a user message).
+        system(
+            &mut a,
+            json!({"type":"system","subtype":"task_notification","task_id":"bg1","tool_use_id":"t1","status":"completed",
+                    "summary":"Background command \"npm test\" completed (exit code 0)","uuid":"s1"}),
+            &mut fx,
+        );
+        let events = a.conv.ids_where(|v| v["kind"] == "event");
+        assert_eq!(events, vec!["s1".to_string()]);
+        let text = a.conv.get("s1").unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(text.contains("<status>completed</status>"), "{text}");
+        assert!(
+            text.contains(
+                "<summary>Background command \"npm test\" completed (exit code 0)</summary>"
+            ),
+            "{text}"
+        );
+        // Mid-turn, the same notification is also replayed to Claude: not shown twice.
+        a.handle_frame(
+            &json!({"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>\n</task-notification>"},
+                    "uuid":"r1","isReplay":true,"origin":{"kind":"task-notification"}}),
+            &mut fx,
+        );
+        assert_eq!(a.conv.ids_where(|v| v["kind"] == "event").len(), 1);
     }
 
     #[test]

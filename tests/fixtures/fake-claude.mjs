@@ -109,6 +109,38 @@ function startSession() {
       result();
       return;
     }
+    if (text.includes('tâche de fond')) {
+      // A command left running in the background: it ends once the turn is over, and Claude Code
+      // only tells it with a system frame before starting a turn by itself.
+      const tuid = `toolu_b${msg}`;
+      out({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'fakebg1',
+        tool_use_id: tuid,
+        description: 'npm test',
+        is_backgrounded: true,
+      });
+      assistant({ type: 'tool_use', id: tuid, name: 'Bash', input: { command: 'npm test', run_in_background: true } });
+      toolResult(tuid, 'Command running in background with ID: fakebg1.');
+      streamText('Lancé en arrière-plan.');
+      result();
+      setTimeout(() => {
+        out({
+          type: 'system',
+          subtype: 'task_notification',
+          task_id: 'fakebg1',
+          tool_use_id: tuid,
+          status: 'completed',
+          summary: 'Background command "npm test" completed (exit code 0)',
+          uuid: `bgdone-${msg}`,
+          session_id: sessionId,
+        });
+        streamText('Les tests sont passés.');
+        result();
+      }, 400);
+      return;
+    }
     if (text.includes('sous-agent')) {
       // A background subagent: launched, then its report and the end of its task are passed on
       // to Claude by Claude Code itself (replayed with their origin), as mid-turn.
