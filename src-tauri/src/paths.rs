@@ -197,15 +197,37 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Path relative to `base`, with forward slashes. Falls back to the input when unrelated.
+/// Symbolic links are seen through (on macOS, a folder under /var is reported under
+/// /private/var by the tools that resolve it).
 pub fn relative_slash(base: &str, path: &str) -> String {
-    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
+    if let Some(rel) = strip_base(base, path) {
+        return rel;
+    }
+    let real = |s: &str| {
+        std::fs::canonicalize(s)
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    };
+    if let Some(b) = real(base) {
+        let p = real(path).unwrap_or_else(|| path.to_string());
+        if let Some(rel) = strip_base(&b, &p).or_else(|| strip_base(&b, path)) {
+            return rel;
+        }
+    }
+    path.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+fn strip_base(base: &str, path: &str) -> Option<String> {
+    let norm = |s: &str| {
+        s.trim_start_matches(r"\\?\")
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_string()
+    };
     let (b, p) = (norm(base), norm(path));
     let (bl, pl) = (b.to_lowercase(), p.to_lowercase());
-    if pl.starts_with(&(bl.clone() + "/")) {
-        p[b.len() + 1..].to_string()
-    } else {
-        p
-    }
+    pl.starts_with(&(bl + "/"))
+        .then(|| p[b.len() + 1..].to_string())
 }
 
 #[cfg(test)]
@@ -213,7 +235,12 @@ pub fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ccm-test-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    dir
+    // The real path (macOS: /private/var, not /var), as the processes started in it report it.
+    if cfg!(windows) {
+        dir
+    } else {
+        dir.canonicalize().unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -231,6 +258,30 @@ mod tests {
             "README.md"
         );
         assert_eq!(relative_slash("C:/code/app", "D:/other/x"), "D:/other/x");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_paths_see_through_symbolic_links() {
+        let real = test_dir("relative-real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src").join("a.ts"), "").unwrap();
+        let link = real.with_file_name(format!(
+            "{}-link",
+            real.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let file = real.join("src").join("a.ts");
+        assert_eq!(
+            relative_slash(&link.to_string_lossy(), &file.to_string_lossy()),
+            "src/a.ts"
+        );
+        let new = real.join("src").join("new.ts");
+        assert_eq!(
+            relative_slash(&link.to_string_lossy(), &new.to_string_lossy()),
+            "src/new.ts"
+        );
     }
 
     #[test]
