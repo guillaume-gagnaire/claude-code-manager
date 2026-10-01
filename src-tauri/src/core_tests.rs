@@ -1,5 +1,6 @@
 //! Integration tests of the application core: real git repositories, the fake `claude` CLI
-//! (tests/fixtures/fake-claude.cmd) and Tauri's mock runtime.
+//! (tests/fixtures/fake-claude.cmd, or the `fake-claude` shell script outside Windows) and Tauri's
+//! mock runtime.
 
 use crate::core::{Attachment, Core, SyncOp};
 use crate::model::*;
@@ -24,7 +25,11 @@ fn fake_cli() -> String {
         .join("..")
         .join("tests")
         .join("fixtures")
-        .join("fake-claude.cmd")
+        .join(if cfg!(windows) {
+            "fake-claude.cmd"
+        } else {
+            "fake-claude"
+        })
         .to_string_lossy()
         .to_string()
 }
@@ -432,12 +437,24 @@ async fn killing_an_agent_kills_its_whole_process_tree() {
     panic!("grandchild {pid} survived the agent");
 }
 
+#[cfg(windows)]
 fn process_exists(pid: u32) -> bool {
     let out = Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
         .unwrap();
     String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
+}
+
+/// Running (a zombie waiting for its parent to reap it is not).
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    let out = Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let stat = String::from_utf8_lossy(&out.stdout);
+    out.status.success() && !stat.trim().is_empty() && !stat.trim().starts_with('Z')
 }
 
 #[tokio::test]
@@ -592,7 +609,7 @@ async fn the_running_claude_processes_are_counted_with_their_memory() {
     let (p, _) = h.project(false).await;
     let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
     h.wait("warm-up", |h| h.alive(&id)).await;
-    // The fake CLI: cmd.exe, then the node it starts.
+    // The fake CLI: cmd.exe (Windows) or sh, then the node it starts.
     h.wait("node in the job", |h| {
         h.core.sample_resources().memory > 10 * 1024 * 1024
     })
@@ -762,7 +779,9 @@ async fn a_file_is_discarded_and_located_in_the_checkout_that_holds_it() {
     );
     // git spells the repository's path its own way (long names, forward slashes).
     let same = |a: PathBuf, b: PathBuf| {
-        assert!(!a.to_string_lossy().contains('/'), "{}", a.display());
+        if cfg!(windows) {
+            assert!(!a.to_string_lossy().contains('/'), "{}", a.display());
+        }
         assert_eq!(a.canonicalize().unwrap(), b.canonicalize().unwrap());
     };
     let located = h.core.file_path(&p.id, id.clone(), "src/app.ts").await;

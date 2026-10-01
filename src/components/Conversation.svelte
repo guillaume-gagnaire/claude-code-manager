@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel } from '../lib/platform';
   import { onMount } from 'svelte';
   import { api } from '../lib/ipc';
   import { conversationOf } from '../lib/conversations.svelte';
@@ -178,7 +179,7 @@
       {/if}
       <div class="m opt"><span class="k">Durée</span><span class="v mono">{duration}</span></div>
     </div>
-    <div class="segmented layout" role="group" aria-label="Disposition (Ctrl+Maj+L)">
+    <div class="segmented layout" role="group" aria-label={`Disposition (${keyLabel('Ctrl+Maj+L')})`}>
       <button
         class:on={!app.split}
         aria-pressed={!app.split}

@@ -55,17 +55,16 @@ fn never_prompt(cmd: &mut tokio::process::Command) {
 async fn run_net(cwd: &str, args: &[&str], background: bool) -> Result<Vec<u8>> {
     let mut cmd = command(cwd, args);
     cmd.kill_on_drop(true);
-    let job = if background {
+    if background {
         never_prompt(&mut cmd);
-        crate::job::Job::new()
+        crate::job::isolate(&mut cmd);
+    }
+    let child = cmd.spawn()?;
+    let job = if background {
+        crate::job::Job::for_child(&child)
     } else {
         None
     };
-    let child = cmd.spawn()?;
-    #[cfg(windows)]
-    if let (Some(j), Some(h)) = (&job, child.raw_handle()) {
-        j.assign_handle(h);
-    }
     let limit = if background {
         NET_TIMEOUT_BACKGROUND
     } else {
@@ -1477,6 +1476,11 @@ mod repo_tests {
             ),
         )
         .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let config = format!("core.askPass={}", slash(&script));
         let mut cmd = command(
             &s(&dir),

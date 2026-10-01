@@ -55,15 +55,12 @@ impl ClaudeProcess {
         }
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
+        crate::job::isolate(&mut cmd);
 
         let mut child = cmd
             .spawn()
             .with_context(|| format!("impossible de lancer {}", opts.program.display()))?;
-        let job = Job::new().map(Arc::new);
-        #[cfg(windows)]
-        if let (Some(j), Some(h)) = (&job, child.raw_handle()) {
-            j.assign_handle(h);
-        }
+        let job = Job::for_child(&child).map(Arc::new);
         let mut stdin = child.stdin.take().context("stdin")?;
         let stdout = child.stdout.take().context("stdout")?;
         let stderr = child.stderr.take().context("stderr")?;
@@ -286,16 +283,25 @@ pub fn resolve_binary(configured: &str) -> Option<PathBuf> {
         }
     }
     let home = dirs::home_dir()?;
-    [
-        home.join(".local").join("bin").join("claude.exe"),
-        home.join(".claude").join("local").join("claude.exe"),
-        home.join("AppData")
-            .join("Roaming")
-            .join("npm")
-            .join("claude.cmd"),
-    ]
-    .into_iter()
-    .find(|p| p.is_file())
+    let candidates: Vec<PathBuf> = if cfg!(windows) {
+        vec![
+            home.join(".local").join("bin").join("claude.exe"),
+            home.join(".claude").join("local").join("claude.exe"),
+            home.join("AppData")
+                .join("Roaming")
+                .join("npm")
+                .join("claude.cmd"),
+        ]
+    } else {
+        // The native installer, the old local install, Homebrew (Apple Silicon, then Intel).
+        vec![
+            home.join(".local").join("bin").join("claude"),
+            home.join(".claude").join("local").join("claude"),
+            PathBuf::from("/opt/homebrew/bin/claude"),
+            PathBuf::from("/usr/local/bin/claude"),
+        ]
+    };
+    candidates.into_iter().find(|p| p.is_file())
 }
 
 #[cfg(test)]

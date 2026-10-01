@@ -37,11 +37,7 @@ pub fn http_client(settings: &Settings) -> Result<reqwest::Client> {
 /// Fallback when no Claude process is running: the endpoint `/usage` relies on, authenticated
 /// with the OAuth token Claude Code stores locally (read-only use).
 pub async fn fetch_oauth(settings: &Settings) -> Result<Windows> {
-    let path = dirs::home_dir()
-        .context("home")?
-        .join(".claude")
-        .join(".credentials.json");
-    let creds: Value = serde_json::from_str(&tokio::fs::read_to_string(&path).await?)?;
+    let creds = read_credentials().await?;
     let oauth = &creds["claudeAiOauth"];
     let token = oauth["accessToken"]
         .as_str()
@@ -63,6 +59,36 @@ pub async fn fetch_oauth(settings: &Settings) -> Result<Windows> {
         .json()
         .await?;
     Ok(parse_windows(&body))
+}
+
+/// Claude Code's credentials: its file, or on macOS the login Keychain where it keeps them.
+async fn read_credentials() -> Result<Value> {
+    let path = dirs::home_dir()
+        .context("home")?
+        .join(".claude")
+        .join(".credentials.json");
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) => Ok(serde_json::from_str(&text)?),
+        #[cfg(target_os = "macos")]
+        Err(_) => {
+            let out = tokio::process::Command::new("/usr/bin/security")
+                .args([
+                    "find-generic-password",
+                    "-s",
+                    "Claude Code-credentials",
+                    "-w",
+                ])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .await?;
+            if !out.status.success() {
+                return Err(anyhow!("pas de connexion claude.ai"));
+            }
+            Ok(serde_json::from_slice(&out.stdout)?)
+        }
+        #[cfg(not(target_os = "macos"))]
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[cfg(test)]

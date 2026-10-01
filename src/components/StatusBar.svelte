@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel } from '../lib/platform';
   import { fAgo, fBytes, fCountdown, fPct } from '../lib/format';
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
@@ -90,7 +91,7 @@
     class="it link"
     style:color={waiting ? 'var(--wait)' : 'var(--muted)'}
     onclick={() => app.nextWaiting()}
-    title="Aller au prochain agent en attente (Ctrl+J)"
+    title={`Aller au prochain agent en attente (${keyLabel('Ctrl+J')})`}
   >
     {#if waiting}<span class="pulse" style="width:7px;height:7px"></span>{:else}<span
         class="dot"
@@ -166,7 +167,7 @@
     onclick={() => {
       app.modal = { kind: 'settings' };
     }}
-    title="Réglages (Ctrl+,)">⚙</button
+    title={`Réglages (${keyLabel('Ctrl+,')})`}>⚙</button
   >
 </footer>
 

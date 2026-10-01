@@ -11,14 +11,14 @@ const { version } = useRuntimeConfig().public;
       <h1>Escouade</h1>
       <p class="tag">Le poste de pilotage de tes agents Claude Code.</p>
       <p class="pitch">
-        Tous tes Claude Code dans une seule fenêtre : une app Windows pour piloter plusieurs agents en parallèle, avec projets en onglets,
-        chat natif, git, terminaux et statistiques.
+        Tous tes Claude Code dans une seule fenêtre : une app Windows et macOS pour piloter plusieurs agents en parallèle, avec projets en
+        onglets, chat natif, git, terminaux et statistiques.
       </p>
       <div class="cta">
-        <a class="btn primary" :href="DOWNLOAD">Télécharger pour Windows</a>
+        <a class="btn primary" :href="DOWNLOAD">Télécharger pour Windows et macOS</a>
         <a class="btn" :href="REPO">Voir sur GitHub</a>
       </div>
-      <p class="meta">Version {{ version }} · Windows 10 et 11 · Gratuit et open source (MIT)</p>
+      <p class="meta">Version {{ version }} · Windows 10 et 11, macOS 11 et plus · Gratuit et open source (MIT)</p>
     </div>
   </section>
 </template>

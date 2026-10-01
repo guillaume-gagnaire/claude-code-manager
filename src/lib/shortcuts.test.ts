@@ -77,6 +77,21 @@ describe('handleShortcut', () => {
     expect(handleShortcut(new KeyboardEvent('keydown', { key: 'n' }))).toBe(false);
     expect(handleShortcut(key('2', { altKey: true }))).toBe(false);
   });
+
+  it('uses Cmd on macOS, and keeps Ctrl+Tab (Cmd+Tab switches applications)', () => {
+    fakeBackend();
+    const cmd = (k: string, mods: Partial<KeyboardEventInit> = {}) => new KeyboardEvent('keydown', { key: k, metaKey: true, ...mods });
+    expect(handleShortcut(key('2'), true)).toBe(false);
+    expect(handleShortcut(cmd('2'), true)).toBe(true);
+    expect(app.project?.id).toBe('p2');
+    handleShortcut(cmd(','), true);
+    expect(app.modal?.kind).toBe('settings');
+    app.modal = null;
+    app.selectProject('p1');
+    app.selectAgent('a1');
+    expect(handleShortcut(key('Tab'), true)).toBe(true);
+    expect(app.agent?.id).toBe('a2');
+  });
 });
 
 describe('isAppShortcut', () => {
@@ -90,5 +105,14 @@ describe('isAppShortcut', () => {
     expect(isAppShortcut(key('r'))).toBe(false); // reverse search
     expect(isAppShortcut(key('n'))).toBe(false); // readline: next history
     expect(isAppShortcut(new KeyboardEvent('keydown', { key: '3' }))).toBe(false);
+  });
+
+  it('hands every Cmd shortcut to the app on macOS but copy and paste, and leaves Ctrl keys to the shell', () => {
+    const cmd = (k: string) => new KeyboardEvent('keydown', { key: k, metaKey: true });
+    for (const k of ['3', 'n', 't', 'j', ',']) expect(isAppShortcut(cmd(k), true)).toBe(true);
+    expect(isAppShortcut(cmd('c'), true)).toBe(false);
+    expect(isAppShortcut(cmd('v'), true)).toBe(false);
+    expect(isAppShortcut(key('j'), true)).toBe(false);
+    expect(isAppShortcut(key('Tab'), true)).toBe(true);
   });
 });

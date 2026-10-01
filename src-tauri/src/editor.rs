@@ -82,28 +82,43 @@ struct Known {
     id: &'static str,
     label: &'static str,
     cli: &'static str,
-    /// Launchers, relative to `%LOCALAPPDATA%\Programs` (per-user install) or `%ProgramFiles%`.
+    /// Launchers, relative to `%LOCALAPPDATA%\Programs` (per-user install) or `%ProgramFiles%` on
+    /// Windows, to `/Applications` or `~/Applications` on macOS.
     installs: &'static [&'static str],
 }
+
+#[cfg(windows)]
+const INSTALLS: [&[&str]; 3] = [
+    &[r"Microsoft VS Code\bin\code.cmd"],
+    &[r"cursor\resources\app\bin\cursor.cmd", r"cursor\Cursor.exe"],
+    &[r"Zed\bin\zed.exe", r"Zed\Zed.exe"],
+];
+
+#[cfg(not(windows))]
+const INSTALLS: [&[&str]; 3] = [
+    &["Visual Studio Code.app/Contents/Resources/app/bin/code"],
+    &["Cursor.app/Contents/Resources/app/bin/cursor"],
+    &["Zed.app/Contents/MacOS/cli"],
+];
 
 const KNOWN: [Known; 3] = [
     Known {
         id: "vscode",
         label: "VS Code",
         cli: "code",
-        installs: &[r"Microsoft VS Code\bin\code.cmd"],
+        installs: INSTALLS[0],
     },
     Known {
         id: "cursor",
         label: "Cursor",
         cli: "cursor",
-        installs: &[r"cursor\resources\app\bin\cursor.cmd", r"cursor\Cursor.exe"],
+        installs: INSTALLS[1],
     },
     Known {
         id: "zed",
         label: "Zed",
         cli: "zed",
-        installs: &[r"Zed\bin\zed.exe", r"Zed\Zed.exe"],
+        installs: INSTALLS[2],
     },
 ];
 
@@ -117,21 +132,33 @@ pub struct EditorRoots {
 impl EditorRoots {
     fn from_env() -> Self {
         let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
-        EditorRoots {
-            path: std::env::var_os("PATH"),
-            pathext: std::env::var("PATHEXT").unwrap_or_else(|_| DEFAULT_PATHEXT.into()),
-            install_dirs: [
+        let install_dirs = if cfg!(windows) {
+            [
                 var("LOCALAPPDATA").map(|d| d.join("Programs")),
                 var("ProgramFiles"),
             ]
-            .into_iter()
-            .flatten()
-            .collect(),
+        } else {
+            [
+                Some(PathBuf::from("/Applications")),
+                dirs::home_dir().map(|h| h.join("Applications")),
+            ]
+        };
+        EditorRoots {
+            path: std::env::var_os("PATH"),
+            pathext: pathext(),
+            install_dirs: install_dirs.into_iter().flatten().collect(),
         }
     }
 }
 
-const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+/// The extensions Windows tries for a bare program name; none elsewhere.
+fn pathext() -> String {
+    if cfg!(windows) {
+        std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+    } else {
+        String::new()
+    }
+}
 
 /// VS Code, Cursor and Zed, when installed.
 pub fn detect() -> Vec<EditorInfo> {
@@ -201,10 +228,10 @@ pub fn command_for(
 pub fn open(editor: &str, target: &str) -> Result<()> {
     let (program, mut args) =
         parse_command(editor).ok_or_else(|| anyhow!("aucun éditeur configuré"))?;
-    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| DEFAULT_PATHEXT.into());
-    let exe = resolve_program(&program, std::env::var_os("PATH").as_deref(), &pathext).ok_or_else(
-        || anyhow!("éditeur « {program} » introuvable (vérifie le réglage « Éditeur »)"),
-    )?;
+    let exe = resolve_program(&program, std::env::var_os("PATH").as_deref(), &pathext())
+        .ok_or_else(|| {
+            anyhow!("éditeur « {program} » introuvable (vérifie le réglage « Éditeur »)")
+        })?;
     args.push(target.to_string());
     let mut cmd = std::process::Command::new(&exe);
     cmd.args(&args);
@@ -244,7 +271,7 @@ mod tests {
     fn resolves_through_path_and_pathext() {
         let dir = crate::paths::test_dir("editor-resolve");
         std::fs::write(dir.join("code.cmd"), "@echo off").unwrap();
-        let path = std::env::join_paths([PathBuf::from(r"C:\nowhere"), dir.clone()]).unwrap();
+        let path = std::env::join_paths([dir.join("nowhere"), dir.clone()]).unwrap();
         let found = resolve_program("code", Some(path.as_os_str()), ".COM;.EXE;.BAT;.CMD").unwrap();
         assert_eq!(found, dir.join("code.cmd"));
         assert_eq!(
@@ -320,6 +347,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn detects_editors_on_the_path_and_in_their_install_folders() {
         let dir = crate::paths::test_dir("editor-detect");
@@ -332,6 +360,38 @@ mod tests {
         touch(&zed);
         assert_eq!(
             detect_in(&roots(&[bin], vec![dir.join("elsewhere"), programs])),
+            vec![
+                EditorInfo {
+                    id: "vscode".into(),
+                    label: "VS Code".into(),
+                    command: "code".into(),
+                },
+                EditorInfo {
+                    id: "zed".into(),
+                    label: "Zed".into(),
+                    command: format!("\"{}\"", zed.display()),
+                },
+            ]
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn detects_editors_on_the_path_and_in_the_applications_folder() {
+        let dir = crate::paths::test_dir("editor-detect-mac");
+        let bin = dir.join("bin");
+        let apps = dir.join("Applications");
+        // VS Code on the PATH, Zed only in the Applications folder, no Cursor.
+        touch(&bin.join("code"));
+        let zed = apps.join("Zed.app/Contents/MacOS/cli");
+        touch(&zed);
+        let roots = EditorRoots {
+            path: Some(std::env::join_paths([&bin]).unwrap()),
+            pathext: String::new(),
+            install_dirs: vec![dir.join("elsewhere"), apps],
+        };
+        assert_eq!(
+            detect_in(&roots),
             vec![
                 EditorInfo {
                     id: "vscode".into(),

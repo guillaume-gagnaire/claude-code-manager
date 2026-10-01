@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api } from '../../lib/ipc';
   import { EFFORTS, MODELS, MODES } from '../../lib/models';
+  import { IS_MAC } from '../../lib/platform';
   import { app } from '../../lib/state.svelte';
   import { checkForUpdate } from '../../lib/updater';
   import type { Settings } from '../../lib/types';
@@ -112,13 +113,13 @@
       ></button>
     </div>
     <div class="toggle">
-      <span>Notifications Windows quand l'app n'est pas au premier plan</span>
+      <span>Notifications {IS_MAC ? 'macOS' : 'Windows'} quand l'app n'est pas au premier plan</span>
       <button
         class="switch"
         role="switch"
         aria-checked={s.osNotifications}
         class:on={s.osNotifications}
-        aria-label="Notifications Windows"
+        aria-label="Notifications système"
         onclick={() => (s.osNotifications = !s.osNotifications)}
       ></button>
     </div>
@@ -153,15 +154,19 @@
 
   <section>
     <h3>Terminaux</h3>
-    <label class="f"><span>PowerShell 7 <em>(vide = auto)</em></span><input class="field mono" bind:value={s.pwshPath} /></label>
-    <label class="f"><span>Git Bash <em>(vide = auto)</em></span><input class="field mono" bind:value={s.bashPath} /></label>
-    <label class="f"
-      ><span>Distribution WSL <em>(vide = distribution par défaut)</em></span><input
-        class="field mono"
-        bind:value={s.wslDistro}
-        placeholder="Ubuntu"
-      /></label
-    >
+    {#if IS_MAC}
+      <label class="f"><span>bash <em>(vide = auto)</em></span><input class="field mono" bind:value={s.bashPath} /></label>
+    {:else}
+      <label class="f"><span>PowerShell 7 <em>(vide = auto)</em></span><input class="field mono" bind:value={s.pwshPath} /></label>
+      <label class="f"><span>Git Bash <em>(vide = auto)</em></span><input class="field mono" bind:value={s.bashPath} /></label>
+      <label class="f"
+        ><span>Distribution WSL <em>(vide = distribution par défaut)</em></span><input
+          class="field mono"
+          bind:value={s.wslDistro}
+          placeholder="Ubuntu"
+        /></label
+      >
+    {/if}
     <div class="detected">
       Détectés : {app.shells.map((x) => x.label).join(', ') || 'aucun'}
     </div>

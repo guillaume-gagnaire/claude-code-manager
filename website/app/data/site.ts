@@ -43,7 +43,7 @@ export const FEATURES: Feature[] = [
   {
     id: 'notifications',
     title: 'Tu sais quand on t’attend',
-    text: 'Quand un agent pose une question ou termine, Escouade le signale : pastille sur l’onglet, carillon, notification Windows cliquable, barre des tâches qui clignote.',
+    text: 'Quand un agent pose une question ou termine, Escouade le signale : pastille sur l’onglet, carillon, notification système, barre des tâches qui clignote (ou icône du Dock qui rebondit).',
     points: ['Ctrl+J saute au prochain agent qui attend', 'Badge dans la zone de notification', 'Rien à surveiller : tu es prévenu'],
     image: 'images/notifications.jpg',
     alt: 'Un agent en attente de réponse et la notification Windows correspondante',
@@ -125,12 +125,12 @@ export const STEPS: Step[] = [
   },
   {
     title: 'Installe Escouade',
-    text: 'Télécharge l’installeur de la dernière version et lance-le. Il te faut Windows 10 ou 11 et Git for Windows.',
+    text: 'Télécharge l’installeur de la dernière version : le .exe pour Windows 10 ou 11 (avec Git for Windows), le .dmg pour macOS 11 ou plus récent (Mac Apple Silicon ou Intel).',
     link: { label: 'Dernière version', href: DOWNLOAD },
   },
   {
     title: 'Ouvre un projet',
-    text: 'Choisis un dossier, crée un agent et écris ta première demande. Les suivants arrivent avec Ctrl+N.',
+    text: 'Choisis un dossier, crée un agent et écris ta première demande. Les suivants arrivent avec Ctrl+N (⌘N sur Mac).',
   },
 ];
 
@@ -148,7 +148,10 @@ export const FAQ: Question[] = [
     q: 'Où vont mes données ?',
     a: 'Nulle part : projets, conversations et statistiques restent sur ta machine, dans ~/.escouade/. Le réseau ne sert qu’à Claude Code lui-même, à la lecture de tes quotas et aux mises à jour de l’app.',
   },
-  { q: 'Ça marche sur Mac ou Linux ?', a: 'Pas pour l’instant : Escouade est fait pour Windows 10 et 11.' },
+  {
+    q: 'Ça marche sur Mac ou Linux ?',
+    a: 'Sur Mac, oui : macOS 11 ou plus récent, Apple Silicon comme Intel. Linux n’est pas encore pris en charge.',
+  },
   { q: 'Comment se font les mises à jour ?', a: 'L’app te propose chaque nouvelle version ; un clic, et elle s’installe.' },
   {
     q: 'C’est un produit Anthropic ?',

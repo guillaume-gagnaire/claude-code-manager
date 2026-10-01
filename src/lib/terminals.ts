@@ -8,6 +8,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from './ipc';
+import { IS_MAC } from './platform';
 import { isAppShortcut } from './shortcuts';
 import type { TermInfo } from './types';
 
@@ -116,6 +117,13 @@ function createXTerm(readOnly: boolean): XTerm {
     if (e.type !== 'keydown') return true;
     // Navigation shortcuts go to the app (the event keeps bubbling to its window handler).
     if (isAppShortcut(e)) return false;
+    // macOS: Cmd+C copies the selection, Cmd+V pastes (through the Edit menu's paste event);
+    // Ctrl keys all go to the shell.
+    if (IS_MAC && e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'c' && term.hasSelection()) navigator.clipboard.writeText(term.getSelection());
+      return !(k === 'c' || k === 'v');
+    }
     // Windows Terminal conventions: Ctrl+C copies when there is a selection, Ctrl+V pastes.
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c' && term.hasSelection()) {
       navigator.clipboard.writeText(term.getSelection());

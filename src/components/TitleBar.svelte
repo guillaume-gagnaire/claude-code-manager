@@ -7,6 +7,7 @@
   import { app } from '../lib/state.svelte';
   import { expectStops, forgetLaunches } from '../lib/launch-actions';
   import { closeTerminal } from '../lib/term-actions';
+  import { IS_MAC } from '../lib/platform';
   import { PROJECT_COLORS } from '../lib/theme';
   import type { Project } from '../lib/types';
 
@@ -119,7 +120,7 @@
   }
 </script>
 
-<header class="bar" data-tauri-drag-region>
+<header class="bar" class:mac={IS_MAC} data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
     <img class="mark" src="/logo.svg" alt="Escouade" draggable="false" />
   </div>
@@ -192,25 +193,28 @@
       Stats
     </button>
   </div>
-  <div class="controls">
-    <button class="ctl" title="Réduire" aria-label="Réduire" onclick={() => win.minimize()}>
-      <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
-    </button>
-    <button class="ctl" title={maximized ? 'Restaurer' : 'Agrandir'} aria-label="Agrandir" onclick={() => win.toggleMaximize()}>
-      {#if maximized}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"
-          ><path d="M2.5 2.5V.5h7v7h-2" /><rect x=".5" y="2.5" width="7" height="7" /></svg
-        >
-      {:else}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"
-          ><rect x=".5" y=".5" width="9" height="9" /></svg
-        >
-      {/if}
-    </button>
-    <button class="ctl close" title="Fermer (l'app reste dans la zone de notification)" aria-label="Fermer" onclick={() => win.hide()}>
-      <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
-    </button>
-  </div>
+  <!-- macOS draws its own buttons (traffic lights) at the left of the bar. -->
+  {#if !IS_MAC}
+    <div class="controls">
+      <button class="ctl" title="Réduire" aria-label="Réduire" onclick={() => win.minimize()}>
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
+      </button>
+      <button class="ctl" title={maximized ? 'Restaurer' : 'Agrandir'} aria-label="Agrandir" onclick={() => win.toggleMaximize()}>
+        {#if maximized}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"
+            ><path d="M2.5 2.5V.5h7v7h-2" /><rect x=".5" y="2.5" width="7" height="7" /></svg
+          >
+        {:else}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"
+            ><rect x=".5" y=".5" width="9" height="9" /></svg
+          >
+        {/if}
+      </button>
+      <button class="ctl close" title="Fermer (l'app reste dans la zone de notification)" aria-label="Fermer" onclick={() => win.hide()}>
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
+      </button>
+    </div>
+  {/if}
 </header>
 
 <style>
@@ -223,6 +227,11 @@
     background: var(--panel);
     border-bottom: 1px solid var(--line2);
     user-select: none;
+  }
+  /* Room for the traffic lights (window buttons drawn by macOS over the bar). */
+  .bar.mac {
+    padding-left: 84px;
+    padding-right: 8px;
   }
   .brand {
     display: flex;

@@ -1,4 +1,5 @@
-//! Visual and audible notifications: chime, Windows toast, taskbar flash, tray badge.
+//! Visual and audible notifications: chime, system notification (Windows toast, macOS
+//! Notification Center), taskbar flash / Dock bounce, tray badge.
 
 use std::f64::consts::PI;
 use std::sync::OnceLock;
@@ -64,6 +65,27 @@ pub fn play_chime() {
             );
         }
     }
+    #[cfg(unix)]
+    {
+        // afplay (macOS) and paplay (Linux) play files only: the WAV is written once to the
+        // temporary folder.
+        let file = std::env::temp_dir().join("escouade-chime.wav");
+        let wav = chime_wav();
+        let ready = std::fs::metadata(&file).is_ok_and(|m| m.len() == wav.len() as u64)
+            || std::fs::write(&file, wav).is_ok();
+        if ready {
+            let player = if cfg!(target_os = "macos") {
+                "/usr/bin/afplay"
+            } else {
+                "paplay"
+            };
+            let _ = std::process::Command::new(player)
+                .arg(&file)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+    }
 }
 
 pub fn window_attended<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -90,7 +112,8 @@ pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Windows toast; `on_click` runs when the user activates it.
+/// System notification. On Windows, `on_click` runs when the user activates the toast; macOS
+/// notifications only bring the app forward (the Dock icon shows its window again).
 pub fn toast<R: Runtime>(
     app: &AppHandle<R>,
     title: &str,
@@ -119,7 +142,15 @@ pub fn toast<R: Runtime>(
             log::warn!("toast failed: {e:?}");
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = on_click;
+        if let Err(e) = app.notification().builder().title(title).body(body).show() {
+            log::warn!("notification failed: {e:?}");
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = (app, title, body, on_click);
 }
 

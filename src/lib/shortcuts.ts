@@ -1,9 +1,10 @@
 // Global keyboard shortcuts, routed in one place.
 
+import { IS_MAC, primaryKey } from './platform';
 import { app } from './state.svelte';
 
 /**
- * The digit of Ctrl+1…9 from the physical key: on AZERTY keyboards the digit row types & é " '…
+ * The digit of Ctrl+1…9 (Cmd+1…9 on macOS) from the physical key: on AZERTY keyboards the digit row types & é " '…
  * without Shift, so `key` is not a digit there.
  */
 function digit(e: KeyboardEvent): number | null {
@@ -11,19 +12,36 @@ function digit(e: KeyboardEvent): number | null {
   return d ? Number(d) : null;
 }
 
+/** Ctrl+Tab cycles agents on every system: Cmd+Tab switches applications on macOS. */
+const agentCycle = (e: KeyboardEvent) => e.key === 'Tab' && e.ctrlKey && !e.metaKey;
+
 /**
  * Shortcuts the terminal hands over to the app. Shell keys (Ctrl+C, Ctrl+R, Ctrl+N…) stay
- * with the shell; Ctrl+J is only a line feed there, which Enter already sends.
+ * with the shell; Ctrl+J is only a line feed there, which Enter already sends. On macOS the
+ * app's shortcuts use Cmd, which the shell never gets: they all go to the app, except copy and
+ * paste, handled by the terminal.
  */
-export function isAppShortcut(e: KeyboardEvent): boolean {
-  if (!e.ctrlKey || e.altKey) return false;
-  return digit(e) !== null || e.key === 'Tab' || e.key === ',' || e.key.toLowerCase() === 'j';
+export function isAppShortcut(e: KeyboardEvent, mac = IS_MAC): boolean {
+  if (e.altKey) return false;
+  if (agentCycle(e)) return true;
+  if (!primaryKey(e, mac)) return false;
+  const k = e.key.toLowerCase();
+  if (mac) return digit(e) !== null || ['n', 't', 'j', ',', 'b', 'l'].includes(k);
+  return digit(e) !== null || k === ',' || k === 'j';
 }
 
 /** Runs the shortcut matching `e`. Returns true when the event was handled. */
-export function handleShortcut(e: KeyboardEvent): boolean {
+export function handleShortcut(e: KeyboardEvent, mac = IS_MAC): boolean {
   // Ctrl+Alt is AltGr on French keyboards (e.g. AltGr+2 = ~): never a shortcut.
-  if (!e.ctrlKey || e.altKey || app.modal) return false;
+  if (e.altKey || app.modal) return false;
+  if (agentCycle(e) && app.project) {
+    const list = app.projectAgents;
+    if (!list.length) return false;
+    const i = list.findIndex((a) => a.id === app.agent?.id);
+    app.selectAgent(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].id);
+    return true;
+  }
+  if (!primaryKey(e, mac)) return false;
   const k = e.key.toLowerCase();
   const n = digit(e);
   if (n !== null && !e.shiftKey) {
@@ -55,13 +73,6 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   }
   if (k === 'l' && e.shiftKey) {
     app.toggleLayout();
-    return true;
-  }
-  if (e.key === 'Tab' && app.project) {
-    const list = app.projectAgents;
-    if (!list.length) return false;
-    const i = list.findIndex((a) => a.id === app.agent?.id);
-    app.selectAgent(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].id);
     return true;
   }
   return false;

@@ -1,4 +1,5 @@
-//! Integrated terminals: real pseudo-consoles (ConPTY) streamed to xterm.js.
+//! Integrated terminals: real pseudo-consoles (ConPTY on Windows, a pty on macOS) streamed to
+//! xterm.js.
 
 use crate::job::Job;
 use crate::model::Settings;
@@ -44,6 +45,7 @@ pub struct PtyManager {
 }
 
 /// Where shells are looked for; from the environment in the app, fake folders in tests.
+#[cfg(windows)]
 pub struct ShellRoots {
     pub path: Vec<PathBuf>,
     pub program_files: Option<PathBuf>,
@@ -51,6 +53,7 @@ pub struct ShellRoots {
     pub system_root: Option<PathBuf>,
 }
 
+#[cfg(windows)]
 impl ShellRoots {
     fn from_env() -> Self {
         let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
@@ -70,18 +73,80 @@ impl ShellRoots {
 }
 
 /// Also true for the 0-byte "app execution alias" reparse points of Microsoft Store apps.
+#[cfg(windows)]
 fn installed(p: &Path) -> bool {
     p.is_file()
 }
 
+#[cfg(windows)]
 fn first_installed(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
     candidates.into_iter().find(|p| installed(p))
 }
 
+#[cfg(windows)]
 pub fn detect_shells(s: &Settings) -> Vec<ShellInfo> {
     detect_shells_in(&ShellRoots::from_env(), s)
 }
 
+/// The user's login shell first (zsh by default on macOS), then the other usual ones.
+#[cfg(not(windows))]
+pub fn detect_shells(s: &Settings) -> Vec<ShellInfo> {
+    let path: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    let login = std::env::var_os("SHELL").map(PathBuf::from);
+    detect_unix_shells(login.as_deref(), &path, s)
+}
+
+/// Unix shells: `login` (from $SHELL) first, then zsh, bash and fish, from /bin or the PATH.
+#[cfg(not(windows))]
+pub fn detect_unix_shells(login: Option<&Path>, path: &[PathBuf], s: &Settings) -> Vec<ShellInfo> {
+    const KNOWN: [(&str, &str); 4] = [
+        ("zsh", "zsh"),
+        ("bash", "bash"),
+        ("fish", "fish"),
+        ("sh", "sh"),
+    ];
+    let find = |name: &str| -> Option<PathBuf> {
+        if name == "bash" && !s.bash_path.is_empty() {
+            return Some(PathBuf::from(&s.bash_path)).filter(|p| p.is_file());
+        }
+        [Path::new("/bin"), Path::new("/usr/bin")]
+            .into_iter()
+            .chain(path.iter().map(PathBuf::as_path))
+            .map(|d| d.join(name))
+            .find(|p| p.is_file())
+    };
+    let mut found: Vec<(&str, &str, PathBuf)> = Vec::new();
+    if let Some(l) = login.filter(|l| l.is_file()) {
+        let name = l.file_name().unwrap_or_default().to_string_lossy();
+        if let Some((id, label)) = KNOWN.iter().find(|(id, _)| *id == name) {
+            found.push((id, label, l.to_path_buf()));
+        }
+    }
+    for (id, label) in KNOWN.iter().take(3) {
+        if !found.iter().any(|f| f.0 == *id) {
+            if let Some(p) = find(id) {
+                found.push((id, label, p));
+            }
+        }
+    }
+    if found.is_empty() {
+        if let Some(p) = find("sh") {
+            found.push(("sh", "sh", p));
+        }
+    }
+    found
+        .into_iter()
+        .map(|(id, label, p)| ShellInfo {
+            id: id.into(),
+            label: label.into(),
+            path: p.to_string_lossy().into(),
+        })
+        .collect()
+}
+
+#[cfg(windows)]
 pub fn detect_shells_in(r: &ShellRoots, s: &Settings) -> Vec<ShellInfo> {
     let mut out = Vec::new();
     let shell = |id: &str, label: &str, p: PathBuf| ShellInfo {
@@ -153,18 +218,6 @@ pub fn detect_shells_in(r: &ShellRoots, s: &Settings) -> Vec<ShellInfo> {
 /// ends with 1 for any failure, whatever the failing program's code.
 fn with_exit_code(command: &str) -> String {
     format!("{command}\nif (-not $?) {{ if ($LASTEXITCODE) {{ exit $LASTEXITCODE }} exit 1 }}")
-}
-
-/// A job holding `child` and everything it starts, killed with it.
-#[cfg(windows)]
-fn tree_job(child: &dyn portable_pty::Child) -> Option<Job> {
-    let job = Job::new()?;
-    job.assign_handle(child.as_raw_handle()?).then_some(job)
-}
-
-#[cfg(not(windows))]
-fn tree_job(_child: &dyn portable_pty::Child) -> Option<Job> {
-    None
 }
 
 /// Working folder of a launch command: the project's, or one of its folders.
@@ -275,6 +328,8 @@ impl PtyManager {
                 // Git Bash stays in the working directory instead of going home.
                 cmd.env("CHERE_INVOKING", "1");
             }
+            ("zsh" | "fish" | "sh", None) => cmd.arg("-l"),
+            ("zsh" | "fish" | "sh", Some(c)) => cmd.args(["-l", "-c", c]),
             ("wsl", run) => {
                 if !wsl_distro.is_empty() {
                     cmd.args(["-d", wsl_distro]);
@@ -302,7 +357,7 @@ impl PtyManager {
             .context("lancement du shell")?;
         drop(pair.slave);
         let killer = child.clone_killer();
-        let job = command.and_then(|_| tree_job(child.as_ref()));
+        let job = command.and_then(|_| Job::for_pty(child.as_ref()));
         let mut reader = pair.master.try_clone_reader().map_err(|e| anyhow!("{e}"))?;
         let writer = pair.master.take_writer().map_err(|e| anyhow!("{e}"))?;
         let id = info.id.clone();
@@ -638,7 +693,86 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn touch(p: PathBuf) -> PathBuf {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "").unwrap();
+        p
+    }
+
+    #[test]
+    fn the_login_shell_comes_first_and_fish_is_found_on_the_path() {
+        let d = crate::paths::test_dir("shells-unix");
+        let fish = touch(d.join("bin").join("fish"));
+        let shells = detect_unix_shells(Some(&fish), &[d.join("bin")], &Settings::default());
+        assert_eq!(shells[0].id, "fish");
+        assert_eq!(shells[0].path, fish.to_string_lossy());
+        assert_eq!(shells.iter().filter(|s| s.id == "fish").count(), 1);
+        assert!(shells
+            .iter()
+            .any(|s| s.id == "sh" || s.id == "bash" || s.id == "zsh"));
+    }
+
+    /// Runs `command` with sh as a launch command; returns its output and exit code.
+    fn launch(command: &str) -> (String, Option<u32>) {
+        let _one = one_shell_at_a_time();
+        let shell = detect_unix_shells(None, &[], &Settings::default())
+            .into_iter()
+            .find(|s| s.id == "bash" || s.id == "zsh")
+            .expect("a shell");
+        let pty = PtyManager::default();
+        let out = Arc::new(Mutex::new(String::new()));
+        let exit = Arc::new(Mutex::new(None));
+        let (sink, done) = (out.clone(), exit.clone());
+        let info = TermInfo {
+            id: format!("run-{command}"),
+            project_id: "p".into(),
+            name: "run".into(),
+            shell: shell.id.clone(),
+        };
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        pty.spawn_command(
+            info,
+            &shell,
+            "",
+            &cwd,
+            (120, 30),
+            vec![],
+            1,
+            command,
+            move |b| sink.lock().push_str(&String::from_utf8_lossy(&b)),
+            move |code| *done.lock() = Some(code),
+        )
+        .unwrap();
+        let start = Instant::now();
+        while exit.lock().is_none() {
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "did not end: {}",
+                out.lock()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        let code = exit.lock().unwrap();
+        let text = out.lock().clone();
+        (text, code)
+    }
+
+    #[test]
+    fn a_launch_command_reports_its_output_and_exit_code() {
+        let (out, code) = launch("echo hello-escouade; exit 3");
+        assert!(out.contains("hello-escouade"), "{out}");
+        assert_eq!(code, Some(3));
+        assert_eq!(launch("true").1, Some(0));
+    }
+}
+
+#[cfg(all(test, windows))]
 mod windows_powershell_tests {
     use super::*;
     use std::time::{Duration, Instant};

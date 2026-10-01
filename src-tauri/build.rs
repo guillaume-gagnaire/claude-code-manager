@@ -1,4 +1,5 @@
 fn main() {
+    #[allow(unused_mut)] // only changed on Windows
     let mut attributes = tauri_build::Attributes::new();
     // Embed the Common-Controls v6 manifest in every binary, test harnesses included:
     // without it, test binaries that link the dialog/tray code fail to start on Windows

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel } from '../lib/platform';
   import { api } from '../lib/ipc';
   import { fDur, fTok, fUsd, fWhen, tildify } from '../lib/format';
   import { copyRemoteLink, openRemote, toggleRemote } from '../lib/agent-actions';
@@ -119,7 +120,7 @@
     <span class="section-label">Agents</span>
     <span class="count">{app.projectAgents.length}</span>
     <div style="flex:1"></div>
-    <button class="new" onclick={() => app.newAgent(project.id)} title="Nouvel agent (Ctrl+N)">
+    <button class="new" onclick={() => app.newAgent(project.id)} title={`Nouvel agent (${keyLabel('Ctrl+N')})`}>
       <span class="plus">+</span> Nouvel agent
     </button>
   </div>

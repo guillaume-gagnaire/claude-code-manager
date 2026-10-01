@@ -17,6 +17,8 @@ mod pricing;
 mod process_tests;
 mod pty;
 mod resources;
+#[cfg(unix)]
+mod shellenv;
 mod stats;
 mod usage;
 
@@ -111,6 +113,8 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    #[cfg(unix)]
+    shellenv::adopt_login_path();
     paths::migrate_app_folders();
     let mut builder = tauri::Builder::default();
     // Sandboxed runs (end-to-end tests, demos) must not hand over to an instance the user
@@ -120,7 +124,7 @@ pub fn run() {
             notify::show_main(app)
         }));
     }
-    builder
+    let builder = builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
@@ -129,7 +133,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    builder
         .setup(|app| {
             init_logging();
             for note in paths::take_migration_notes() {
@@ -206,13 +213,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building the application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => {
                 if let Some(core) = app.try_state::<Arc<Core>>() {
                     if !core.quitting.load(Ordering::Acquire) {
                         core.shutdown();
                     }
                 }
             }
+            // A click on the Dock icon brings back the window closed to the menu bar.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => notify::show_main(app),
+            _ => {}
         });
 }

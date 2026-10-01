@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel, primaryKey } from '../lib/platform';
   import { app } from '../lib/state.svelte';
   import { closeTerminal, newTerminal, SHELL_GLYPH } from '../lib/term-actions';
   import { getXTerm, mountTerminal } from '../lib/terminals';
@@ -72,7 +73,7 @@
         }}
       />
     {/if}
-    <button class="btn ghost" title="Rechercher (Ctrl+Shift+F)" onclick={() => (searchOpen = !searchOpen)}>⌕</button>
+    <button class="btn ghost" title={`Rechercher (${keyLabel('Ctrl+Shift+F')})`} onclick={() => (searchOpen = !searchOpen)}>⌕</button>
     <button class="btn ghost" onclick={() => getXTerm(term.id)?.term.clear()}>Effacer</button>
     <button class="btn danger" onclick={() => closeTerminal(term.id)}>Fermer le terminal</button>
   </header>
@@ -81,7 +82,7 @@
     class="box"
     bind:this={box}
     onkeydown={(e) => {
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') {
+      if (primaryKey(e) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         searchOpen = true;
       }

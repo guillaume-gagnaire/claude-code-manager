@@ -439,9 +439,12 @@ pub fn run_start(
         .ok_or("commande de lancement introuvable")?;
     let settings = core.settings.read().clone();
     let shells = pty::detect_shells(&settings);
+    // A command set up on another system (PowerShell on Windows, zsh on macOS) runs in the
+    // default shell of this one.
     let sh = shells
         .iter()
         .find(|s| s.id == run.shell)
+        .or_else(|| shells.first())
         .ok_or_else(|| format!("shell « {} » introuvable", run.shell))?;
     let cwd = pty::run_cwd(&project.path, &run.cwd).map_err(err)?;
     let info = TermInfo {

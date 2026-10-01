@@ -1,7 +1,8 @@
 name: Release
 
 # Push a tag `vX.Y.Z` (after `node scripts/version.mjs X.Y.Z` and a commit) to publish a
-# release: NSIS installer + signed updater artifacts + latest.json for the in-app updater.
+# release: NSIS installer (Windows), universal app and disk image (macOS), signed updater
+# artifacts and the latest.json of the in-app updater, which holds both systems.
 on:
   push:
     tags: ['v*']
@@ -10,22 +11,20 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and publish
-    runs-on: windows-latest
-    timeout-minutes: 60
+  create:
+    name: Create the release
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Check that the tag matches the app version
         run: node scripts/version.mjs --check ${{ github.ref_name }}
 
-      # Created before the long build, while the tag is still the head of main: once main has moved
-      # past it, GITHUB_TOKEN may no longer create the release ("Resource not accessible by
+      # Created before the long builds, while the tag is still the head of main: once main has
+      # moved past it, GITHUB_TOKEN may no longer create the release ("Resource not accessible by
       # integration", it would need the `workflows` permission it cannot have). tauri-action then
-      # finds this release and only uploads the installer, its signature and latest.json to it.
+      # finds this release and only uploads the installers, their signatures and latest.json to it.
       - name: Create the release
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -36,6 +35,25 @@ jobs:
           gh release create "$TAG" --verify-tag --title "Escouade $TAG" \
             --notes "Voir les commits depuis la version précédente." "${flags[@]}"
 
+  build:
+    name: Build and publish (${{ matrix.name }})
+    needs: create
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: ''
+          # One app for Apple Silicon and Intel Macs.
+          - name: macOS
+            os: macos-latest
+            args: --target universal-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -44,6 +62,11 @@ jobs:
       - name: Rust toolchain (pinned in src-tauri/rust-toolchain.toml)
         working-directory: src-tauri
         run: rustup toolchain install
+
+      - name: Rust targets of the universal macOS app
+        if: runner.os == 'macOS'
+        working-directory: src-tauri
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -58,6 +81,27 @@ jobs:
           cd src-tauri
           cargo test
 
+      # Optional: with an Apple Developer ID certificate in the repository secrets, the app is
+      # signed and notarized (no Gatekeeper warning). Without it, it is signed ad hoc. Only set
+      # when present: an empty APPLE_CERTIFICATE would make the build try to import it.
+      - name: Apple signing (when configured)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then
+              echo "::add-mask::${!v}"
+              echo "$v=${!v}" >> "$GITHUB_ENV"
+            fi
+          done
+
       - name: Build, sign and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -71,3 +115,4 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
+          args: ${{ matrix.args }}

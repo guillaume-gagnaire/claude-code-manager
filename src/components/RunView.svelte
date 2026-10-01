@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel, primaryKey } from '../lib/platform';
   import { launchStatus, log, restartLaunch, startLaunch, stopLaunch } from '../lib/launch-actions';
   import { app } from '../lib/state.svelte';
   import { SHELL_GLYPH } from '../lib/term-actions';
@@ -73,7 +74,7 @@
         }}
       />
     {/if}
-    <button class="btn ghost" title="Rechercher (Ctrl+Shift+F)" onclick={() => (searchOpen = !searchOpen)}>⌕</button>
+    <button class="btn ghost" title={`Rechercher (${keyLabel('Ctrl+Shift+F')})`} onclick={() => (searchOpen = !searchOpen)}>⌕</button>
     <button class="btn ghost" onclick={() => getXTerm(logKey(cmd.id))?.term.clear()}>Effacer</button>
     {#if running}
       <button class="btn" onclick={() => restartLaunch(project, cmd)}>⟳ Relancer</button>
@@ -89,7 +90,7 @@
     class="box"
     bind:this={box}
     onkeydown={(e) => {
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') {
+      if (primaryKey(e) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         searchOpen = true;
       }
