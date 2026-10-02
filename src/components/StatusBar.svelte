@@ -91,7 +91,7 @@
     class="it link"
     style:color={waiting ? 'var(--wait)' : 'var(--muted)'}
     onclick={() => app.nextWaiting()}
-    title={`Aller au prochain agent en attente (${keyLabel('Ctrl+J')})`}
+    title={`Aller au prochain agent en attente ou à voir (${keyLabel('Ctrl+J')})`}
   >
     {#if waiting}<span class="pulse" style="width:7px;height:7px"></span>{:else}<span
         class="dot"

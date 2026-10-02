@@ -132,6 +132,8 @@
       <div
         class="card"
         class:sel
+        class:alert={app.attention[a.id]}
+        style:--alert={a.status === 'error' ? 'var(--del)' : a.status === 'waiting' ? 'var(--wait)' : 'var(--ok)'}
         role="button"
         tabindex="0"
         onclick={() => app.selectAgent(a.id)}
@@ -352,6 +354,25 @@
   .card.sel {
     background: var(--elev);
     border-color: var(--line2);
+  }
+  /* Asked, finished or failed out of sight: blinks until seen. */
+  .card.alert {
+    border-color: var(--alert);
+    animation: cardAlert 1.1s ease-in-out infinite alternate;
+  }
+  @keyframes cardAlert {
+    from {
+      background: transparent;
+    }
+    to {
+      background: color-mix(in oklch, var(--alert) 18%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card.alert {
+      animation: none;
+      background: color-mix(in oklch, var(--alert) 14%, transparent);
+    }
   }
   .card:focus-visible {
     border-color: var(--accent);

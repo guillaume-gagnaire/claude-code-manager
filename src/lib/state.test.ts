@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { agent, fakeBackend, gitInfo, project, SETTINGS } from '../test/ipc';
 import { conversationOf } from './conversations.svelte';
 import { app } from './state.svelte';
@@ -129,6 +129,51 @@ describe('AppState', () => {
     expect(app.project?.id).toBe('p2');
     app.nextWaiting();
     expect(app.agent?.id).toBe('a2');
+  });
+
+  it('flags an agent that asks, finishes or fails out of sight until it is seen', async () => {
+    const { emit } = await start();
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    // b1 (another project) finishes, a2 (not selected) asks: both need a look.
+    emit({ type: 'agent', agent: agent({ id: 'b1', projectId: 'p2', name: 'landing', status: 'running' }) });
+    emit({ type: 'agent', agent: agent({ id: 'b1', projectId: 'p2', name: 'landing', status: 'done' }) });
+    emit({ type: 'agent', agent: agent({ id: 'a2', name: 'tests-e2e', createdAt: 2, status: 'waiting' }) });
+    expect(app.attention).toEqual({ b1: true, a2: true });
+    expect(app.attentionIn('p2').map((a) => a.id)).toEqual(['b1']);
+    // The agent on screen, window in front, is never flagged.
+    emit({ type: 'agent', agent: agent({ status: 'running' }) });
+    emit({ type: 'agent', agent: agent({ status: 'done' }) });
+    expect(app.attention.a1).toBeUndefined();
+    // Shown: seen.
+    app.selectAgent('b1');
+    app.markSeen();
+    expect(app.attention).toEqual({ a2: true });
+    // Answered from elsewhere (claude.ai): nothing left to look at.
+    emit({ type: 'agent', agent: agent({ id: 'a2', name: 'tests-e2e', createdAt: 2, status: 'running' }) });
+    expect(app.attention).toEqual({});
+    focus.mockRestore();
+  });
+
+  it('flags the agent on screen when the window is in the background, until it comes back', async () => {
+    const { emit } = await start();
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    emit({ type: 'agent', agent: agent({ status: 'running' }) });
+    emit({ type: 'agent', agent: agent({ status: 'waiting' }) });
+    expect(app.attention).toEqual({ a1: true });
+    app.markSeen();
+    expect(app.attention).toEqual({ a1: true });
+    focus.mockReturnValue(true);
+    app.markSeen();
+    expect(app.attention).toEqual({});
+    focus.mockRestore();
+  });
+
+  it('goes to an agent that finished out of sight with Ctrl+J', async () => {
+    const { emit } = await start();
+    emit({ type: 'agent', agent: agent({ id: 'b1', projectId: 'p2', name: 'landing', status: 'running' }) });
+    emit({ type: 'agent', agent: agent({ id: 'b1', projectId: 'p2', name: 'landing', status: 'done' }) });
+    app.nextWaiting();
+    expect(app.agent?.id).toBe('b1');
   });
 
   it('turns backend errors into error toasts', async () => {

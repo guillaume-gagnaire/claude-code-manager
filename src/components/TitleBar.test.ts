@@ -30,6 +30,23 @@ describe('TitleBar', () => {
     expect(screen.getByRole('img', { name: 'Escouade' })).toHaveAttribute('src', '/logo.svg');
   });
 
+  it('makes the tab of a project with an agent to look at blink, in the color of what happened', async () => {
+    fakeBackend();
+    render(TitleBar);
+    const other = screen.getByRole('button', { name: /studio-web/ });
+    expect(other).not.toHaveClass('alert');
+    app.attention = { b1: true };
+    app.agents.b1 = { ...app.agents.b1, status: 'error' };
+    await Promise.resolve();
+    expect(other).toHaveClass('alert');
+    expect(other.style.getPropertyValue('--alert')).toBe('var(--del)');
+    expect(other).toHaveAttribute('title', expect.stringContaining('À voir'));
+    // The active project's own tab does not blink: its agent's card does.
+    app.attention = { a1: true };
+    await Promise.resolve();
+    expect(screen.getByRole('button', { name: /demo-api/ })).not.toHaveClass('alert');
+  });
+
   it('shows one tab per project with its waiting badge and git counter', () => {
     fakeBackend();
     app.git = { p1: gitInfo({ modified: 2, added: 1, total: 3 }) };

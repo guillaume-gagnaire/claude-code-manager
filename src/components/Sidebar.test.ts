@@ -28,6 +28,17 @@ describe('Sidebar', () => {
     expect(screen.getByText(/Archivés \(1\)/)).toBeInTheDocument();
   });
 
+  it('makes the card of an agent to look at blink until it is seen', async () => {
+    fakeBackend();
+    render(Sidebar, { project: project() });
+    const card = screen.getByRole('button', { name: /tests-e2e/ });
+    expect(card).not.toHaveClass('alert');
+    app.attention = { a2: true };
+    await Promise.resolve();
+    expect(card).toHaveClass('alert');
+    expect(card.style.getPropertyValue('--alert')).toBe('var(--wait)');
+  });
+
   it('renames an agent once with Enter (the blur that follows does not rename again)', async () => {
     const backend = fakeBackend();
     render(Sidebar, { project: project() });

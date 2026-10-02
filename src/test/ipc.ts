@@ -118,6 +118,7 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   const projects = over.projects ?? [project()];
   app.projects = projects;
   app.agents = Object.fromEntries((over.agents ?? []).map((a) => [a.id, a]));
+  app.attention = {};
   app.ui = { activeProject: projects[0]?.id ?? null, view: 'project', selectedAgent: {} };
   app.settings = { ...SETTINGS };
   app.usage = { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 };

@@ -39,12 +39,21 @@
   const warmSelected = createWarmer((id) => api.warmAgent(id).catch(() => {}));
   $effect(() => warmSelected(app.agent));
 
+  // An agent that needed a look stops blinking once it is on screen, window in front.
+  $effect(() => {
+    void app.agent?.id;
+    void app.term;
+    void app.runCommand;
+    void app.ui.view;
+    app.markSeen();
+  });
+
   function onKeydown(e: KeyboardEvent) {
     if (handleShortcut(e)) e.preventDefault();
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onfocus={() => app.markSeen()} />
 
 <div class="root">
   <TitleBar />

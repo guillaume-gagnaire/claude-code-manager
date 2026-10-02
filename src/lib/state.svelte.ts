@@ -6,6 +6,7 @@ import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
 import type {
   Agent,
+  AgentStatus,
   EditorInfo,
   GitInfo,
   LaunchState,
@@ -40,6 +41,9 @@ export interface Toast {
   text: string;
   kind: 'info' | 'error' | 'ok';
 }
+
+/** Statuses that call for the user: a question, the end of a turn, an error. */
+const ALERT: ReadonlySet<AgentStatus> = new Set(['waiting', 'done', 'error']);
 
 export interface UpdateInfo {
   version: string;
@@ -80,6 +84,11 @@ class AppState {
   gitTick = $state(0);
   update = $state<UpdateInfo | null>(null);
   focusComposer = $state(0);
+  /**
+   * Agents that asked a question, finished or failed while not on screen, and that the user
+   * has not looked at since: their project tab and their card blink.
+   */
+  attention = $state<Record<string, true>>({});
 
   project = $derived(this.projects.find((p) => p.id === this.ui.activeProject) ?? null);
   split = $derived(this.ui.layout === 'split');
@@ -136,6 +145,7 @@ class AppState {
     const s = await api.subscribe((e) => (this.early ? this.early.push(e) : this.onEvent(e)));
     this.projects = s.projects;
     this.agents = Object.fromEntries(s.agents.map((a) => [a.id, a]));
+    this.attention = {};
     this.ui = { ...s.ui, view: s.ui.view || 'project', selectedAgent: s.ui.selectedAgent ?? {} };
     if (!this.ui.activeProject || !this.projects.some((p) => p.id === this.ui.activeProject)) {
       this.ui.activeProject = this.projects[0]?.id ?? null;
@@ -156,11 +166,15 @@ class AppState {
 
   private onEvent(e: UiEvent) {
     switch (e.type) {
-      case 'agent':
+      case 'agent': {
+        const prev = this.agents[e.agent.id];
         this.agents[e.agent.id] = e.agent;
+        this.noteAttention(prev, e.agent);
         break;
+      }
       case 'agentRemoved':
         delete this.agents[e.id];
+        delete this.attention[e.id];
         dropConversation(e.id);
         break;
       case 'conv':
@@ -185,6 +199,34 @@ class AppState {
         this.onLaunchExit(e.id, e.code);
         break;
     }
+  }
+
+  /** True when the user can see `id`'s conversation: selected, shown, window in front. */
+  private onScreen(id: string): boolean {
+    const shown = this.ui.view === 'project' && this.agent?.id === id && !this.term && !this.runCommand;
+    return shown && (typeof document === 'undefined' || document.hasFocus());
+  }
+
+  /** An agent that comes to ask, finish or fail out of sight needs a look. */
+  private noteAttention(prev: Agent | undefined, next: Agent) {
+    if (!ALERT.has(next.status) || next.archived) {
+      delete this.attention[next.id];
+    } else if (prev && prev.status !== next.status && !this.onScreen(next.id)) {
+      this.attention[next.id] = true;
+    }
+  }
+
+  /** The agent on screen has been seen (called whenever what is on screen may have changed). */
+  markSeen() {
+    const id = this.agent?.id;
+    if (id && this.attention[id] && this.onScreen(id)) delete this.attention[id];
+  }
+
+  /** Agents of `projectId` that need a look. */
+  attentionIn(projectId: string): Agent[] {
+    return Object.keys(this.attention)
+      .map((id) => this.agents[id])
+      .filter((a) => a && a.projectId === projectId && !a.archived);
   }
 
   persistUi() {
@@ -276,10 +318,10 @@ class AppState {
     }
   }
 
-  /** Next agent waiting for an answer, across all projects (Ctrl+J). */
+  /** Next agent waiting for an answer or needing a look, across all projects (Ctrl+J). */
   nextWaiting() {
     const list = Object.values(this.agents)
-      .filter((a) => !a.archived && a.status === 'waiting')
+      .filter((a) => !a.archived && (a.status === 'waiting' || this.attention[a.id]))
       .sort((a, b) => a.lastActivity - b.lastActivity);
     if (!list.length) return;
     const cur = this.agent?.id;

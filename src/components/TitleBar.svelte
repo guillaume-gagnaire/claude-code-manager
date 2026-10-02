@@ -26,10 +26,21 @@
 
   function stats(p: Project) {
     const agents = Object.values(app.agents).filter((a) => a.projectId === p.id && !a.archived);
+    const seen = app.attentionIn(p.id);
+    // The most pressing kind sets the blink's color: an error, then a question, then an end.
+    const alert = seen.some((a) => a.status === 'error')
+      ? 'var(--del)'
+      : seen.some((a) => a.status === 'waiting')
+        ? 'var(--wait)'
+        : seen.length
+          ? 'var(--ok)'
+          : null;
     return {
       waiting: agents.filter((a) => a.status === 'waiting').length,
       running: agents.some((a) => a.status === 'running'),
       changes: app.git[p.id]?.total ?? 0,
+      alert,
+      alertTitle: seen.length ? `À voir : ${seen.map((a) => a.name).join(', ')}` : null,
     };
   }
 
@@ -131,10 +142,12 @@
       <button
         class="tab"
         class:active
+        class:alert={!!s.alert && !active}
         class:drop-before={dropIndex === i && dragId !== p.id}
         style:--tab-color={p.color}
+        style:--alert={s.alert}
         draggable="true"
-        title={p.path}
+        title={s.alertTitle && !active ? `${s.alertTitle}\n${p.path}` : p.path}
         onclick={() => app.selectProject(p.id)}
         oncontextmenu={(e) => tabMenu(e, p)}
         onauxclick={(e) => e.button === 1 && tabMenu(e, p)}
@@ -279,6 +292,26 @@
     border-color: var(--line2);
     border-top-color: var(--tab-color, transparent);
     color: var(--text);
+  }
+  /* A project with an agent to look at blinks until that agent is seen. */
+  .tab.alert {
+    color: var(--text);
+    border-top-color: var(--alert);
+    animation: tabAlert 1.1s ease-in-out infinite alternate;
+  }
+  @keyframes tabAlert {
+    from {
+      background: transparent;
+    }
+    to {
+      background: color-mix(in oklch, var(--alert) 26%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tab.alert {
+      animation: none;
+      background: color-mix(in oklch, var(--alert) 20%, transparent);
+    }
   }
   .tab.stats.active {
     border-top-color: var(--line2);
