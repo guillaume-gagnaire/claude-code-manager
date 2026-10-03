@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { agent, fakeBackend, gitInfo, project, SETTINGS } from '../test/ipc';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { agent, fakeBackend, gitInfo, project, resetApp, SETTINGS } from '../test/ipc';
 import { conversationOf } from './conversations.svelte';
 import { app } from './state.svelte';
 import type { InitialState, LaunchState, UiEvent } from './types';
@@ -259,5 +259,77 @@ describe('AppState launch commands', () => {
     expect(app.selectedTerm.p1).toBeNull();
     app.selectAgent('a1');
     expect(app.selectedLaunch.p1).toBeNull();
+  });
+});
+
+describe('editor', () => {
+  const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\wt', branch: 'escouade/wt', baseBranch: 'main' };
+  beforeEach(() => {
+    resetApp({ agents: [agent(), agent({ id: 'a2', name: 'wt', createdAt: 2, worktree: wt })] });
+  });
+
+  it('opens on a source and a file with its folders unfolded, and reopens as it was left', async () => {
+    fakeBackend();
+    await app.openEditor({ source: 'a2', path: 'src/a/x.ts' });
+    expect(app.editorOn).toBe(true);
+    expect(app.editor.p1.source).toBe('a2');
+    expect(app.editor.p1.places.a2).toEqual({ open: ['src/a/x.ts'], active: 'src/a/x.ts', expanded: { src: true, 'src/a': true } });
+    app.closeEditor();
+    expect(app.editorOn).toBe(false);
+    await app.openEditor({ source: 'a2' });
+    expect(app.editor.p1.places.a2.open).toEqual(['src/a/x.ts']);
+  });
+
+  it('opens an absolute path from its source root, at a line', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false }) });
+    await app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\.claude\\worktrees\\wt\\src\\x.ts', line: 12 });
+    expect(app.editor.p1.places.a2.active).toBe('src/x.ts');
+    expect(app.editor.p1.reveal).toMatchObject({ path: 'src/x.ts', line: 12 });
+  });
+
+  it('closes a tab and shows the last one left', async () => {
+    fakeBackend();
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    await app.openEditor({ source: 'project', path: 'b.ts' });
+    app.closeEditorTab('p1', 'project', 'b.ts');
+    expect(app.editor.p1.places.project).toMatchObject({ open: ['a.ts'], active: 'a.ts' });
+  });
+
+  it('follows the agent picked in the sidebar, and gives way to a terminal or a launch', async () => {
+    fakeBackend();
+    await app.openEditor({ source: 'project' });
+    app.selectAgent('a2');
+    expect(app.editor.p1.source).toBe('a2');
+    app.selectAgent('a1');
+    expect(app.editor.p1.source).toBe('project');
+    expect(app.editorOn).toBe(true);
+    app.selectTerm('t1');
+    expect(app.editorOn).toBe(false);
+  });
+
+  it('does not count a conversation hidden by the editor as seen', async () => {
+    fakeBackend();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    app.ui.selectedAgent.p1 = 'a1';
+    await app.openEditor({ source: 'project' });
+    app.markSeen();
+    app.attention = { a1: true };
+    app.markSeen();
+    expect(app.attention).toEqual({ a1: true });
+    app.closeEditor();
+    app.markSeen();
+    expect(app.attention).toEqual({});
+    vi.restoreAllMocks();
+  });
+});
+
+describe('quitting with unsaved files', () => {
+  it('asks before quitting, and quits once confirmed', async () => {
+    const { emit, backend } = await start();
+    emit({ type: 'quitRequested', unsaved: 2 });
+    expect(app.modal).toMatchObject({ kind: 'confirm', title: 'Quitter Escouade ?', confirm: 'Quitter quand même' });
+    expect((app.modal as any).body).toContain('2 fichiers ne sont pas enregistrés');
+    await (app.modal as any).onConfirm(false);
+    expect(backend.called('quit_app')).toHaveLength(1);
   });
 });

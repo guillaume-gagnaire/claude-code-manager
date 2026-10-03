@@ -2,6 +2,9 @@
 
 import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
+import { ancestors } from './editor/tree';
+import { trees } from './editor/trees.svelte';
+import { plural, relPath } from './format';
 import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
 import type {
@@ -51,6 +54,23 @@ export interface UpdateInfo {
   install: () => Promise<void>;
 }
 
+/** What the editor shows for one source of a project. */
+export interface EditorPlace {
+  open: string[];
+  active: string | null;
+  /** Folders shown open in the tree. */
+  expanded: Record<string, boolean>;
+}
+
+/** The editor of a project: shown or not, its source ('project' or an agent id) and, per source, its tabs. */
+export interface EditorState {
+  on: boolean;
+  source: string;
+  places: Record<string, EditorPlace>;
+  /** A line to bring into view (`seq` changes for each request). */
+  reveal: { path: string; line: number; seq: number } | null;
+}
+
 class AppState {
   ready = $state(false);
   projects = $state<Project[]>([]);
@@ -89,8 +109,11 @@ class AppState {
    * has not looked at since: their project tab and their card blink.
    */
   attention = $state<Record<string, true>>({});
+  editor = $state<Record<string, EditorState>>({});
 
   project = $derived(this.projects.find((p) => p.id === this.ui.activeProject) ?? null);
+  /** The editor of the project on screen is open. */
+  editorOn = $derived(!!(this.project && this.editor[this.project.id]?.on));
   split = $derived(this.ui.layout === 'split');
   /** Estimated cost of the turns running now (their exact cost joins `usage.todayCost` at their end). */
   liveCost = $derived(Object.values(this.agents).reduce((sum, a) => sum + (a.liveCost ?? 0), 0));
@@ -201,12 +224,22 @@ class AppState {
         this.exitedTerms[e.id] = e.code;
         this.onLaunchExit(e.id, e.code);
         break;
+      case 'quitRequested':
+        this.modal = {
+          kind: 'confirm',
+          title: 'Quitter Escouade ?',
+          body: `${plural(e.unsaved, 'fichier n’est pas enregistré', 'fichiers ne sont pas enregistrés')} dans l’éditeur : leurs modifications seront perdues.`,
+          confirm: 'Quitter quand même',
+          danger: true,
+          onConfirm: () => api.quit(),
+        };
+        break;
     }
   }
 
   /** True when the user can see `id`'s conversation: selected, shown, window in front. */
   private onScreen(id: string): boolean {
-    const shown = this.ui.view === 'project' && this.agent?.id === id && !this.term && !this.runCommand;
+    const shown = this.ui.view === 'project' && this.agent?.id === id && !this.term && !this.runCommand && !this.editorOn;
     return shown && (typeof document === 'undefined' || document.hasFocus());
   }
 
@@ -270,6 +303,11 @@ class AppState {
     this.ui.selectedAgent[a.projectId] = id;
     this.selectedTerm[a.projectId] = null;
     this.selectedLaunch[a.projectId] = null;
+    const ed = this.editor[a.projectId];
+    if (ed?.on) {
+      ed.source = a.worktree ? a.id : 'project';
+      ed.places[ed.source] ??= { open: [], active: null, expanded: {} };
+    }
     this.persistUi();
     this.focusComposer++;
   }
@@ -278,14 +316,63 @@ class AppState {
     const p = this.project;
     if (!p) return;
     this.selectedTerm[p.id] = id;
-    if (id) this.selectedLaunch[p.id] = null;
+    if (id) {
+      this.selectedLaunch[p.id] = null;
+      this.closeEditor(p.id);
+    }
   }
 
   selectLaunch(commandId: string | null) {
     const p = this.project;
     if (!p) return;
     this.selectedLaunch[p.id] = commandId;
-    if (commandId) this.selectedTerm[p.id] = null;
+    if (commandId) {
+      this.selectedTerm[p.id] = null;
+      this.closeEditor(p.id);
+    }
+  }
+
+  /** Opens the editor of a project on `source`; with a file (`path` from the source's root, or an absolute `abs`), shows it. */
+  async openEditor(req: { projectId?: string; source: string; path?: string; abs?: string; line?: number }) {
+    const projectId = req.projectId ?? this.ui.activeProject;
+    if (!projectId) return;
+    this.ui.activeProject = projectId;
+    this.ui.view = 'project';
+    this.selectedTerm[projectId] = null;
+    this.selectedLaunch[projectId] = null;
+    const st = (this.editor[projectId] ??= { on: true, source: req.source, places: {}, reveal: null });
+    st.on = true;
+    st.source = req.source;
+    const place = (st.places[req.source] ??= { open: [], active: null, expanded: {} });
+    let path = req.path;
+    if (!path && req.abs) {
+      const t = trees.get(projectId, req.source) ?? (await trees.load(projectId, req.source).catch(() => undefined));
+      if (t) path = relPath(t.root, req.abs);
+    }
+    if (path) {
+      if (!place.open.includes(path)) place.open.push(path);
+      place.active = path;
+      for (const d of ancestors(path)) place.expanded[d] = true;
+      if (req.line) st.reveal = { path, line: req.line, seq: (st.reveal?.seq ?? 0) + 1 };
+    }
+    this.persistUi();
+  }
+
+  closeEditor(projectId = this.ui.activeProject) {
+    const st = projectId ? this.editor[projectId] : undefined;
+    if (st) st.on = false;
+  }
+
+  closeEditorTab(projectId: string, source: string, path: string) {
+    const place = this.editor[projectId]?.places[source];
+    if (!place) return;
+    place.open = place.open.filter((p) => p !== path);
+    if (place.active === path) place.active = place.open.at(-1) ?? null;
+  }
+
+  toggleEditorDir(projectId: string, source: string, dir: string) {
+    const place = this.editor[projectId]?.places[source];
+    if (place) place.expanded[dir] = !place.expanded[dir];
   }
 
   /** A launch command's process is up; it may have ended, or been stopped, in the meantime. */

@@ -44,6 +44,7 @@
     void app.agent?.id;
     void app.term;
     void app.runCommand;
+    void app.editorOn;
     void app.ui.view;
     app.markSeen();
   });
