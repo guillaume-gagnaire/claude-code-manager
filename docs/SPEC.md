@@ -45,11 +45,11 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 
 - **Agents** : compteur, « + Nouvel agent ». Carte : statut (Prêt / En cours / Question / Terminé), nom, modèle · durée active, tokens · coût · nb fichiers.
 - Nom créé en `agent-N`, puis renommé automatiquement en slug par Haiku après le premier message. Renommable (double-clic).
-- Clic droit : Renommer, Archiver (historique du projet, réouvrable), Supprimer (arrête le process, supprime le worktree après confirmation si non mergé).
+- Clic droit : Renommer, Archiver (historique du projet, réouvrable), Ouvrir dans l'éditeur, Supprimer (arrête le process, supprime le worktree après confirmation si non mergé).
 - **Remote control** (clic droit, par agent, désactivé par défaut) : la session de l'agent devient accessible depuis claude.ai et l'app Claude mobile, sous le nom « projet · agent » (requête de contrôle `remote_control`). Son process reste lancé (démarré avec l'app, jamais arrêté pour inactivité) et retrouve la même session distante après un redémarrage (`reattach_session_id`, `keep_session_on_exit`), donc le lien reste valable. Les messages envoyés depuis claude.ai s'affichent dans l'app (« depuis claude.ai ») grâce à `--replay-user-messages` ; l'écho des messages envoyés depuis l'app est écarté par son uuid. Icône sur la carte (connecté / en attente) ; clic droit : Ouvrir sur claude.ai, Copier le lien. Archiver ou supprimer l'agent met fin à sa session distante.
 - **Lancement** (entre Agents et Terminaux) : les commandes qui lancent le projet, configurées via ⚙ ou le clic droit sur l'onglet (nom, ligne de commande, shell parmi ceux détectés, sous-dossier optionnel ; enregistrées avec le projet). Chacune tourne dans son propre terminal ConPTY (`pwsh -Command …`, `bash --login -c …`, `wsl -- bash -lc …`), sans saisie : un clic sur la commande affiche son log dans la zone principale (xterm.js en lecture seule, gardé d'un lancement à l'autre avec un séparateur « relancé à HH:MM »). Statut en direct : prêt, en cours, arrêté (stoppé depuis l'app), terminé (code 0), planté (code N, avec une notification). Lancer ▶, relancer ⟳, stopper ■ (arrête aussi les programmes lancés par la commande), « Tout lancer » / « Tout arrêter ». Fermer le projet arrête ses commandes ; elles ne survivent pas à un redémarrage.
 - **Terminaux** : menu `+` → PowerShell 7 (cherché dans le PATH, Program Files et l'alias du Microsoft Store ; à défaut, Windows PowerShell 5.1), Git Bash, WSL (Ubuntu). Vrai terminal (ConPTY via portable-pty + xterm.js WebGL) : autocomplétion native du shell (Tab / PSReadLine / bash-completion), historique, Ctrl+R, couleurs ANSI, programmes plein écran (vim, less, htop), redimensionnement, copier/coller, liens cliquables, recherche. Les terminaux ne survivent pas à un redémarrage.
-- **Pied** : chemin, branche, `~ modifiés / + ajoutés / − supprimés`, sélecteur de couleur.
+- **Pied** : chemin, branche (et « Parcourir » : l'éditeur sur la branche du projet), `~ modifiés / + ajoutés / − supprimés`, sélecteur de couleur.
 
 ## Conversation
 
@@ -74,10 +74,11 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 
 ## Éditeur
 
-- Mode éditeur dans la zone principale d'un projet : « `</>` Éditeur » dans l'en-tête d'un agent (son worktree, ou le projet sans worktree), « Parcourir » dans le pied de la barre latérale et « Éditeur » dans la barre d'onglets (branche du projet), bouton `</>` et clic droit sur un fichier non commité, liens des fichiers édités dans la conversation (à la ligne modifiée). Remplace l'ouverture dans un éditeur externe.
+- Mode éditeur dans la zone principale d'un projet. Points d'entrée : « `</>` Éditeur » dans l'en-tête d'un agent et « Ouvrir dans l'éditeur » au clic droit sur un agent (son worktree, ou le projet sans worktree) ; « Parcourir » sur la ligne de la branche, dans le pied de la barre latérale, et « Éditeur » dans la barre d'onglets (branche du projet) ; bouton `</>` et clic droit sur un fichier non commité ; dans la conversation, le chemin du fichier des lignes Edit / Write / MultiEdit (ouvert à la première ligne modifiée) et les fichiers listés par la carte « Tâche terminée ». Un fichier en dehors du dossier de la source ne s'ouvre pas (message). Remplace l'ouverture dans un éditeur externe.
+- Choisir un agent dans la barre latérale bascule l'éditeur sur sa source ; « + Nouvel agent », un terminal, une commande de lancement, une notification ou `Ctrl+J` ferment l'éditeur pour montrer ce qu'ils ouvrent (ses onglets sont gardés).
 - Sélecteur de source : branche du projet ou worktree d'un agent (nombre de modifications) ; arborescence des fichiers connus de git (ignorés exclus), lettres M / A, onglets avec point « non enregistré ».
-- CodeMirror 6 aux couleurs du design : coloration, recherche (Ctrl+F), indentation détectée, marques des lignes modifiées par rapport à HEAD (projet) ou à la branche de départ (worktree), compte dans l'en-tête.
-- Ctrl+S enregistre (fins de ligne et BOM conservés, écriture atomique). Un fichier changé sur le disque se recharge s'il n'est pas modifié ; sinon un bandeau propose « Recharger » ou « Garder ma version ». Fermer un onglet ou quitter avec des fichiers non enregistrés demande confirmation.
+- CodeMirror 6 aux couleurs du design : coloration, recherche (Ctrl+F), indentation détectée, marques des lignes modifiées par rapport à HEAD (projet) ou à la branche de départ (worktree), compte dans le fil d'Ariane (« N lignes modifiées vs main »).
+- Ctrl+S ou « Enregistrer » enregistre (fins de ligne et BOM conservés, écriture atomique). Un fichier changé sur le disque se recharge s'il n'est pas modifié ; sinon un bandeau propose « Recharger » ou « Garder ma version ». Un fichier supprimé du disque : bandeau « Ce fichier a été supprimé. » avec « Fermer » ou « Le recréer en enregistrant ». Fermer un onglet ou quitter avec des fichiers non enregistrés demande confirmation ; supprimer un agent ou fermer un projet prévient des fichiers non enregistrés qui seront perdus.
 
 ## Notifications
 
@@ -110,7 +111,7 @@ Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Wind
 
 ## Raccourcis (défauts)
 
-`Ctrl+1..9` projets · `Ctrl+N` nouvel agent · `Ctrl+J` prochain agent en attente · `Ctrl+Maj+L` disposition · `Échap` interrompre · `Ctrl+,` réglages.
+`Ctrl+1..9` projets · `Ctrl+N` nouvel agent · `Ctrl+J` prochain agent en attente · `Ctrl+Maj+L` disposition · `Ctrl+S` enregistrer (éditeur) · `Échap` interrompre · `Ctrl+,` réglages.
 
 ## Livraison
 
