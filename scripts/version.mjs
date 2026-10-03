@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Keeps the app version identical in package.json, tauri.conf.json and Cargo.toml.
-//   node scripts/version.mjs 1.2.0     → sets the version everywhere
-//   node scripts/version.mjs --check v1.2.0 → exits 1 unless every manifest has that version
+//   node scripts/version.mjs 1.2.0 (or v1.2.0, a tag) → sets the version everywhere
+//   node scripts/version.mjs                         → prints the version of each manifest
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,17 +55,8 @@ export function setVersion(root, input) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const [first, second] = process.argv.slice(2);
-  if (first === '--check') {
-    const want = String(second ?? '').replace(/^v/, '');
-    const got = readVersions(root);
-    const bad = Object.entries(got).filter(([, v]) => v !== want);
-    if (bad.length) {
-      console.error(`version mismatch with ${second}: ${JSON.stringify(got)}`);
-      process.exit(1);
-    }
-    console.log(`all manifests at ${want}`);
-  } else if (first) {
+  const [first] = process.argv.slice(2);
+  if (first) {
     console.log(`version set to ${setVersion(root, first)}`);
   } else {
     console.log(JSON.stringify(readVersions(root)));

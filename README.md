@@ -117,7 +117,9 @@ La CI (`.github/workflows/ci.yml`) exécute l'ensemble sur chaque push et pull r
    git push origin main v0.2.0
    ```
 
-Le workflow `release.yml` vérifie que le tag correspond à la version, crée la release, puis, sous Windows et sous macOS en parallèle, lance les tests, construit l'installeur (`.exe` NSIS ; `.dmg` et `.app.tar.gz` universels), le signe et l'ajoute à la release avec le `latest.json` utilisé par la mise à jour automatique, commun aux deux systèmes.
+   Ou crée la release depuis la page GitHub (« Draft a new release », nouveau tag `v0.2.0` sur `main`, « Publish ») : l'app prend la version du tag, même si celle de `main` n'a pas été montée.
+
+Le workflow `release.yml` vérifie que le tag est une version, crée la release, puis, sous Windows et sous macOS en parallèle, donne à l'app la version du tag, lance les tests, construit l'installeur (`.exe` NSIS ; `.dmg` et `.app.tar.gz` universels), le signe et l'ajoute à la release avec le `latest.json` utilisé par la mise à jour automatique, commun aux deux systèmes. La mise à jour lit le `latest.json` de la dernière release : si une construction échoue, la release repasse en brouillon, pour que la mise à jour retrouve la précédente. Pour réessayer, supprime ce brouillon et son tag sur GitHub, corrige, puis publie à nouveau.
 
 Tague toujours la tête de `main`, et attends que la release soit créée (première minute du workflow) avant de pousser d'autres commits : une fois `main` plus loin que le tag, le `GITHUB_TOKEN` des Actions n'a plus le droit de créer la release (« Resource not accessible by integration »).
 

@@ -1,8 +1,8 @@
 name: Release
 
-# Push a tag `vX.Y.Z` (after `node scripts/version.mjs X.Y.Z` and a commit) to publish a
-# release: NSIS installer (Windows), universal app and disk image (macOS), signed updater
-# artifacts and the latest.json of the in-app updater, which holds both systems.
+# A tag `vX.Y.Z` (pushed, or created with a release on GitHub's page) publishes a release: NSIS
+# installer (Windows), universal app and disk image (macOS), signed updater artifacts and the
+# latest.json of the in-app updater, which holds both systems. The app gets the tag's version.
 on:
   push:
     tags: ['v*']
@@ -17,8 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check that the tag matches the app version
-        run: node scripts/version.mjs --check ${{ github.ref_name }}
+      # Sets it in this checkout only: fails unless the tag is a version.
+      - name: Check that the tag is a version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/version.mjs "$TAG"
 
       # Created before the long builds, while the tag is still the head of main: once main has
       # moved past it, GITHUB_TOKEN may no longer create the release ("Resource not accessible by
@@ -75,6 +78,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Even when main's version was not bumped (a release created on GitHub's page): v0.1.12 was
+      # refused for that, its release stayed empty and the updater found no latest.json.
+      - name: App version from the tag
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/version.mjs "$TAG"
+
       - name: Tests
         run: |
           npm test
@@ -116,3 +127,22 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # The updater reads the latest release: one without latest.json, or whose latest.json misses a
+  # system (one build failed), would stop updates. Back to draft, the previous release is the
+  # latest again.
+  guard:
+    name: Keep the updater on a complete release
+    needs: [create, build]
+    if: always() && needs.build.result != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Back to draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null || exit 0
+          echo "::error::$TAG was not built for every system: back to draft, the updater stays on the previous release"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true
+          exit 1
