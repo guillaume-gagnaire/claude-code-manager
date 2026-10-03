@@ -196,6 +196,38 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// `rel` inside `root`, refused when it could leave it: absolute or drive-prefixed paths, `..`,
+/// or a symbolic link on the way that points outside. `rel` may not exist yet (a file to create).
+#[allow(dead_code)]
+pub fn contained(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
+    use std::path::Component;
+    let out = || anyhow::anyhow!("chemin hors du dossier : {rel}");
+    if rel.trim().is_empty() {
+        return Err(out());
+    }
+    let rel_path = Path::new(rel);
+    if !rel_path
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        return Err(out());
+    }
+    let full = root.join(rel_path);
+    let real_root = std::fs::canonicalize(root)?;
+    // The deepest part that exists, links resolved, must still be inside the root.
+    let mut probe = Some(full.as_path());
+    while let Some(p) = probe {
+        if let Ok(real) = std::fs::canonicalize(p) {
+            if !real.starts_with(&real_root) {
+                return Err(out());
+            }
+            break;
+        }
+        probe = p.parent();
+    }
+    Ok(full)
+}
+
 /// Path relative to `base`, with forward slashes. Falls back to the input when unrelated.
 /// Symbolic links are seen through (on macOS, a folder under /var is reported under
 /// /private/var by the tools that resolve it).
@@ -439,5 +471,49 @@ mod tests {
         );
         assert_eq!(sandbox_dir_from(env(&[("ESCOUADE_DATA_DIR", "")])), None);
         assert_eq!(sandbox_dir_from(env(&[])), None);
+    }
+
+    #[test]
+    fn keeps_a_relative_path_inside_its_root() {
+        let root = test_dir("contained-ok");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        assert_eq!(
+            contained(&root, "src/app.ts").unwrap(),
+            root.join("src/app.ts")
+        );
+        // Not there yet (a file to create): still inside.
+        assert_eq!(
+            contained(&root, "new/deep/b.ts").unwrap(),
+            root.join("new/deep/b.ts")
+        );
+        assert_eq!(contained(&root, "./a.ts").unwrap(), root.join("./a.ts"));
+    }
+
+    #[test]
+    fn refuses_paths_that_leave_their_root() {
+        let root = test_dir("contained-out");
+        for bad in ["../x", "src/../../x", "", "/etc/passwd"] {
+            assert!(contained(&root, bad).is_err(), "{bad}");
+        }
+        if cfg!(windows) {
+            for bad in [r"C:\Windows\win.ini", r"C:x", r"\\server\share\x", r"..\x"] {
+                assert!(contained(&root, bad).is_err(), "{bad}");
+            }
+        }
+    }
+
+    #[test]
+    fn refuses_a_link_that_points_outside() {
+        let root = test_dir("contained-link");
+        let outside = test_dir("contained-link-target");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&outside, root.join("out")).is_ok();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&outside, root.join("out")).is_ok();
+        if !made {
+            // Windows without the right to create links (no developer mode): nothing to check.
+            return;
+        }
+        assert!(contained(&root, "out/secret.txt").is_err());
     }
 }
