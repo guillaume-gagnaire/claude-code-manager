@@ -241,21 +241,22 @@ pub struct Tree {
     pub truncated: bool,
 }
 
-/// What git lists (tracked and untracked, ignored files and the agents' worktrees left out), or
-/// the folder walked when it is not a repository.
+/// What git lists and is still on disk (tracked and untracked, ignored files and the agents'
+/// worktrees left out), or the folder walked when it is not a repository or git cannot list it.
 pub async fn tree(root: &str) -> Tree {
     tree_up_to(root, MAX_TREE_FILES).await
 }
 
 /// `tree`, cut at `max` files (a smaller `max` lets the cut be tested).
 async fn tree_up_to(root: &str, max: usize) -> Tree {
-    let mut files = match git::toplevel(root).await {
-        Some(_) => git::list_files(root).await.unwrap_or_default(),
-        None => {
-            let mut f = git::walk_files(root, max + 1);
-            f.sort();
-            f
-        }
+    let listed = match git::toplevel(root).await {
+        Some(_) => git_files(root).await.ok(),
+        None => None,
+    };
+    // Not a repository, or git cannot list it: the folder is walked.
+    let mut files = match listed {
+        Some(f) => f,
+        None => walk(root, max).await,
     };
     let truncated = files.len() > max;
     files.truncate(max);
@@ -264,6 +265,32 @@ async fn tree_up_to(root: &str, max: usize) -> Tree {
         files,
         truncated,
     }
+}
+
+/// The files git lists that are still on disk: tracked files deleted from the working tree
+/// (not committed yet) are left out.
+async fn git_files(root: &str) -> Result<Vec<String>> {
+    let mut files = git::list_files(root).await?;
+    let gone = git::run(root, &["ls-files", "-z", "--deleted"]).await?;
+    let gone: std::collections::HashSet<String> = String::from_utf8_lossy(&gone)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    files.retain(|f| !gone.contains(f));
+    Ok(files)
+}
+
+/// The folder walked, sorted, off the async workers (it can be 50 000 files).
+async fn walk(root: &str, max: usize) -> Vec<String> {
+    let root = root.to_string();
+    tokio::task::spawn_blocking(move || {
+        let mut f = git::walk_files(&root, max + 1);
+        f.sort();
+        f
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// The version a file is compared with, and what it is called.
@@ -675,5 +702,32 @@ mod tests {
         assert_eq!((t.files.len(), t.truncated), (2, true));
         let t = tree_up_to(&d.to_string_lossy(), 3).await;
         assert_eq!((t.files.len(), t.truncated), (3, false));
+    }
+
+    #[tokio::test]
+    async fn the_tree_leaves_out_the_files_deleted_on_disk() {
+        let r = repo("fsedit-tree-deleted");
+        std::fs::write(r.join("gone.md"), "g").unwrap();
+        git(&r, &["add", "gone.md"]);
+        git(&r, &["commit", "-qm", "gone"]);
+        // Deleted in the working tree, or removed from the index too: not on disk either way.
+        std::fs::remove_file(r.join("src/app.ts")).unwrap();
+        git(&r, &["rm", "-q", "gone.md"]);
+        // Still there: a file added to the index, and one git does not know.
+        std::fs::write(r.join("staged.md"), "s").unwrap();
+        git(&r, &["add", "staged.md"]);
+        std::fs::write(r.join("untracked.md"), "u").unwrap();
+        let t = tree(&r.to_string_lossy()).await;
+        assert_eq!(t.files, vec![".gitignore", "staged.md", "untracked.md"]);
+    }
+
+    #[tokio::test]
+    async fn the_tree_walks_the_folder_when_git_cannot_list_it() {
+        let r = repo("fsedit-tree-broken");
+        std::fs::write(r.join("notes.md"), "n").unwrap();
+        // A repository whose index is unreadable: git answers for the folder, not for the files.
+        std::fs::write(r.join(".git/index"), "not an index").unwrap();
+        let t = tree(&r.to_string_lossy()).await;
+        assert_eq!(t.files, vec![".gitignore", "notes.md", "src/app.ts"]);
     }
 }
