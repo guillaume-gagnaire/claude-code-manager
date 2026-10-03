@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { app } from '../../lib/state.svelte';
 import type { ToolItem } from '../../lib/types';
 import ToolRow from './ToolRow.svelte';
@@ -100,5 +100,60 @@ describe('ToolRow', () => {
     });
     expect(container.querySelector('.tool.err')).not.toBeNull();
     expect(screen.getByText('npm ERR! missing script')).toBeInTheDocument();
+  });
+
+  it('opens the edited file at its first changed line, and still expands from the rest of the row', async () => {
+    const onOpenFile = vi.fn();
+    render(ToolRow, {
+      item: tool({
+        name: 'Edit',
+        input: { file_path: 'C:\\code\\app\\src\\auth.ts' },
+        result: { isError: false, add: 1, del: 0, patch: [{ oldStart: 4, newStart: 7, lines: ['+x'] }] },
+      }),
+      cwd: CWD,
+      onOpenFile,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Ouvrir src/auth.ts dans l’éditeur' }));
+    expect(onOpenFile).toHaveBeenCalledWith('C:\\code\\app\\src\\auth.ts', 7);
+    expect(screen.queryByText('x')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getByText('x')).toBeInTheDocument();
+  });
+
+  it('opens a written file without a line, and keeps the row’s own keys for the row only', async () => {
+    const onOpenFile = vi.fn();
+    render(ToolRow, {
+      item: tool({
+        name: 'Write',
+        input: { file_path: 'C:\\code\\app\\notes.md' },
+        result: { isError: false, add: 3, del: 0 },
+      }),
+      cwd: CWD,
+      onOpenFile,
+    });
+    const link = screen.getByRole('button', { name: 'Ouvrir notes.md dans l’éditeur' });
+    link.focus();
+    // Enter on the path is the path's own action: it neither expands the row nor is swallowed by it.
+    await userEvent.keyboard('{Enter}');
+    expect(onOpenFile).toHaveBeenCalledWith('C:\\code\\app\\notes.md', null);
+    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+  });
+
+  it('expands from the keyboard', async () => {
+    render(ToolRow, {
+      item: tool({ input: { command: 'npm test' }, result: { isError: false, text: '12 passed' } }),
+      cwd: CWD,
+      onOpenFile: () => {},
+    });
+    screen.getByRole('button', { expanded: false }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByText('$ npm test')).toBeInTheDocument();
+    await userEvent.keyboard(' ');
+    expect(screen.queryByText('$ npm test')).not.toBeInTheDocument();
+  });
+
+  it('shows a plain path for a command', () => {
+    render(ToolRow, { item: tool({ name: 'Bash', input: { command: 'npm test' } }), cwd: CWD, onOpenFile: () => {} });
+    expect(screen.queryByRole('button', { name: /dans l’éditeur/ })).not.toBeInTheDocument();
   });
 });

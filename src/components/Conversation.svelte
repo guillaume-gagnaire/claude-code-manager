@@ -75,6 +75,10 @@
       full: pct >= 80,
     };
   });
+  // The editor shows the agent's own checkout: its worktree, else the project's.
+  const editorSource = $derived(agent.worktree ? agent.id : 'project');
+  const openFile = (abs: string, line: number | null) =>
+    app.openEditor({ projectId: project.id, source: editorSource, abs, line: line ?? undefined });
   const duration = $derived(fDur(agent.activeMs + (agent.activeSince ? app.now - agent.activeSince : 0)));
   const running = $derived(agent.status === 'running');
 
@@ -156,6 +160,13 @@
       <span class="sub mono">{project.name} / {branch || '—'}</span>
     </div>
     <div style="flex:1"></div>
+    <button
+      class="btn edit"
+      title="Parcourir et éditer les fichiers de cet agent"
+      onclick={() => app.openEditor({ projectId: project.id, source: editorSource })}
+    >
+      <span class="mono glyph">&lt;/&gt;</span>Éditeur
+    </button>
     <div class="metrics">
       <span class="model mono">{modelLabel(agent.model, app.models)}</span>
       <div class="m" title={context.title}>
@@ -264,7 +275,7 @@
           <Thinking {item} />
         {:else if item.kind === 'tool'}
           {#if item.name !== 'AskUserQuestion' && item.name !== 'ExitPlanMode'}
-            <ToolRow {item} cwd={agent.cwd} childrenOf={(id) => children.get(id) ?? []} />
+            <ToolRow {item} cwd={agent.cwd} childrenOf={(id) => children.get(id) ?? []} onOpenFile={openFile} />
           {/if}
         {:else if item.kind === 'question'}
           <QuestionCard {item} agentId={agent.id} pending={agent.pending.includes(item.id)} />
@@ -354,6 +365,20 @@
     color: var(--dim);
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .edit {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 11px;
+    font-size: 12px;
+    font-weight: 600;
+    flex: none;
+  }
+  .edit .glyph {
+    font-size: 11px;
+    color: var(--accent);
   }
   .metrics {
     display: flex;

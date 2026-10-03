@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
-import { agent, fakeBackend, project, resetApp } from '../test/ipc';
+import { agent, fakeBackend, gitInfo, project, resetApp } from '../test/ipc';
 import Sidebar from './Sidebar.svelte';
 
 describe('Sidebar', () => {
@@ -149,5 +149,33 @@ describe('Sidebar remote control', () => {
     fakeBackend();
     render(Sidebar, { project: project() });
     expect(screen.getByTitle(/Remote control : en attente de connexion/)).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar editor entries', () => {
+  it('browses the project branch from its footer, an agent from its menu', async () => {
+    resetApp({ agents: [agent()] });
+    app.git.p1 = gitInfo();
+    fakeBackend();
+    render(Sidebar, { project: project() });
+    await userEvent.click(screen.getByRole('button', { name: 'Parcourir' }));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'project' });
+    app.closeEditor();
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /refacto-auth/ }));
+    menu.open!.items.find((i) => i.label === 'Ouvrir dans l’éditeur')!.onClick!();
+    expect(app.editorOn).toBe(true);
+  });
+
+  it('opens an agent with a worktree on that worktree, and offers nothing for an archived one', async () => {
+    const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a2', branch: 'escouade/a2', baseBranch: 'main' };
+    resetApp({ agents: [agent({ id: 'a2', name: 'wt-agent', worktree: wt }), agent({ id: 'a3', name: 'vieux', archived: true })] });
+    fakeBackend();
+    render(Sidebar, { project: project() });
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /wt-agent/ }));
+    menu.open!.items.find((i) => i.label === 'Ouvrir dans l’éditeur')!.onClick!();
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'a2' });
+    await userEvent.click(screen.getByText(/Archivés/));
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /vieux/ }));
+    expect(menu.open!.items.map((i) => i.label)).not.toContain('Ouvrir dans l’éditeur');
   });
 });

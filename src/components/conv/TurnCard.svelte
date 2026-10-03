@@ -40,7 +40,18 @@
     {#if edits.length}
       <ul class="recap mono" aria-label="Fichiers modifiés">
         {#each edits as e (e.path)}
-          <li><span class="path">{e.path}</span><span class="add">+{e.add}</span><span class="del">−{e.del}</span></li>
+          <li>
+            <button
+              class="path link"
+              title="Ouvrir dans l’éditeur"
+              onclick={() =>
+                app.openEditor({
+                  projectId: agent.projectId,
+                  source: agent.worktree ? agent.id : 'project',
+                  abs: `${agent.cwd}/${e.path}`,
+                })}>{e.path}</button
+            ><span class="add">+{e.add}</span><span class="del">−{e.del}</span>
+          </li>
         {/each}
       </ul>
     {/if}
@@ -119,6 +130,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .link:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .add {
     color: var(--add);

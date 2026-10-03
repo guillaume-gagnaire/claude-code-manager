@@ -58,6 +58,14 @@
       a.archived
         ? { label: 'Restaurer', onClick: () => app.run(api.archiveAgent(a.id, false)) }
         : { label: 'Archiver', hint: 'garde la conversation', onClick: () => app.run(api.archiveAgent(a.id, true)) },
+      ...(a.archived
+        ? []
+        : [
+            {
+              label: 'Ouvrir dans l’éditeur',
+              onClick: () => app.openEditor({ projectId: a.projectId, source: a.worktree ? a.id : 'project' }),
+            },
+          ]),
       ...remoteItems(a),
       { label: '', separator: true },
       { label: 'Supprimer…', danger: true, onClick: () => confirmDelete(a) },
@@ -266,7 +274,10 @@
   </div>
 
   <div class="foot">
-    <div class="path mono" title={project.path}>{tildify(project.path)}</div>
+    <div class="pathrow">
+      <div class="path mono" title={project.path}>{tildify(project.path)}</div>
+      <button class="browse" onclick={() => app.openEditor({ projectId: project.id, source: 'project' })}>Parcourir</button>
+    </div>
     {#if git?.isRepo}
       <div class="branch mono"><span class="ring"></span>{git.branch || '—'}</div>
       <div class="gitc mono">
@@ -552,6 +563,31 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .pathrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pathrow .path {
+    flex: 1;
+    min-width: 0;
+  }
+  .browse {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .browse:hover {
+    color: var(--text);
+    border-color: var(--accent);
   }
   .path {
     font-size: 11.5px;

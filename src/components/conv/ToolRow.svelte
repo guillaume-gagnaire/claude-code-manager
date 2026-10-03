@@ -6,8 +6,21 @@
   import PatchView from './PatchView.svelte';
   import Self from './ToolRow.svelte';
 
-  let { item, cwd, childrenOf = () => [] }: { item: ToolItem; cwd: string; childrenOf?: (id: string) => ConvItem[] } = $props();
+  // `onOpenFile`: opens a file the tool edited (its path) in the editor, at a line.
+  let {
+    item,
+    cwd,
+    childrenOf = () => [],
+    onOpenFile,
+  }: {
+    item: ToolItem;
+    cwd: string;
+    childrenOf?: (id: string) => ConvItem[];
+    onOpenFile?: (abs: string, line: number | null) => void;
+  } = $props();
   let open = $state(false);
+
+  const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
   const children = $derived(childrenOf(item.id));
   const arg = $derived(toolArg(item, cwd));
@@ -18,12 +31,45 @@
     children.filter((c) => c.kind === 'text' && c.text.trim()).at(-1) as { text: string; streaming: boolean } | undefined,
   );
   const expandable = $derived(item.status !== 'running' || children.length > 0);
+  const file = $derived(
+    onOpenFile && FILE_TOOLS.has(item.name) && typeof item.input?.file_path === 'string' ? (item.input.file_path as string) : null,
+  );
+  const firstLine = $derived(item.result?.patch?.[0]?.newStart ?? null);
+  const toggle = () => expandable && (open = !open);
 </script>
 
 <div class="tool" class:err={item.status === 'error'}>
-  <button class="row" onclick={() => expandable && (open = !open)} aria-expanded={open} title={arg}>
+  <!-- Not a <button>: the edited file's path inside it is one. -->
+  <div
+    class="row"
+    role="button"
+    tabindex="0"
+    aria-expanded={open}
+    title={arg}
+    onclick={toggle}
+    onkeydown={(e) => {
+      // The keys of the path's button are its own.
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    }}
+  >
     <span class="badge">{toolLabel(item.name)}</span>
-    <span class="arg">{arg}</span>
+    {#if file}
+      <button
+        class="arg link"
+        aria-label={`Ouvrir ${arg} dans l’éditeur`}
+        title="Ouvrir dans l’éditeur"
+        onclick={(e) => {
+          e.stopPropagation();
+          onOpenFile?.(file, firstLine);
+        }}>{arg}</button
+      >
+    {:else}
+      <span class="arg">{arg}</span>
+    {/if}
     {#if item.status === 'running'}
       <span class="spin" aria-label="en cours"></span>
     {:else if diff}
@@ -32,7 +78,7 @@
       <span class="res">{res}</span>
     {/if}
     {#if subTools.length}<span class="res">{subTools.length} outil{subTools.length > 1 ? 's' : ''}</span>{/if}
-  </button>
+  </div>
   {#if open}
     <div class="detail">
       {#if diff && item.result?.patch?.length}
@@ -50,7 +96,7 @@
         <div class="sub">
           {#if item.input.prompt}<div class="prompt">{item.input.prompt}</div>{/if}
           {#each subTools as c (c.id)}
-            <Self item={c} {cwd} {childrenOf} />
+            <Self item={c} {cwd} {childrenOf} {onOpenFile} />
           {/each}
           {#if subText}<div class="subtext"><Markdown text={subText.text} streaming={subText.streaming} /></div>{/if}
         </div>
@@ -97,6 +143,11 @@
   .row:hover {
     background: color-mix(in oklch, var(--elev) 60%, transparent);
   }
+  /* The tool's frame clips an outline drawn outside the row. */
+  .row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   .badge {
     padding: 2px 6px;
     border-radius: 3px;
@@ -114,6 +165,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .arg.link {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .arg.link:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .add {
     color: var(--add);

@@ -15,6 +15,8 @@ const change = (path: string, agentId: string | null = null, inWorktree = false)
   agentId,
   inWorktree,
 });
+// A file's row (its diff), not the button that opens the file in the editor.
+const row = (file: RegExp) => new RegExp(`^[AMD] ${file.source}`);
 const settle = () => new Promise((r) => setTimeout(r, 200));
 const diffOf = (path: string, line: string) => `diff --git a/${path} b/${path}
 --- a/${path}
@@ -82,9 +84,9 @@ describe('FilesPanel docked in the split layout', () => {
     render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
     expect(await screen.findByText('contenu de src/auth.ts')).toBeInTheDocument();
     expect(backend.called('git_diff').at(-1)?.args).toEqual({ projectId: 'p1', agentId: null, paths: ['src/auth.ts'] });
-    await userEvent.click(screen.getByRole('button', { name: /new\.txt/ }));
+    await userEvent.click(screen.getByRole('button', { name: row(/new\.txt/) }));
     expect(await screen.findByText('contenu de new.txt')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /new\.txt/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: row(/new\.txt/) })).toHaveAttribute('aria-current', 'true');
     expect(app.modal).toBeNull();
     expect(screen.queryByTitle('Fermer')).not.toBeInTheDocument();
   });
@@ -94,7 +96,7 @@ describe('FilesPanel docked in the split layout', () => {
     let version = 1;
     fakeBackend({ git_files: () => files, git_diff: (a: any) => diffOf(a.paths[0], `${a.paths[0]} v${version}`) });
     render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
-    await userEvent.click(await screen.findByRole('button', { name: /new\.txt/ }));
+    await userEvent.click(await screen.findByRole('button', { name: row(/new\.txt/) }));
     expect(await screen.findByText('new.txt v1')).toBeInTheDocument();
     version = 2;
     app.gitTick++;
@@ -113,7 +115,7 @@ describe('FilesPanel docked in the split layout', () => {
     render(FilesPanel, { project: project(), agent: app.agents.a1, docked: true });
     await screen.findAllByText('x');
     expect(backend.called('git_diff').at(-1)?.args).toEqual({ projectId: 'p1', agentId: 'a2', paths: ['src/wt.ts'] });
-    await userEvent.click(screen.getByRole('button', { name: /README\.md/ }));
+    await userEvent.click(screen.getByRole('button', { name: row(/README\.md/) }));
     await settle();
     expect(backend.called('git_diff').at(-1)?.args).toEqual({ projectId: 'p1', agentId: null, paths: ['README.md'] });
   });
@@ -170,10 +172,10 @@ describe('FilesPanel docked: the file being read stays put', () => {
     expect(await screen.findByText('diff de src/z.ts')).toBeInTheDocument();
     files = [change('src/a.ts', 'a1'), change('src/z.ts', 'a1')];
     app.gitTick++;
-    expect(await screen.findByRole('button', { name: /a\.ts/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: row(/a\.ts/) })).toBeInTheDocument();
     await settle();
     expect(screen.getByText('diff de src/z.ts')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /z\.ts/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: row(/z\.ts/) })).toHaveAttribute('aria-current', 'true');
   });
 
   it('never asks for another agent’s file when switching agents', async () => {
@@ -200,7 +202,7 @@ describe('FilesPanel context menu', () => {
   });
   const entries = () => menu.open?.items.filter((i) => !i.separator) ?? [];
   const click = (label: string) => entries().find((i) => i.label === label)!.onClick!();
-  const rightClick = async (name: RegExp) => fireEvent.contextMenu(await screen.findByRole('button', { name }));
+  const rightClick = async (file: RegExp) => fireEvent.contextMenu(await screen.findByRole('button', { name: row(file) }));
 
   it('acts in the checkout a row comes from, even while another agent’s list is loading', async () => {
     let release: (files: FileChange[]) => void = () => {};
@@ -208,11 +210,11 @@ describe('FilesPanel context menu', () => {
       git_files: (a: any) => (a.agentId === 'a2' ? [change('src/wt.ts', 'a2', true)] : new Promise((r) => (release = r))),
     });
     const { rerender } = render(FilesPanel, { project: project(), agent: app.agents.a2 });
-    await screen.findByRole('button', { name: /wt\.ts/ });
+    await screen.findByRole('button', { name: row(/wt\.ts/) });
     await rerender({ project: project(), agent: app.agents.a1 });
     await settle(); // a1's list is not there yet: the rows are still a2's
     await rightClick(/wt\.ts/);
-    expect(entries().map((i) => i.label)).toEqual(['Abandonner les modifications…']);
+    expect(entries().map((i) => i.label)).toEqual(['Ouvrir dans l’éditeur', 'Abandonner les modifications…']);
     click('Abandonner les modifications…');
     await (app.modal as Extract<typeof app.modal, { kind: 'confirm' }>).onConfirm(false);
     expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a2', path: 'src/wt.ts' });
@@ -244,13 +246,41 @@ describe('FilesPanel context menu', () => {
     app.modal = null;
     await rightClick(/gone\.ts/);
     // A deleted file cannot be opened.
-    expect(
-      entries()
-        .filter((i) => i.label.startsWith('Éditer'))
-        .every((i) => i.disabled),
-    ).toBe(true);
+    expect(entries().find((i) => i.label === 'Ouvrir dans l’éditeur')?.disabled).toBe(true);
     click('Restaurer le fichier');
     expect(app.modal).toBeNull();
     expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: null, path: 'gone.ts' });
+  });
+});
+
+describe('FilesPanel editor entry', () => {
+  it('opens a file in the editor from its row button, and still shows its diff on click', async () => {
+    const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a2', branch: 'escouade/a2', baseBranch: 'main' };
+    resetApp({ agents: [agent({ id: 'a2', name: 'wt', worktree: wt })] });
+    app.ui.selectedAgent.p1 = 'a2';
+    fakeBackend({ git_files: () => [{ path: 'src/wt.ts', status: 'M', add: 1, del: 0, agentId: 'a2', inWorktree: true }] });
+    render(FilesPanel, { project: project(), agent: app.agents.a2 });
+    await userEvent.click(await screen.findByRole('button', { name: 'Ouvrir wt.ts dans l’éditeur' }));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'a2' });
+    expect(app.editor.p1.places.a2.active).toBe('src/wt.ts');
+    await userEvent.click(screen.getByRole('button', { name: /wt\.ts.*src/ }));
+    expect(app.modal).toMatchObject({ kind: 'diff', paths: ['src/wt.ts'] });
+  });
+
+  it('opens a file of the project checkout on the project, from its menu too, and offers nothing for a deleted file', async () => {
+    resetApp({ agents: [agent()] });
+    menu.close();
+    fakeBackend({
+      git_files: () => [change('src/auth.ts', 'a1'), { ...change('gone.ts', 'a1'), status: 'D' }],
+    });
+    render(FilesPanel, { project: project(), agent: app.agents.a1 });
+    await userEvent.click(await screen.findByRole('button', { name: 'Ouvrir auth.ts dans l’éditeur' }));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'project' });
+    expect(app.editor.p1.places.project.active).toBe('src/auth.ts');
+    expect(screen.queryByRole('button', { name: 'Ouvrir gone.ts dans l’éditeur' })).not.toBeInTheDocument();
+    app.closeEditor();
+    await fireEvent.contextMenu(screen.getByRole('button', { name: row(/auth\.ts/) }));
+    menu.open!.items.find((i) => i.label === 'Ouvrir dans l’éditeur')!.onClick!();
+    expect(app.editorOn).toBe(true);
   });
 });

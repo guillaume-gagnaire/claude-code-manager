@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TurnItem } from '../../lib/types';
@@ -22,7 +22,7 @@ const turn = (over: Partial<TurnItem> = {}): TurnItem => ({
 describe('TurnCard', () => {
   beforeEach(() => resetApp());
 
-  it('ends the last turn of a finished agent with the recap of the files it edited, and nothing to click', () => {
+  it('ends the last turn of a finished agent with the recap of the files it edited, and nothing but the files to click', () => {
     const a = agent({ status: 'done', worktree: { path: 'C:\\code\\.claude\\worktrees\\x', branch: 'ccm/x', baseBranch: 'main' } });
     const edits = [
       { path: 'src/auth.ts', add: 12, del: 3 },
@@ -34,8 +34,29 @@ describe('TurnCard', () => {
     expect(screen.getByText('2 fichiers modifiés')).toBeInTheDocument();
     const recap = screen.getAllByRole('listitem');
     expect(recap.map((li) => li.textContent)).toEqual(['src/auth.ts+12−3', 'notes.md+4−0']);
-    // No commit, merge nor review to propose.
-    expect(screen.queryByRole('button')).toBeNull();
+    // No commit, merge nor review to propose: the files are the only buttons.
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['src/auth.ts', 'notes.md']);
+  });
+
+  it('opens an edited file of the recap in the editor, on the worktree of the agent that edited it', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api/.claude/worktrees/x', files: [], truncated: false }) });
+    const a = agent({
+      status: 'done',
+      cwd: 'C:\\code\\demo-api\\.claude\\worktrees\\x',
+      worktree: { path: 'C:\\code\\demo-api\\.claude\\worktrees\\x', branch: 'ccm/x', baseBranch: 'main' },
+    });
+    render(TurnCard, { item: turn(), agent: a, last: true, edits: [{ path: 'src/auth.ts', add: 12, del: 3 }] });
+    await userEvent.click(screen.getByRole('button', { name: 'src/auth.ts' }));
+    await waitFor(() => expect(app.editor.p1?.places.a1?.active).toBe('src/auth.ts'));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'a1' });
+  });
+
+  it('opens an edited file of the recap on the project checkout for an agent without a worktree', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api', files: [], truncated: false }) });
+    render(TurnCard, { item: turn(), agent: agent({ status: 'done' }), last: true, edits: [{ path: 'notes.md', add: 4, del: 0 }] });
+    await userEvent.click(screen.getByRole('button', { name: 'notes.md' }));
+    await waitFor(() => expect(app.editor.p1?.places.project?.active).toBe('notes.md'));
+    expect(app.editor.p1.source).toBe('project');
   });
 
   it('says when the turn edited no file', () => {

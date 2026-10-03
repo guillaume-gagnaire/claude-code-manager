@@ -23,6 +23,9 @@
     };
   });
 
+  // The project on screen (none behind the statistics).
+  const activeProject = $derived(app.ui.view === 'project' ? (app.projects.find((p) => p.id === app.ui.activeProject) ?? null) : null);
+
   function stats(p: Project) {
     const agents = Object.values(app.agents).filter((a) => a.projectId === p.id && !a.archived);
     const seen = app.attentionIn(p.id);
@@ -173,6 +176,19 @@
   </nav>
   <div class="spacer" data-tauri-drag-region></div>
   <div class="right">
+    {#if activeProject}
+      <button
+        class="tab stats"
+        aria-label="Ouvrir l’éditeur du projet"
+        title="Parcourir et éditer les fichiers du projet"
+        onclick={() => app.openEditor({ projectId: activeProject.id, source: 'project' })}
+      >
+        <svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"
+          ><path d="M4.5 2.5 1 6l3.5 3.5M9.5 2.5 13 6l-3.5 3.5" /></svg
+        >
+        Éditeur
+      </button>
+    {/if}
     <button class="tab stats" class:active={app.ui.view === 'stats'} onclick={() => app.openStats()}>
       <span class="bars"><span style="height:6px"></span><span style="height:12px"></span><span style="height:9px"></span></span>
       Stats

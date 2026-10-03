@@ -135,3 +135,22 @@ describe('TitleBar', () => {
     expect(app.toasts.at(-1)?.text).toMatch(/projet verrouillé/);
   });
 });
+
+describe('TitleBar editor button', () => {
+  it('opens the editor on the active project', async () => {
+    resetApp({ projects: [project(), project({ id: 'p2', name: 'studio-web' })] });
+    app.ui.activeProject = 'p2';
+    fakeBackend();
+    render(TitleBar);
+    await userEvent.click(screen.getByRole('button', { name: 'Ouvrir l’éditeur du projet' }));
+    expect(app.editor.p2).toMatchObject({ on: true, source: 'project' });
+  });
+
+  it('is not offered behind the statistics, where no project is shown', async () => {
+    resetApp();
+    app.ui.view = 'stats';
+    fakeBackend();
+    render(TitleBar);
+    expect(screen.queryByRole('button', { name: 'Ouvrir l’éditeur du projet' })).not.toBeInTheDocument();
+  });
+});

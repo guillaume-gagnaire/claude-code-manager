@@ -98,8 +98,18 @@
     return f.inWorktree ? f.agentId : null;
   }
 
+  /** Shows `f` in the editor, on the checkout it comes from. */
+  function openInEditor(f: FileChange) {
+    app.openEditor({ projectId: project.id, source: diffOwner(f) ?? 'project', path: f.path });
+  }
+
   function fileMenu(e: MouseEvent, f: FileChange) {
-    menu.show(e, [discardItem(f, diffOwner(f))]);
+    menu.show(e, [
+      // A deleted file has nothing to open.
+      { label: 'Ouvrir dans l’éditeur', onClick: () => openInEditor(f), disabled: f.status === 'D' },
+      { label: '', separator: true },
+      discardItem(f, diffOwner(f)),
+    ]);
   }
 
   function discardItem(f: FileChange, owner: string | null): MenuItem {
@@ -155,22 +165,33 @@
     {/if}
     {#each files as f (keyOf(f))}
       {@const on = current !== null && keyOf(current) === keyOf(f)}
-      <button
-        class="file"
-        class:on
-        aria-current={on ? 'true' : undefined}
-        onclick={() => (docked ? (picked = keyOf(f)) : openDiff([f.path], diffOwner(f), f.path))}
-        oncontextmenu={(e) => fileMenu(e, f)}
-      >
-        <span class="st" style:color={SC[f.status]}>{f.status}</span>
-        <span class="names">
-          <span class="fname mono">{basename(f.path)}</span>
-          <span class="dir mono">{dirname(f.path)}</span>
-        </span>
-        {#if scope === 'project' && f.agentId}<span class="tag mono">{agentName(f.agentId)}</span>{/if}
-        <span class="add mono">+{f.add}</span>
-        <span class="del mono">−{f.del}</span>
-      </button>
+      <div class="filerow" class:on>
+        <button
+          class="file"
+          class:on
+          aria-current={on ? 'true' : undefined}
+          onclick={() => (docked ? (picked = keyOf(f)) : openDiff([f.path], diffOwner(f), f.path))}
+          oncontextmenu={(e) => fileMenu(e, f)}
+        >
+          <span class="st" style:color={SC[f.status]}>{f.status}</span>
+          <span class="names">
+            <span class="fname mono">{basename(f.path)}</span>
+            <span class="dir mono">{dirname(f.path)}</span>
+          </span>
+          {#if scope === 'project' && f.agentId}<span class="tag mono">{agentName(f.agentId)}</span>{/if}
+          <span class="add mono">+{f.add}</span>
+          <span class="del mono">−{f.del}</span>
+        </button>
+        <!-- A sibling of the row's button, not inside it. -->
+        {#if f.status !== 'D'}
+          <button
+            class="edit"
+            aria-label={`Ouvrir ${basename(f.path)} dans l’éditeur`}
+            title="Ouvrir dans l’éditeur"
+            onclick={() => openInEditor(f)}>&lt;/&gt;</button
+          >
+        {/if}
+      </div>
     {/each}
   </div>
   {#if docked}
@@ -243,6 +264,36 @@
     text-align: center;
     font-size: 12.5px;
     color: var(--muted);
+  }
+  .filerow {
+    position: relative;
+    display: flex;
+  }
+  .filerow .file {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Over the row's counters, once the row is pointed at, picked or reached with the keyboard. */
+  .filerow .edit {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    height: 22px;
+    padding: 0 7px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r-sm);
+    background: var(--elev);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .filerow:hover .edit,
+  .filerow.on .edit,
+  .filerow .edit:focus-visible {
+    opacity: 1;
   }
   .file {
     display: flex;

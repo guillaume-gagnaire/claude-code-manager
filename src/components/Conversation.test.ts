@@ -274,3 +274,45 @@ describe('Conversation header usage', () => {
     expect(screen.getByText('≈ 0,60 $')).toBeInTheDocument();
   });
 });
+
+describe('Conversation editor entry', () => {
+  it('opens the editor on the agent’s worktree from its header', async () => {
+    const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a1', branch: 'escouade/a1', baseBranch: 'main' };
+    resetApp({ agents: [agent({ worktree: wt })] });
+    fakeBackend({ get_conversation: () => [] });
+    render(Conversation, { agent: app.agents.a1, project: project() });
+    await userEvent.click(screen.getByRole('button', { name: /Éditeur/ }));
+    expect(app.editorOn).toBe(true);
+    expect(app.editor.p1.source).toBe('a1');
+  });
+
+  it('opens the editor on the project checkout from the header of an agent without a worktree', async () => {
+    resetApp({ agents: [agent()] });
+    fakeBackend({ get_conversation: () => [] });
+    render(Conversation, { agent: app.agents.a1, project: project() });
+    await userEvent.click(screen.getByRole('button', { name: /Éditeur/ }));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'project' });
+  });
+
+  it('opens a file edited in the conversation at its first changed line', async () => {
+    // Its own id: conversations are kept by agent.
+    resetApp({ agents: [agent({ id: 'link1' })] });
+    const edit = {
+      kind: 'tool',
+      id: 'e1',
+      name: 'Edit',
+      input: { file_path: 'C:\\code\\demo-api\\src\\auth.ts' },
+      status: 'ok',
+      result: { isError: false, add: 1, del: 0, patch: [{ oldStart: 4, newStart: 7, lines: ['+x'] }] },
+      ts: 1,
+    };
+    fakeBackend({
+      get_conversation: () => [edit],
+      fs_tree: () => ({ root: 'C:/code/demo-api', files: [], truncated: false }),
+    });
+    render(Conversation, { agent: app.agents.link1, project: project() });
+    await userEvent.click(await screen.findByRole('button', { name: 'Ouvrir src/auth.ts dans l’éditeur' }));
+    await waitFor(() => expect(app.editor.p1?.places.project?.active).toBe('src/auth.ts'));
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'project', reveal: { path: 'src/auth.ts', line: 7 } });
+  });
+});
