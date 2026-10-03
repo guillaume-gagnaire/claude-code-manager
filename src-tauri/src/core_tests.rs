@@ -1217,3 +1217,17 @@ async fn the_editor_reads_and_writes_the_checkout_of_its_source() {
     let t = crate::fsedit::read(Path::new(&root), "src/app.ts").unwrap();
     assert_eq!(t.text.as_deref(), Some("const a = 1;\n"));
 }
+
+#[tokio::test]
+async fn quitting_with_unsaved_files_asks_the_window_first() {
+    use std::sync::atomic::Ordering;
+    let h = harness("core-quit-unsaved");
+    assert!(!h.core.ask_before_quit());
+    h.core.unsaved.store(2, Ordering::Release);
+    assert!(h.core.ask_before_quit());
+    assert!(h
+        .events
+        .lock()
+        .iter()
+        .any(|e| e["type"] == "quitRequested" && e["unsaved"] == 2));
+}

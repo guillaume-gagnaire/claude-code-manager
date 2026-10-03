@@ -91,8 +91,13 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => notify::show_main(app),
             "quit" => {
-                app.state::<Arc<Core>>().shutdown();
-                app.exit(0);
+                let core = app.state::<Arc<Core>>();
+                if core.ask_before_quit() {
+                    notify::show_main(app);
+                } else {
+                    core.shutdown();
+                    app.exit(0);
+                }
             }
             _ => {}
         })
@@ -215,6 +220,7 @@ pub fn run() {
             commands::term_kill,
             commands::play_chime,
             commands::quit_app,
+            commands::set_unsaved,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the application")

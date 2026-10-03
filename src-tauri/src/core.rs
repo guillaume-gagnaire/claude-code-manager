@@ -176,6 +176,8 @@ pub struct Core<R: Runtime = Wry> {
     dirty: AtomicBool,
     waiting: AtomicUsize,
     pub quitting: AtomicBool,
+    /// Files left unsaved in the editor, as the window last said.
+    pub unsaved: AtomicUsize,
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
@@ -347,6 +349,7 @@ impl<R: Runtime> Core<R> {
             dirty: AtomicBool::new(false),
             waiting: AtomicUsize::new(usize::MAX),
             quitting: AtomicBool::new(false),
+            unsaved: AtomicUsize::new(0),
         });
         core.usage.lock().today_cost = core.stats.today_cost();
         (core, rx)
@@ -1121,6 +1124,16 @@ impl<R: Runtime> Core<R> {
                 self.emit_agent(&h);
             }
         }
+    }
+
+    /// "Quitter" goes to the window first when the editor has unsaved files: true when it did.
+    pub fn ask_before_quit(&self) -> bool {
+        let unsaved = self.unsaved.load(Ordering::Acquire);
+        if unsaved == 0 {
+            return false;
+        }
+        self.hub.emit(UiEvent::QuitRequested { unsaved });
+        true
     }
 
     pub fn shutdown(&self) {

@@ -348,6 +348,10 @@ pub enum UiEvent {
         project_id: String,
         agent_id: Option<String>,
     },
+    /// "Quitter" while the editor holds unsaved files: the window confirms first.
+    QuitRequested {
+        unsaved: usize,
+    },
     #[serde(rename_all = "camelCase")]
     TerminalExit {
         id: String,

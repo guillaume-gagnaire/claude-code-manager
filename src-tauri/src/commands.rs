@@ -574,6 +574,13 @@ pub fn quit_app(core: CoreState, app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// How many files the editor holds unsaved: "Quitter" asks the window first when there are some.
+#[tauri::command]
+pub fn set_unsaved(core: CoreState, count: usize) {
+    core.unsaved
+        .store(count, std::sync::atomic::Ordering::Release);
+}
+
 #[tauri::command]
 pub async fn set_remote_control(core: CoreState<'_>, id: String, enabled: bool) -> Res<()> {
     core.set_remote_control(&id, enabled).await.map_err(err)
