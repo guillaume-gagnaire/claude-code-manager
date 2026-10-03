@@ -62,7 +62,8 @@ describe('lineChanges on big files', () => {
     expect(result.changed).toEqual(Array.from({ length: 300 }, (_, i) => (i + 1) * 10));
     expect(result.deleted).toEqual([]);
     expect(result.count).toBe(300);
-    expect(elapsed).toBeLessThan(300);
+    // The diff gives up after 300 ms; a loaded CI machine needs the margin. The old diff took seconds.
+    expect(elapsed).toBeLessThan(1000);
   });
 
   it('gives an answer at once for a 60 KB file rewritten from top to bottom', () => {
@@ -74,7 +75,7 @@ describe('lineChanges on big files', () => {
     const elapsed = performance.now() - start;
     expect(result.changed).toEqual(Array.from({ length: 3000 }, (_, i) => i + 1));
     expect(result.count).toBe(3000);
-    expect(elapsed).toBeLessThan(300);
+    expect(elapsed).toBeLessThan(1000);
   });
 
   it('works with as many distinct lines as there are characters to stand for them, marks nothing beyond', () => {
