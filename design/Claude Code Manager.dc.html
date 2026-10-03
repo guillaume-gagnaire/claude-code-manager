@@ -55,6 +55,13 @@ textarea::placeholder{color:var(--dim);}
   <div style="flex:1;display:flex;min-height:0">
     <sc-if value="{{ isProject }}" hint-placeholder-val="{{ true }}">
       <aside data-screen-label="Agents" style="width:300px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)">
+        <div style="padding:12px 10px 0">
+          <div style="display:flex;gap:2px;padding:3px;border-radius:var(--r);background:var(--bg);border:1px solid var(--line)">
+            <sc-for list="{{ viewOpts }}" as="v" hint-placeholder-count="2">
+              <button onClick="{{ v.onClick }}" style="flex:1;height:28px;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:var(--r-sm);background:{{ v.bg }};color:{{ v.color }};font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ v.label }}<sc-if value="{{ v.hasBadge }}"><span style="min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--wait);color:#2a1f05;font-family:var(--mono);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ v.badge }}</span></sc-if></button>
+            </sc-for>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;padding:16px 14px 10px 18px">
           <span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Agents</span>
           <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ agentCount }}</span>
@@ -78,6 +85,9 @@ textarea::placeholder{color:var(--dim);}
               <div style="display:flex;gap:10px;padding-left:17px;font-family:var(--mono);font-size:11px;color:var(--dim)">
                 <span>{{ a.tok }} tok</span><span>{{ a.cost }}</span><span>{{ a.files }}</span>
               </div>
+              <sc-if value="{{ a.hasTicket }}">
+                <div style="margin-left:17px;align-self:flex-start;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:3px;background:var(--elev2);color:var(--accent)">▸ {{ a.ticketLabel }}</div>
+              </sc-if>
             </button>
           </sc-for>
         </div>
@@ -113,6 +123,8 @@ textarea::placeholder{color:var(--dim);}
           <div style="font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ projPath }}</div>
           <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--text)">
             <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid var(--muted)"></span>{{ projBranch }}
+            <div style="flex:1"></div>
+            <button onClick="{{ openEditorBranch }}" style="height:22px;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--muted);font-family:var(--ui);font-size:11px;font-weight:600;cursor:pointer" style-hover="color:var(--text);border-color:var(--accent)">Parcourir</button>
           </div>
           <div style="display:flex;gap:12px;font-family:var(--mono);font-size:11px">
             <span style="color:var(--wait)">~{{ gitM }} modifiés</span>
@@ -140,6 +152,7 @@ textarea::placeholder{color:var(--dim);}
           </div>
           <div style="flex:1"></div>
           <div style="display:flex;align-items:center;gap:22px;flex:none;white-space:nowrap">
+            <button onClick="{{ openEditorAgent }}" title="Parcourir et éditer le worktree de cet agent" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)"><span style="font-family:var(--mono);font-size:11px;color:var(--accent)">&lt;/&gt;</span>Éditeur</button>
             <span style="font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:var(--r-sm);border:1px solid var(--line2);color:var(--text)">{{ convModel }}</span>
             <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--dim)">Tokens</span><span style="font-family:var(--mono);font-size:12.5px">{{ convTok }}</span></div>
             <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--dim)">Coût</span><span style="font-family:var(--mono);font-size:12.5px">{{ convCost }}</span></div>
@@ -169,7 +182,7 @@ textarea::placeholder{color:var(--dim);}
                 </div>
               </sc-if>
               <sc-if value="{{ m.isTool }}">
-                <div style="margin-left:34px;display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:12px">
+                <div onClick="{{ m.open }}" style="margin-left:34px;display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:12px;cursor:{{ m.cursor }}" style-hover="border-color:var(--line2)">
                   <span style="padding:2px 6px;border-radius:3px;background:var(--elev2);color:var(--text);font-weight:600;font-size:11px">{{ m.tool }}</span>
                   <span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.arg }}</span>
                   <sc-if value="{{ m.hasDiff }}"><span style="color:var(--add)">{{ m.add }}</span><span style="color:var(--del)">{{ m.del }}</span></sc-if>
@@ -260,6 +273,193 @@ textarea::placeholder{color:var(--dim);}
           </div>
         </main>
       </sc-if>
+      <sc-if value="{{ kbOn }}">
+        <main data-screen-label="Tableau" style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="height:60px;flex:none;display:flex;align-items:center;gap:16px;padding:0 20px 0 24px;border-bottom:1px solid var(--line);white-space:nowrap">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <span style="font-size:15px;font-weight:700">Tableau</span>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ projName }} · {{ kbSummary }}</span>
+            </div>
+            <div style="flex:1"></div>
+            <span style="font-size:12px;color:var(--muted)">{{ kbFree }}</span>
+            <button onClick="{{ openSettings }}" title="Réglages du tableau" style="height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;cursor:pointer" style-hover="border-color:var(--accent)"><span style="font-size:14px;color:var(--muted)">⚙</span><span style="color:var(--muted)">Après validation :</span><span style="font-family:var(--mono);font-size:11.5px;font-weight:600">{{ cfgSummary }}</span></button>
+            <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 6px 0 12px;border-radius:var(--r-sm);border:1px solid var(--line2);background:var(--elev)" title="Les agents libres prennent le prochain ticket et bouclent jusqu'à valider tous ses critères">
+              <span style="font-size:12.5px;font-weight:600">{{ autoLabel }}</span>
+              <button onClick="{{ toggleAuto }}" style="width:36px;height:20px;border:none;border-radius:10px;padding:2px;display:flex;justify-content:{{ autoJ }};background:{{ autoBg }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:16px 18px 18px">
+            <sc-for list="{{ kbCols }}" as="c" hint-placeholder-count="4">
+              <div style="min-height:0;display:flex;flex-direction:column;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)">
+                <div style="display:flex;align-items:center;gap:8px;padding:12px 10px 10px 14px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:{{ c.color }}"></span>
+                  <span style="font-size:13px;font-weight:700">{{ c.label }}</span>
+                  <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ c.count }}</span>
+                  <div style="flex:1"></div>
+                  <sc-if value="{{ c.isTodo }}"><button onClick="{{ c.openForm }}" title="Nouveau ticket" style="width:26px;height:26px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--accent);font-size:15px;line-height:1;cursor:pointer" style-hover="border-color:var(--accent)">+</button></sc-if>
+                </div>
+                <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:0 8px 10px">
+                  <sc-if value="{{ c.showForm }}">
+                    <div style="flex:none;display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:var(--r-sm);background:var(--elev);border:1px solid var(--accent)">
+                      <input value="{{ c.form.title }}" onChange="{{ c.form.onTitle }}" placeholder="Titre du ticket" style="height:32px;padding:0 10px;border-radius:var(--r-sm);border:1px solid var(--line2);background:var(--bg);color:var(--text);font:inherit;font-size:13px;font-weight:600;outline:none"></input>
+                      <textarea value="{{ c.form.crit }}" onChange="{{ c.form.onCrit }}" rows="4" placeholder="Critères d'acceptation, un par ligne" style="resize:none;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--line2);background:var(--bg);color:var(--text);font:inherit;font-size:12px;line-height:1.5;outline:none"></textarea>
+                      <div style="display:flex;align-items:center;gap:4px">
+                        <span style="font-size:11px;color:var(--dim);margin-right:4px">Boucles max</span>
+                        <sc-for list="{{ c.form.maxOpts }}" as="o"><button onClick="{{ o.onClick }}" style="height:24px;min-width:28px;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r-sm);background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer">{{ o.label }}</button></sc-for>
+                      </div>
+                      <div style="display:flex;justify-content:flex-end;gap:6px">
+                        <button onClick="{{ c.form.cancel }}" style="height:28px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer">Annuler</button>
+                        <button onClick="{{ c.form.add }}" style="height:28px;padding:0 12px;border:none;border-radius:var(--r-sm);background:{{ c.form.addBg }};color:{{ c.form.addColor }};font:inherit;font-size:12px;font-weight:700;cursor:pointer">Ajouter</button>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-for list="{{ c.cards }}" as="k" hint-placeholder-count="2">
+                    <div onClick="{{ k.open }}" style="flex:none;display:flex;flex-direction:column;gap:9px;padding:11px 12px;border-radius:var(--r-sm);background:var(--elev);border:1px solid {{ k.border }};opacity:{{ k.op }};cursor:{{ k.cursor }}" style-hover="border-color:var(--line2)">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ k.key }}</span>
+                        <div style="flex:1"></div>
+                        <sc-if value="{{ k.isDoing }}"><span style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--accent)">{{ k.loop }}</span></sc-if>
+                        <sc-if value="{{ k.partial }}"><span style="font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:var(--wait-soft);color:var(--wait)">Objectif partiel</span></sc-if>
+                      </div>
+                      <span style="font-size:13px;font-weight:600;line-height:1.4;text-wrap:pretty">{{ k.title }}</span>
+                      <sc-if value="{{ k.hasOutcome }}"><span style="align-self:flex-start;font-family:var(--mono);font-size:10.5px;padding:3px 7px;border-radius:3px;background:var(--elev2);color:var(--ok)">{{ k.outcome }}</span></sc-if>
+                      <sc-if value="{{ k.showCrit }}">
+                        <div style="display:flex;flex-direction:column;gap:4px">
+                          <sc-for list="{{ k.critList }}" as="cr"><div style="display:flex;gap:7px;font-size:11.5px;line-height:1.4;color:{{ cr.tc }}"><span style="width:10px;flex:none;color:{{ cr.color }}">{{ cr.mark }}</span><span>{{ cr.t }}</span></div></sc-for>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ k.isDoing }}">
+                        <div style="display:flex;flex-direction:column;gap:7px">
+                          <div style="height:4px;border-radius:2px;background:var(--elev2);overflow:hidden"><div style="height:100%;width:{{ k.progW }};background:var(--accent);transition:width .9s linear"></div></div>
+                          <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:{{ k.actColor }}">{{ k.actIcon }}{{ k.activity }}</div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ k.isTodo }}">
+                        <div style="display:flex;flex-direction:column;gap:8px">
+                          <span style="font-size:11.5px;color:var(--muted)">{{ k.todoMeta }}</span>
+                          <div style="display:flex;align-items:center;gap:8px">
+                            <span style="font-size:11px;color:var(--dim)">{{ k.todoWait }}</span>
+                            <div style="flex:1"></div>
+                            <sc-if value="{{ k.canStart }}"><button onClick="{{ k.start }}" style="height:24px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">Lancer</button></sc-if>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ k.showFooter }}">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--text)">{{ k.agentDot }}{{ k.agentName }}</span>
+                          <div style="flex:1"></div>
+                          <sc-if value="{{ k.isDone }}"><span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ k.doneMeta }}</span></sc-if>
+                          <sc-if value="{{ k.isReview }}"><span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">{{ k.reviewMeta }}</span></sc-if>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ k.isReview }}">
+                        <div style="display:flex;gap:6px">
+                          <button onClick="{{ k.approve }}" style="flex:1;height:28px;border:none;border-radius:var(--r-sm);background:var(--ok);color:#0f1a12;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">{{ approveLabel }}</button>
+                          <button onClick="{{ k.reject }}" style="flex:1;height:28px;border:1px solid var(--line2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer">Renvoyer</button>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ c.empty }}"><div style="flex:none;padding:18px 12px;border-radius:var(--r-sm);border:1px dashed var(--line2);text-align:center;font-size:11.5px;color:var(--dim);text-wrap:pretty">{{ c.emptyText }}</div></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </main>
+      </sc-if>
+      <sc-if value="{{ edOn }}">
+        <main data-screen-label="Éditeur" style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="height:60px;flex:none;display:flex;align-items:center;gap:12px;padding:0 18px 0 14px;border-bottom:1px solid var(--line);white-space:nowrap">
+            <button onClick="{{ edBack }}" style="height:30px;display:flex;align-items:center;gap:6px;padding:0 10px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">← Conversation</button>
+            <span style="width:1px;height:22px;background:var(--line2)"></span>
+            <div style="position:relative">
+              <button onClick="{{ toggleSrcMenu }}" style="height:36px;display:flex;align-items:center;gap:10px;padding:0 10px 0 12px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;cursor:pointer" style-hover="border-color:var(--accent)">
+                {{ edSrcIcon }}
+                <span style="font-size:13.5px;font-weight:700">{{ edSrcName }}</span>
+                <span style="font-family:var(--mono);font-size:10.5px;padding:2px 6px;border-radius:3px;background:var(--elev2);color:var(--muted)">{{ edSrcSub }}</span>
+                <span style="font-size:10px;color:var(--dim)">▾</span>
+              </button>
+              <sc-if value="{{ srcMenu }}">
+                <div style="position:absolute;top:42px;left:0;z-index:30;width:380px;display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:var(--r);border:1px solid var(--line2);background:var(--elev);box-shadow:0 16px 40px rgba(0,0,0,.45)">
+                  <span style="padding:6px 10px 4px;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)">Parcourir</span>
+                  <sc-for list="{{ srcOpts }}" as="o" hint-placeholder-count="3">
+                    <button onClick="{{ o.onClick }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:none;border-radius:var(--r-sm);background:{{ o.bg }};color:var(--text);font:inherit;text-align:left;cursor:pointer" style-hover="background:var(--elev2)">
+                      <span style="width:16px;flex:none;display:flex;justify-content:center">{{ o.icon }}</span>
+                      <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                        <span style="font-size:13px;font-weight:600">{{ o.name }}</span>
+                        <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis">{{ o.sub }}</span>
+                      </span>
+                      <span style="font-family:var(--mono);font-size:10.5px;color:{{ o.countColor }}">{{ o.count }}</span>
+                      <span style="width:14px;font-size:12px;color:var(--accent)">{{ o.check }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+            <div style="flex:1"></div>
+            <span style="font-family:var(--mono);font-size:11px;color:{{ edHintColor }}">{{ edSaveHint }}</span>
+            <button onClick="{{ edSave }}" style="height:30px;padding:0 14px;border:none;border-radius:var(--r-sm);background:{{ saveBg }};color:{{ saveColor }};font:inherit;font-size:12.5px;font-weight:700;cursor:pointer">Enregistrer</button>
+          </div>
+          <div style="flex:1;min-height:0;display:flex">
+            <div style="width:240px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--bg)">
+              <div style="display:flex;flex-direction:column;gap:4px;padding:14px 14px 10px 16px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Fichiers</span><span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ edFileCount }}</span></div>
+                <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ treeTitle }}</span>
+              </div>
+              <div style="flex:1;overflow:auto;display:flex;flex-direction:column;padding:0 6px 12px">
+                <sc-for list="{{ treeRows }}" as="r" hint-placeholder-count="8">
+                  <button onClick="{{ r.onClick }}" style="width:100%;flex:none;height:26px;display:flex;align-items:center;gap:6px;padding:0 8px 0 {{ r.pad }};border:none;border-radius:var(--r-sm);background:{{ r.bg }};color:{{ r.color }};font:inherit;font-size:12.5px;text-align:left;cursor:pointer;white-space:nowrap" style-hover="background:var(--elev)">
+                    <span style="width:10px;flex:none;font-size:9px;color:var(--dim)">{{ r.chev }}</span>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:{{ r.fw }}">{{ r.name }}</span>
+                    <span style="font-family:var(--mono);font-size:10.5px;font-weight:700;color:{{ r.stColor }}">{{ r.st }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--term, #131210)">
+              <div style="height:36px;flex:none;display:flex;align-items:stretch;background:var(--bg);border-bottom:1px solid var(--line);overflow-x:auto">
+                <sc-for list="{{ edTabs }}" as="t" hint-placeholder-count="2">
+                  <div onClick="{{ t.select }}" style="display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;border-right:1px solid var(--line);border-top:2px solid {{ t.top }};background:{{ t.bg }};cursor:pointer;white-space:nowrap">
+                    <span style="font-size:12.5px;color:{{ t.color }}">{{ t.name }}</span>
+                    <sc-if value="{{ t.dirty }}"><span style="width:7px;height:7px;margin:0 6px;border-radius:50%;background:var(--text)"></span></sc-if>
+                    <sc-if value="{{ t.notDirty }}" hint-placeholder-val="{{ true }}"><button onClick="{{ t.close }}" title="Fermer" style="width:20px;height:20px;border:none;border-radius:3px;background:transparent;color:var(--dim);font-size:13px;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">×</button></sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ noFile }}">
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px">Sélectionne un fichier dans l'arborescence.</div>
+              </sc-if>
+              <sc-if value="{{ hasFile }}" hint-placeholder-val="{{ true }}">
+                <div style="height:30px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap">
+                  <span style="overflow:hidden;text-overflow:ellipsis">{{ edCrumbs }}</span>
+                  <div style="flex:1"></div>
+                  <span style="color:{{ edDiffColor }}">{{ edDiff }}</span>
+                </div>
+                <div ref="{{ codeScrollRef }}" style="flex:1;min-height:0;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:20px">
+                  <div style="display:flex;min-width:100%;width:max-content;padding:12px 0 60px">
+                    <div style="position:sticky;left:0;z-index:2;flex:none;width:56px;background:var(--term, #131210);display:flex;flex-direction:column;user-select:none">
+                      <sc-for list="{{ codeLines }}" as="l" hint-placeholder-count="20">
+                        <div style="height:20px;position:relative;padding-right:14px;text-align:right;color:{{ l.numColor }}"><span style="position:absolute;left:0;top:2px;bottom:2px;width:3px;border-radius:0 2px 2px 0;background:{{ l.mark }}"></span>{{ l.n }}</div>
+                      </sc-for>
+                    </div>
+                    <div style="position:relative;flex:1 0 auto">
+                      <sc-for list="{{ codeLines }}" as="l" hint-placeholder-count="20">
+                        <div style="height:20px;padding:0 48px 0 14px;white-space:pre;background:{{ l.bg }}"><sc-for list="{{ l.toks }}" as="k"><span style="color:{{ k.c }};font-style:{{ k.fs }};font-weight:{{ k.fw }}">{{ k.t }}</span></sc-for></div>
+                      </sc-for>
+                      <textarea ref="{{ edTaRef }}" value="{{ codeText }}" onChange="{{ onCode }}" onKeyDown="{{ onCodeKey }}" onSelect="{{ onCodeSelect }}" spellCheck="false" wrap="off" style="position:absolute;top:0;left:0;width:100%;height:100%;margin:0;padding:0 48px 0 14px;border:none;outline:none;resize:none;overflow:hidden;background:transparent;color:transparent;caret-color:var(--accent);font:inherit;white-space:pre;tab-size:2"></textarea>
+                    </div>
+                  </div>
+                </div>
+                <div style="height:26px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-top:1px solid var(--line);background:var(--bg);font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap">
+                  <span>{{ edLn }}</span><span>{{ edLang }}</span><span>UTF-8</span><span>LF</span><span>Espaces : 2</span>
+                  <div style="flex:1"></div>
+                  <span style="display:flex;align-items:center;gap:6px">{{ edSrcIcon }}{{ edSrcLabel }}</span>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </main>
+      </sc-if>
       <sc-if value="{{ filesOpen }}">
         <aside data-screen-label="Fichiers modifiés" style="width:330px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid var(--line)">
           <div style="display:flex;align-items:center;gap:8px;padding:16px 14px 12px 18px">
@@ -281,7 +481,7 @@ textarea::placeholder{color:var(--dim);}
               <div style="padding:30px 10px;text-align:center;font-size:12.5px;color:var(--muted)">Aucun fichier modifié par cet agent.</div>
             </sc-if>
             <sc-for list="{{ fileRows }}" as="f" hint-placeholder-count="5">
-              <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);cursor:pointer" style-hover="background:var(--elev)">
+              <div onClick="{{ f.open }}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-sm);cursor:pointer" style-hover="background:var(--elev)">
                 <span style="width:16px;flex:none;font-family:var(--mono);font-size:11px;font-weight:700;color:{{ f.stColor }}">{{ f.st }}</span>
                 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
                   <span style="font-family:var(--mono);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.name }}</span>
@@ -294,7 +494,7 @@ textarea::placeholder{color:var(--dim);}
             </sc-for>
           </div>
           <div style="display:flex;gap:8px;padding:12px 14px 14px;border-top:1px solid var(--line)">
-            <button style="flex:1;height:30px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)">Voir le diff</button>
+            <button style="flex:1;height:30px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--elev);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:var(--accent)" onClick="{{ openEditorAgent }}">Ouvrir l'éditeur</button>
             <button style="flex:1;height:30px;border:none;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font:inherit;font-size:12px;font-weight:700;cursor:pointer">{{ commitLabel }}</button>
           </div>
         </aside>
@@ -450,6 +650,77 @@ textarea::placeholder{color:var(--dim);}
     </div>
   </sc-if>
 
+  <sc-if value="{{ setOpen }}">
+    <div onClick="{{ closeSettings }}" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(12,10,8,.6);backdrop-filter:blur(3px)">
+      <div data-screen-label="Réglages du tableau" onClick="{{ stop }}" style="width:600px;max-width:calc(100vw - 40px);max-height:calc(100vh - 60px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.55)">
+        <div style="display:flex;align-items:center;gap:10px;padding:18px 18px 0 24px">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:17px;font-weight:700">Réglages du tableau</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--dim)">{{ projName }}</span>
+          </div>
+          <div style="flex:1"></div>
+          <button onClick="{{ closeSettings }}" style="width:28px;height:28px;border:none;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-size:16px;cursor:pointer" style-hover="background:var(--elev2);color:var(--text)">×</button>
+        </div>
+        <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:22px;padding:20px 24px 22px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <span style="font-size:12px;font-weight:600;color:var(--muted)">Quand je valide un ticket « À tester »</span>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+              <sc-for list="{{ actionOpts }}" as="o" hint-placeholder-count="4">
+                <button onClick="{{ o.onClick }}" style="display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:var(--r);border:1px solid {{ o.bc }};background:{{ o.bg }};color:var(--text);font:inherit;text-align:left;cursor:pointer">
+                  <span style="width:14px;height:14px;flex:none;margin-top:2px;border-radius:50%;border:1.5px solid {{ o.bc }};display:flex;align-items:center;justify-content:center"><span style="width:6px;height:6px;border-radius:50%;background:{{ o.dot }}"></span></span>
+                  <span style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:13px;font-weight:600">{{ o.label }}</span>
+                    <span style="font-size:11.5px;line-height:1.45;color:var(--muted);text-wrap:pretty">{{ o.desc }}</span>
+                  </span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <sc-if value="{{ showTarget }}">
+            <div style="display:flex;flex-direction:column;gap:12px;padding:14px 16px;border-radius:var(--r);background:var(--bg);border:1px solid var(--line)">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="width:110px;font-size:12px;color:var(--muted)">Branche cible</span>
+                <sc-for list="{{ branchOpts }}" as="o"><button onClick="{{ o.onClick }}" style="height:28px;padding:0 11px;border:1px solid {{ o.bc }};border-radius:var(--r-sm);background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11.5px;font-weight:600;cursor:pointer">⎇ {{ o.label }}</button></sc-for>
+              </div>
+              <sc-if value="{{ showStrategy }}">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span style="width:110px;font-size:12px;color:var(--muted)">Stratégie</span>
+                  <sc-for list="{{ strategyOpts }}" as="o"><button onClick="{{ o.onClick }}" style="height:28px;padding:0 11px;border:1px solid {{ o.bc }};border-radius:var(--r-sm);background:{{ o.bg }};color:{{ o.color }};font:inherit;font-size:12px;font-weight:600;cursor:pointer">{{ o.label }}</button></sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ showDraft }}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="width:110px;font-size:12px;color:var(--muted)">{{ draftToggle.label }}</span>
+                  <button onClick="{{ draftToggle.onClick }}" style="width:36px;height:20px;border:none;border-radius:10px;padding:2px;display:flex;justify-content:{{ draftToggle.j }};background:{{ draftToggle.bg }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+          <div style="height:1px;background:var(--line)"></div>
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <sc-for list="{{ cfgToggles }}" as="t" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:14px">
+                <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                  <span style="font-size:13px;font-weight:600">{{ t.label }}</span>
+                  <span style="font-size:11.5px;color:var(--muted);text-wrap:pretty">{{ t.desc }}</span>
+                </div>
+                <button onClick="{{ t.onClick }}" style="width:36px;height:20px;flex:none;border:none;border-radius:10px;padding:2px;display:flex;justify-content:{{ t.j }};background:{{ t.bg }};cursor:pointer"><span style="width:16px;height:16px;border-radius:50%;background:#fff"></span></button>
+              </div>
+            </sc-for>
+            <div style="font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg);border:1px solid var(--line);color:var(--muted)">{{ commitPreview }}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="flex:1;min-width:140px;font-size:13px;font-weight:600">En cas de conflit</span>
+              <sc-for list="{{ conflictOpts }}" as="o"><button onClick="{{ o.onClick }}" style="height:28px;padding:0 11px;border:1px solid {{ o.bc }};border-radius:var(--r-sm);background:{{ o.bg }};color:{{ o.color }};font:inherit;font-size:12px;font-weight:600;cursor:pointer">{{ o.label }}</button></sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 18px 18px;border-top:1px solid var(--line)">
+          <button onClick="{{ closeSettings }}" style="height:34px;padding:0 18px;border:none;border-radius:var(--r-sm);background:var(--accent);color:var(--accent-ink);font:inherit;font-size:13px;font-weight:700;cursor:pointer">Terminé</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <div data-screen-label="Barre de statut" style="height:30px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px 0 16px;background:var(--panel);border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);user-select:none;white-space:nowrap;overflow:hidden">
     <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>{{ runCount }} actifs</span>
     <span style="display:flex;align-items:center;gap:6px;color:{{ waitColor }}">{{ waitDot }}{{ waitCount }} en attente</span>
@@ -537,7 +808,7 @@ class Component extends DCLogic {
       { id: 't2', pid: 'mobile', name: 'metro', shell: 'PowerShell', lines: [
         { k: 'cmd', t: 'npx expo start' }, { k: 'out', t: 'Starting Metro Bundler' }, { k: 'ok', t: '› Metro waiting on exp://192.168.1.24:8081' } ] }
     ],
-    selTerm: {}, termDraft: '', termMenu: false,
+    selTerm: {}, termDraft: '', termMenu: false, ed: {}, edits: {}, saved: {}, srcMenu: false, edCur: null, kb: {}, auto: {}, kbForm: null, tickets: Component.seedTickets(),
     activeProject: 'atlas', view: 'project',
     selected: { atlas: 'a1', studio: 's2', infra: 'i1', mobile: 'm1' },
     draft: '', range: 'day', resetSecs: 6480,
@@ -556,9 +827,11 @@ class Component extends DCLogic {
     this.qTick = setInterval(() => this.maybeAsk(), 26000);
     this.scrollBottom();
   }
-  componentWillUnmount() { clearInterval(this.tick); clearInterval(this.qTick); this.timers.forEach(clearTimeout); }
+  componentWillUnmount() { clearInterval(this.tick); clearInterval(this.kbTick); clearInterval(this.qTick); this.timers.forEach(clearTimeout); }
   componentDidUpdate() {
     this.applyTheme();
+    const ee = this.edState(), ek = ee && ee.on ? ee.src + '|' + ee.active : '';
+    if (ek !== this._edKey) { this._edKey = ek; requestAnimationFrame(() => { if (this.codeScrollRef.current) { this.codeScrollRef.current.scrollTop = 0; this.codeScrollRef.current.scrollLeft = 0; } }); }
     const tt = this.state.terms.find(t => t.id === this.state.selTerm[this.state.activeProject]); const key = this.curAgent()?.id + ':' + (this.curAgent()?.msgs.length) + ':' + this.state.view + ':' + (tt ? tt.id + tt.lines.length : '');
     if (key !== this._lastKey) { this._lastKey = key; this.scrollBottom(); }
   }
@@ -648,7 +921,7 @@ class Component extends DCLogic {
     const map = {};
     a.msgs.forEach(m => {
       if (m.k !== 'tool' || (m.tool !== 'Edit' && m.tool !== 'Write')) return;
-      const f = map[m.arg] || (map[m.arg] = { path: m.arg, add: 0, del: 0, st: m.tool === 'Write' ? 'A' : 'M', agent: a.name });
+      const f = map[m.arg] || (map[m.arg] = { path: m.arg, add: 0, del: 0, st: m.tool === 'Write' ? 'A' : 'M', agent: a.name, aid: a.id });
       f.add += m.add || 0; f.del += m.del || 0;
     });
     return Object.values(map);
@@ -663,7 +936,7 @@ class Component extends DCLogic {
       scopeOpts: [['agent', 'Cet agent'], ['project', 'Tout le projet']].map(([k, l]) => ({ label: l, onClick: () => this.setState({ filesScope: k }), bg: scope === k ? 'var(--elev2)' : 'transparent', color: scope === k ? 'var(--text)' : 'var(--muted)' })),
       scopeHint: scope === 'agent' ? 'worktree .claude/worktrees/' + (ag ? ag.name : '') + ' · isolé des autres agents' : 'Tous les agents du projet · attribution par worktree',
       fileCount: files.length, noFiles: files.length === 0,
-      fileRows: files.map(f => { const i = f.path.lastIndexOf('/'); return { name: f.path.slice(i + 1), dir: i > 0 ? f.path.slice(0, i) : '.', st: f.st, stColor: SC[f.st], add: '+' + f.add, del: '−' + f.del, agent: f.agent, showAgent: scope === 'project' }; }),
+      fileRows: files.map(f => { const i = f.path.lastIndexOf('/'); return { name: f.path.slice(i + 1), dir: i > 0 ? f.path.slice(0, i) : '.', st: f.st, stColor: SC[f.st], add: '+' + f.add, del: '−' + f.del, agent: f.agent, open: () => this.openEditor(f.aid, f.path), showAgent: scope === 'project' }; }),
       commitLabel: scope === 'agent' ? 'Commit…' : 'Commit tout…'
     };
   }
@@ -700,7 +973,7 @@ class Component extends DCLogic {
   openTerm(shell) {
     const s = this.state, pid = s.activeProject, id = 't' + (100 + s.nextId);
     const n = s.terms.filter(t => t.pid === pid).length + 1;
-    this.setState({ nextId: s.nextId + 1, termMenu: false, terms: [...s.terms, { id, pid, name: shell === 'bash' ? 'bash-' + n : 'pwsh-' + n, shell, lines: [] }], selTerm: { ...s.selTerm, [pid]: id } });
+    this.setState({ nextId: s.nextId + 1, termMenu: false, terms: [...s.terms, { id, pid, name: shell === 'bash' ? 'bash-' + n : 'pwsh-' + n, shell, lines: [] }], selTerm: { ...s.selTerm, [pid]: id }, ed: this.edOff(), kb: { ...(s.kb || {}), [pid]: false } });
     setTimeout(() => this.termInputRef.current && this.termInputRef.current.focus(), 50);
   }
   runCmd(term, pr) {
@@ -723,11 +996,11 @@ class Component extends DCLogic {
     const prompt = !cur ? '' : ps ? 'PS ' + pr.path + '>' : pr.name + ' (' + pr.branch + ') $';
     const COL = { cmd: '#ede7df', out: '#b9b1a6', dim: '#7a7268', ok: 'oklch(0.76 0.12 150)', err: 'oklch(0.72 0.14 25)' };
     return {
-      showTerm: !!cur, showConv: !cur, termCount: list.length, noTerms: list.length === 0,
+      showTerm: !!cur && !this.edOnNow(), showConv: !cur && !this.edOnNow(), termCount: list.length, noTerms: list.length === 0,
       termMenu: !!s.termMenu, toggleTermMenu: () => this.setState({ termMenu: !s.termMenu }),
       shellOpts: [['bash', 'Bash'], ['PowerShell', 'PowerShell']].map(([k, l]) => ({ label: l, glyph: this.SHELLS[k].glyph, c: this.SHELLS[k].c, onClick: () => this.openTerm(k) })),
       termRows: list.map(t => ({ name: t.name, shell: t.shell, glyph: this.SHELLS[t.shell].glyph, c: this.SHELLS[t.shell].c, bg: cur && cur.id === t.id ? 'var(--elev)' : 'transparent', bc: cur && cur.id === t.id ? 'var(--line2)' : 'transparent',
-        select: () => this.setState({ selTerm: { ...s.selTerm, [pid]: t.id } }),
+        select: () => this.setState({ selTerm: { ...s.selTerm, [pid]: t.id }, ed: this.edOff(), kb: { ...(s.kb || {}), [pid]: false } }),
         close: e => { e.stopPropagation(); this.setState(st => ({ terms: st.terms.filter(x => x.id !== t.id), selTerm: { ...st.selTerm, [pid]: st.selTerm[pid] === t.id ? null : st.selTerm[pid] } })); } })),
       termName: cur ? cur.name : '', termShell: cur ? cur.shell : '', termPrompt: prompt, termPromptColor: ps ? 'oklch(0.74 0.12 235)' : 'var(--accent)',
       termLines: cur ? cur.lines.map(l => ({ t: l.k === 'cmd' ? prompt + ' ' + l.t : (l.t || ' '), c: COL[l.k] })) : [],
@@ -738,6 +1011,640 @@ class Component extends DCLogic {
       clearTerm: () => cur && this.setTerm(cur.id, () => []),
       closeTerm: () => cur && this.setState(st => ({ terms: st.terms.filter(x => x.id !== cur.id), selTerm: { ...st.selTerm, [pid]: null } }))
     };
+  }
+  codeScrollRef = React.createRef(); edTaRef = React.createRef();
+  FSDATA = {
+    atlas: {
+      'package.json': { base: `{
+  "name": "atlas-api",
+  "version": "2.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p .",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "jose": "^5.6.3",
+    "@prisma/client": "^5.18.0"
+  }
+}
+` },
+      'tsconfig.json': { base: `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "strict": true,
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+` },
+      'README.md': { base: `# atlas-api
+
+API d'authentification et de gestion des comptes Atlas.
+
+## Démarrage
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Le serveur écoute sur **http://localhost:4000**.
+`, wt: { a3: `# atlas-api
+
+API d'authentification et de gestion des comptes Atlas.
+
+## Démarrage
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Le serveur écoute sur **http://localhost:4000**.
+
+## Configuration
+
+- \`JWT_SECRET\` : clé de signature des tokens (obligatoire)
+- \`JWT_ISSUER\` : émetteur, \`atlas-api\` par défaut
+- \`ACCESS_TOKEN_TTL\` : durée de vie du token d'accès, 900 s
+- \`REFRESH_TOKEN_TTL\` : durée de vie du refresh token, 30 jours
+- \`LEGACY_SESSIONS\` : accepte les anciens cookies jusqu'au 02/11
+` } },
+      'prisma/schema.prisma': { base: `datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+}
+` },
+      'src/server.ts': { base: `import express from 'express';
+import cookieParser from 'cookie-parser';
+import { requireSession } from './middleware/auth';
+import { usersRouter } from './routes/users';
+
+const app = express();
+app.use(express.json());
+app.use(cookieParser());
+
+app.use('/users', requireSession, usersRouter);
+
+app.listen(4000, () => console.log('API prête sur :4000'));
+` },
+      'src/db.ts': { base: `import { PrismaClient } from '@prisma/client';
+
+export const db = new PrismaClient();
+` },
+      'src/routes/users.ts': { base: `import { Router } from 'express';
+
+export const usersRouter = Router();
+
+usersRouter.get('/me', (req, res) => {
+  res.json({ id: req.user.id, email: req.user.email });
+});
+` },
+      'src/middleware/auth.ts': { base: `import { Request, Response, NextFunction } from 'express';
+import { db } from '../db';
+import { verifySession } from '../auth/session';
+
+// Middleware historique : valide la session et charge l'utilisateur
+export async function requireSession(req: Request, res: Response, next: NextFunction) {
+  const sid = req.cookies['atlas.sid'];
+  if (!sid) return res.status(401).json({ error: 'unauthenticated' });
+
+  const session = await verifySession(sid);
+  if (!session) return res.status(401).json({ error: 'invalid_session' });
+
+  const user = await db.user.findUnique({ where: { id: session.userId } });
+  if (!user) return res.status(401).json({ error: 'unknown_user' });
+
+  req.user = user;
+  next();
+}
+`, wt: { a1: `import { Request, Response, NextFunction } from 'express';
+import { db } from '../db';
+import { verifyToken, TokenError } from '../auth/jwt';
+import { fromLegacySession } from '../auth/legacy-session-adapter';
+
+const LEGACY_SUNSET = new Date('2026-11-02');
+
+/** Valide le token d'accès, sans accès à la base. */
+export async function authenticate(req: Request): Promise<string> {
+  const header = req.headers.authorization ?? '';
+  if (header.startsWith('Bearer ')) {
+    const claims = await verifyToken(header.slice(7));
+    return claims.sub;
+  }
+  // Compatibilité : sessions legacy acceptées pendant 30 jours
+  if (Date.now() < LEGACY_SUNSET.getTime()) {
+    return fromLegacySession(req.cookies['atlas.sid']);
+  }
+  throw new TokenError('missing_token');
+}
+
+export async function loadUser(userId: string) {
+  return db.user.findUnique({ where: { id: userId } });
+}
+
+export async function requireSession(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = await authenticate(req);
+    const user = await loadUser(userId);
+    if (!user) return res.status(401).json({ error: 'unknown_user' });
+    req.user = user;
+    next();
+  } catch (err) {
+    const code = err instanceof TokenError ? err.code : 'invalid_token';
+    res.status(401).json({ error: code });
+  }
+}
+` } },
+      'src/auth/legacy-session-adapter.ts': { wt: { a1: `import { verifySession } from './session';
+import { TokenError } from './jwt';
+
+/**
+ * Convertit une session cookie historique en identifiant utilisateur.
+ * À supprimer après le 2 novembre 2026.
+ */
+export async function fromLegacySession(sid?: string): Promise<string> {
+  if (!sid) throw new TokenError('missing_token');
+  const session = await verifySession(sid);
+  if (!session) throw new TokenError('invalid_session');
+  return session.userId;
+}
+` } },
+      'config/auth.ts': { base: `export const authConfig = {
+  accessTokenTtl: 15 * 60,          // secondes
+  refreshTokenTtl: 30 * 24 * 3600,
+  resetLinkTtl: 60 * 60,
+  issuer: 'atlas-api',
+  cookieName: 'atlas.sid',
+};
+`, wt: { a2: `export const authConfig = {
+  accessTokenTtl: 15 * 60,          // secondes
+  refreshTokenTtl: 30 * 24 * 3600,
+  resetLinkTtl: 15 * 60,            // 15 min, politique sécurité
+  issuer: 'atlas-api',
+  cookieName: 'atlas.sid',
+};
+` } },
+      'e2e/reset-password.spec.ts': { wt: { a2: `import { test, expect } from '@playwright/test';
+import { createResetLink } from './helpers';
+
+test.describe('Réinitialisation du mot de passe', () => {
+  test('envoie un lien par email', async ({ page }) => {
+    await page.goto('/forgot-password');
+    await page.fill('[name=email]', 'ada@atlas.dev');
+    await page.click('button[type=submit]');
+    await expect(page.getByText('Email envoyé')).toBeVisible();
+  });
+
+  test('le lien expire après 15 minutes', async ({ page, request }) => {
+    const link = await createResetLink(request, { ageMinutes: 16 });
+    await page.goto(link);
+    await expect(page.getByText('Lien expiré')).toBeVisible();
+  });
+});
+` } }
+    },
+    studio: {
+      'components/Hero.tsx': { base: `import { Button } from './Button';
+
+export function Hero() {
+  return (
+    <section className="hero">
+      <h1>Le studio qui livre vite.</h1>
+      <p>Des sites rapides, accessibles et mesurables.</p>
+      <Button href="/contact">Parlons projet</Button>
+    </section>
+  );
+}
+`, wt: { s1: `import Image from 'next/image';
+import { Button } from './Button';
+
+export function Hero() {
+  return (
+    <section className="hero grid md:grid-cols-2 gap-12">
+      <div className="flex flex-col gap-6">
+        <h1 className="font-display text-6xl tracking-tight">
+          Le studio qui livre vite.
+        </h1>
+        <p className="text-lg text-muted">Des sites rapides, accessibles et mesurables.</p>
+        <div className="flex gap-3">
+          <Button href="/contact">Parlons projet</Button>
+          <Button variant="ghost" href="/travaux">Voir les travaux</Button>
+        </div>
+      </div>
+      <Image src="/product.png" alt="Aperçu du produit" width={640} height={480} priority />
+    </section>
+  );
+}
+` } },
+      'components/Button.tsx': { base: `type Props = { href: string; variant?: 'solid' | 'ghost'; children: React.ReactNode };
+
+export function Button({ href, variant = 'solid', children }: Props) {
+  return <a className={'btn btn-' + variant} href={href}>{children}</a>;
+}
+` },
+      'app/page.tsx': { base: `import { Hero } from '../components/Hero';
+
+export default function Page() {
+  return <main><Hero /></main>;
+}
+` }
+    },
+    mobile: {
+      'src/navigation/linking.ts': { base: `export const linking = {
+  prefixes: ['atlas://'],
+  config: {
+    screens: {
+      Home: '',
+      Profile: 'profile',
+    },
+  },
+};
+`, wt: { m1: `export const linking = {
+  prefixes: ['atlas://', 'https://app.atlas.dev'],
+  config: {
+    screens: {
+      Home: '',
+      Profile: 'profile',
+      Order: 'orders/:orderId',
+    },
+  },
+};
+` } },
+      'App.tsx': { base: `import { NavigationContainer } from '@react-navigation/native';
+import { linking } from './src/navigation/linking';
+import { RootStack } from './src/navigation/RootStack';
+
+export default function App() {
+  return (
+    <NavigationContainer linking={linking}>
+      <RootStack />
+    </NavigationContainer>
+  );
+}
+` }
+    },
+    infra: {
+      'main.tf': { base: `terraform {
+  required_version = ">= 1.7"
+}
+
+module "iam" {
+  source = "./modules/iam"
+  env    = var.env
+}
+` },
+      'modules/iam/roles.tf': { base: `# Rôle CI : trop permissif, à restreindre
+resource "aws_iam_role_policy" "ci" {
+  name   = "ci-deploy"
+  role   = aws_iam_role.ci.id
+  policy = jsonencode({
+    Statement = [{ Effect = "Allow", Action = "*", Resource = "*" }]
+  })
+}
+` },
+      'AUDIT.md': { wt: { i1: `# Audit IAM
+
+4 rôles disposent de permissions \`*\`.
+
+- **ci-deploy** : limiter à s3:PutObject et ecs:UpdateService
+- **lambda-default** : retirer iam:*
+- **ops-admin** : passer par un rôle assumé avec MFA
+- **legacy-batch** : rôle inutilisé depuis 2024, à supprimer
+` } }
+    }
+  };
+  fsFor(pid) {
+    this._fs = this._fs || {};
+    if (this._fs[pid]) return this._fs[pid];
+    const pr = this.state.projects.find(x => x.id === pid) || { name: pid };
+    const D = { 'README.md': { base: '# ' + pr.name + '\n\nProjet géré avec Claude Code.\n' }, 'package.json': { base: '{\n  "name": "' + pr.name + '",\n  "private": true\n}\n' }, ...(this.FSDATA[pid] || {}) };
+    const fs = {};
+    Object.entries(D).forEach(([p, v]) => { fs[p] = { base: v.base != null ? v.base : null, wt: v.wt || {} }; });
+    return (this._fs[pid] = fs);
+  }
+  stub(base, p) { return base ? base.replace(/\n?$/, '\n') + "\n// Modifié par l'agent\nexport const ready = true;\n" : '// ' + p + "\n// Fichier créé par l'agent\n\nexport {};\n"; }
+  savedContent(pid, src, p) {
+    const k = pid + '|' + src + '|' + p, sv = this.state.saved || {};
+    if (sv[k] != null) return sv[k];
+    const f = this.fsFor(pid)[p];
+    if (src !== 'branch') {
+      if (f && f.wt[src] != null) return f.wt[src];
+      const a = this.state.agents.find(x => x.id === src);
+      if (a && this.agentFiles(a).some(x => x.path === p)) return this.stub(f && f.base, p);
+    }
+    return f ? f.base : null;
+  }
+  content(pid, src, p) { const e = this.state.edits || {}, k = pid + '|' + src + '|' + p; return e[k] != null ? e[k] : this.savedContent(pid, src, p); }
+  fileStatus(pid, src, p) { const f = this.fsFor(pid)[p], b = f ? f.base : null, c = this.savedContent(pid, src, p); if (c == null) return null; if (b == null) return 'A'; return c !== b ? 'M' : null; }
+  paths(pid, src) {
+    const set = new Set();
+    Object.entries(this.fsFor(pid)).forEach(([p, f]) => { if (f.base != null || (src !== 'branch' && f.wt[src] != null)) set.add(p); });
+    if (src !== 'branch') { const a = this.state.agents.find(x => x.id === src); if (a) this.agentFiles(a).forEach(f => set.add(f.path)); }
+    return [...set];
+  }
+  defaultFile(pid, src) { const ps = this.paths(pid, src); return ps.find(p => this.fileStatus(pid, src, p)) || (ps.includes('README.md') ? 'README.md' : ps[0]) || null; }
+  edState() { const s = this.state; return (s.ed || {})[s.activeProject] || null; }
+  edOnNow() { const e = this.edState(); return !!(e && e.on); }
+  setEd(patch) { this.setState(st => { const pid = st.activeProject, cur = (st.ed || {})[pid] || { src: 'branch', open: [], active: null, collapsed: {} }; return { ed: { ...(st.ed || {}), [pid]: { ...cur, ...patch } }, srcMenu: false }; }); }
+  edSwitch(aid) { const s = this.state, pid = s.activeProject, cur = (s.ed || {})[pid]; if (!cur || !cur.on) return s.ed; const p = this.defaultFile(pid, aid); return { ...s.ed, [pid]: { ...cur, src: aid, open: p ? [p] : [], active: p } }; }
+  edOff() { const s = this.state, pid = s.activeProject, cur = (s.ed || {})[pid]; return cur ? { ...s.ed, [pid]: { ...cur, on: false } } : s.ed; }
+  openEditor(src, path) {
+    const s = this.state, cur = (s.ed || {})[s.activeProject];
+    const p = path || (cur && cur.src === src && cur.active) || this.defaultFile(s.activeProject, src);
+    const same = cur && cur.src === src;
+    const open = same ? (!p || cur.open.includes(p) ? cur.open : [...cur.open, p]) : (p ? [p] : []);
+    this.setEd({ on: true, src, open, active: p, collapsed: (cur && cur.collapsed) || {} });
+  }
+  openFile(p) { const e = this.edState(); this.setEd({ open: e.open.includes(p) ? e.open : [...e.open, p], active: p }); }
+  saveFile(k) { this.setState(st => { const e = { ...(st.edits || {}) }; if (e[k] == null) return null; const v = e[k]; delete e[k]; return { edits: e, saved: { ...(st.saved || {}), [k]: v } }; }); }
+  codeKey(ev, k) {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); if (k) this.saveFile(k); return; }
+    if (ev.key === 'Tab' && k) {
+      ev.preventDefault();
+      const el = ev.target, a = el.selectionStart, b = el.selectionEnd, v = el.value.slice(0, a) + '  ' + el.value.slice(b);
+      this.setState(st => ({ edits: { ...(st.edits || {}), [k]: v } }), () => { const t = this.edTaRef.current; if (t) t.selectionStart = t.selectionEnd = a + 2; });
+    }
+  }
+  langOf(p) {
+    const ext = (p.split('.').pop() || '').toLowerCase();
+    return ({ ts: ['TypeScript', 'code'], tsx: ['TypeScript JSX', 'code'], js: ['JavaScript', 'code'], json: ['JSON', 'code'], md: ['Markdown', 'md'], prisma: ['Prisma', 'code'], tf: ['Terraform', 'code'] }[ext] || ['Texte', 'code']).reduce((o, v, i) => (o[i ? 'mode' : 'label'] = v, o), {});
+  }
+  SYN = { kw: 'var(--accent)', str: 'oklch(0.8 0.1 145)', num: 'oklch(0.82 0.11 75)', com: 'var(--dim)', type: 'oklch(0.82 0.08 215)', fn: 'oklch(0.87 0.08 95)', prop: 'oklch(0.84 0.06 270)', pun: 'var(--muted)', txt: 'var(--text)' };
+  KW = new Set('import export from const let var function return if else for while async await new class extends interface type implements public private readonly try catch throw default as of in typeof instanceof null undefined true false this switch case break continue enum model datasource generator resource module terraform variable output test describe expect'.split(' '));
+  tokenize(line, mode, st) {
+    const S = this.SYN, out = [], push = (t, c, fs, fw) => out.push({ t, c, fs: fs || 'normal', fw: fw || 400 });
+    if (mode === 'md') {
+      if (/^\s*```/.test(line)) { st.fence = !st.fence; push(line, S.com); return out; }
+      if (st.fence) { push(line, S.str); return out; }
+      if (/^#{1,6}\s/.test(line)) { push(line, S.kw, 'normal', 700); return out; }
+      const m = line.match(/^(\s*[-*]\s)(.*)$/); let rest = line;
+      if (m) { push(m[1], S.kw); rest = m[2]; }
+      const re = /(`[^`]*`)|(\*\*[^*]+\*\*)|([^`*]+|\*)/g; let x;
+      while ((x = re.exec(rest))) { if (x[1]) push(x[1], S.str); else if (x[2]) push(x[2], S.txt, 'normal', 700); else push(x[0], S.txt); }
+      return out;
+    }
+    let i = 0;
+    if (st.c) { const e = line.indexOf('*/'); if (e < 0) { push(line, S.com, 'italic'); return out; } push(line.slice(0, e + 2), S.com, 'italic'); i = e + 2; st.c = false; }
+    const re = /(\/\/.*$|#.*$)|(\/\*)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_.]*\b)|([A-Za-z_$@][\w$]*)|(\s+)|([^\s\w])/g;
+    re.lastIndex = i; let m;
+    while ((m = re.exec(line))) {
+      const t = m[0], after = line.slice(re.lastIndex).trimStart()[0];
+      if (m[1]) push(t, S.com, 'italic');
+      else if (m[2]) { const e = line.indexOf('*/', m.index + 2); if (e < 0) { push(line.slice(m.index), S.com, 'italic'); st.c = true; break; } push(line.slice(m.index, e + 2), S.com, 'italic'); re.lastIndex = e + 2; }
+      else if (m[3]) push(t, after === ':' ? S.prop : S.str);
+      else if (m[4]) push(t, S.num);
+      else if (m[5]) push(t, this.KW.has(t) ? S.kw : t[0] === '@' ? S.kw : after === '(' ? S.fn : /^[A-Z]/.test(t) ? S.type : (after === ':' && line[m.index - 1] !== '?') || line[m.index - 1] === '.' ? S.prop : S.txt);
+      else if (m[6]) push(t, S.txt);
+      else push(t, S.pun);
+    }
+    return out;
+  }
+  editorVals(pr) {
+    const s = this.state, pid = s.activeProject, e = this.edState(), on = !!(e && e.on) && s.view === 'project';
+    const out = { edOn: on, filesOpen: !!s.filesOpen && !on, minW: s.filesOpen && s.view === 'project' && !on ? '1440px' : '1100px',
+      openEditorBranch: () => this.openEditor('branch'), openEditorAgent: () => { const ag = this.curAgent(); if (ag) this.openEditor(ag.id); } };
+    if (!on) return out;
+    const agents = s.agents.filter(a => a.pid === pid), src = e.src, srcAgent = agents.find(a => a.id === src);
+    const fs = this.fsFor(pid), paths = this.paths(pid, src), stC = { M: 'var(--wait)', A: 'var(--add)' };
+    const changed = paths.filter(p => this.fileStatus(pid, src, p)), coll = e.collapsed || {};
+    const root = { d: {}, f: [] };
+    paths.forEach(p => { let n = root; p.split('/').slice(0, -1).forEach(d => { n = n.d[d] || (n.d[d] = { d: {}, f: [] }); }); n.f.push(p); });
+    const rows = [];
+    const walk = (n, depth, pre) => {
+      Object.keys(n.d).sort().forEach(d => {
+        const full = pre + d, open = !coll[full], has = changed.some(p => p.startsWith(full + '/'));
+        rows.push({ name: d, pad: (8 + depth * 14) + 'px', chev: open ? '▾' : '▸', st: has ? '•' : '', stColor: 'var(--wait)', bg: 'transparent', color: 'var(--muted)', fw: 600, onClick: () => this.setEd({ collapsed: { ...coll, [full]: open } }) });
+        if (open) walk(n.d[d], depth + 1, full + '/');
+      });
+      n.f.sort().forEach(p => { const st = this.fileStatus(pid, src, p), act = p === e.active;
+        rows.push({ name: p.split('/').pop(), pad: (8 + depth * 14) + 'px', chev: '', st: st || '', stColor: stC[st] || 'var(--dim)', bg: act ? 'var(--elev2)' : 'transparent', color: st ? stC[st] : 'var(--text)', fw: act ? 600 : 400, onClick: () => this.openFile(p) }); });
+    };
+    walk(root, 0, '');
+    const key = p => pid + '|' + src + '|' + p, ed = s.edits || {};
+    const dirty = p => ed[key(p)] != null && ed[key(p)] !== this.savedContent(pid, src, p);
+    const act = e.active && paths.includes(e.active) ? e.active : null;
+    const tabs = e.open.filter(p => paths.includes(p)).map(p => { const st = this.fileStatus(pid, src, p), a = p === act; return {
+      name: p.split('/').pop(), dirty: dirty(p), notDirty: !dirty(p), select: () => this.setEd({ active: p }),
+      close: ev => { ev.stopPropagation(); const open = e.open.filter(x => x !== p); this.setEd({ open, active: a ? (open[open.length - 1] || null) : e.active }); },
+      top: a ? 'var(--accent)' : 'transparent', bg: a ? 'var(--term, #131210)' : 'transparent', color: st ? stC[st] : (a ? 'var(--text)' : 'var(--muted)') }; });
+    const text = act ? (this.content(pid, src, act) || '') : '';
+    const base = act && fs[act] ? fs[act].base : null;
+    const baseSet = base != null ? new Set(base.split('\n').map(l => l.trim())) : null;
+    const lang = this.langOf(act || ''), stt = {}, cur = s.edCur || { line: 1, col: 1 };
+    let nChanged = 0;
+    const codeLines = text.split('\n').map((ln, i) => {
+      const isNew = baseSet ? (!!ln.trim() && !baseSet.has(ln.trim())) : true; if (isNew && ln.trim()) nChanged++;
+      const al = i + 1 === cur.line;
+      return { n: i + 1, toks: this.tokenize(ln, lang.mode, stt), mark: isNew ? 'var(--add)' : 'transparent', bg: al ? 'color-mix(in oklch, var(--accent) 9%, transparent)' : 'transparent', numColor: al ? 'var(--text)' : 'var(--dim)' };
+    });
+    const isDirty = act ? dirty(act) : false;
+    const icon = srcAgent ? this.statusDot(srcAgent.status, 7) : React.createElement('span', { style: { fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)' } }, '⎇');
+    const vsRef = srcAgent ? pr.branch : 'HEAD';
+    return Object.assign(out, {
+      edBack: () => this.setEd({ on: false }),
+      srcMenu: !!s.srcMenu, toggleSrcMenu: () => this.setState({ srcMenu: !s.srcMenu }),
+      edSrcIcon: icon, edSrcName: srcAgent ? srcAgent.name : pr.branch, edSrcSub: srcAgent ? 'worktree' : 'branche',
+      srcOpts: [{ id: 'branch' }, ...agents].map(o => {
+        const isB = o.id === 'branch', n = isB ? pr.git.m + pr.git.a + pr.git.d : this.paths(pid, o.id).filter(p => this.fileStatus(pid, o.id, p)).length;
+        return { name: isB ? pr.branch : o.name, sub: isB ? 'Branche du projet · ' + pr.path : '.claude/worktrees/' + o.name + ' · ' + o.model,
+          icon: isB ? React.createElement('span', { style: { fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--muted)' } }, '⎇') : this.statusDot(o.status, 7),
+          count: n ? (isB ? 'Δ ' + n : n + ' modif.') : 'propre', countColor: n ? 'var(--wait)' : 'var(--dim)',
+          check: src === o.id ? '✓' : '', bg: src === o.id ? 'var(--elev2)' : 'transparent',
+          onClick: () => { const p = this.defaultFile(pid, o.id); this.setEd({ src: o.id, open: p ? [p] : [], active: p }); } };
+      }),
+      treeRows: rows, treeTitle: srcAgent ? '.claude/worktrees/' + srcAgent.name : pr.path, edFileCount: paths.length + ' · ' + changed.length + ' modif.',
+      edTabs: tabs, hasFile: !!act, noFile: !act,
+      edCrumbs: act ? act.split('/').join('  /  ') : '',
+      edDiff: !act ? '' : base == null ? 'Nouveau fichier · non suivi dans ' + vsRef : nChanged ? nChanged + (nChanged > 1 ? ' lignes modifiées' : ' ligne modifiée') + ' vs ' + vsRef : 'Identique à ' + vsRef,
+      edDiffColor: base == null || nChanged ? 'var(--add)' : 'var(--dim)',
+      codeLines, codeText: text, codeScrollRef: this.codeScrollRef, edTaRef: this.edTaRef,
+      onCode: ev => { if (!act) return; const v = ev.target.value; this.setState(st => ({ edits: { ...(st.edits || {}), [key(act)]: v } })); },
+      onCodeKey: ev => this.codeKey(ev, act && key(act)),
+      onCodeSelect: ev => { const el = ev.target, b = el.value.slice(0, el.selectionStart), line = b.split('\n').length, col = b.length - b.lastIndexOf('\n'); if (!s.edCur || s.edCur.line !== line || s.edCur.col !== col) this.setState({ edCur: { line, col } }); },
+      edSave: () => act && this.saveFile(key(act)),
+      saveBg: isDirty ? 'var(--accent)' : 'var(--elev2)', saveColor: isDirty ? 'var(--accent-ink)' : 'var(--dim)',
+      edSaveHint: isDirty ? '● Non enregistré · ⌘S' : (act ? 'Enregistré' : ''), edHintColor: isDirty ? 'var(--wait)' : 'var(--dim)',
+      edLn: 'Ln ' + cur.line + ', Col ' + cur.col, edLang: lang.label, edSrcLabel: srcAgent ? 'worktree · ' + srcAgent.name : 'branche · ' + pr.branch
+    });
+  }
+  static seedTickets() {
+    const T = (id, pid, key, title, crit, col, x) => ({ id, pid, key, title, criteria: crit.map(c => typeof c === 'string' ? { t: c, ok: false } : { t: c[0], ok: c[1] }), col, aid: null, iter: 0, max: 5, progress: 0, tokens: 0, file: 'src/' + key.toLowerCase() + '.ts', ...(x || {}) });
+    return [
+      T('t1', 'atlas', 'ATL-38', "Migrer l'auth vers des JWT à rotation", [["Tokens d'accès signés et vérifiés", true], ['Rotation du refresh token', true], 'Sessions legacy acceptées 30 jours', "Tests d'intégration verts"], 'doing', { aid: 'a1', iter: 2, progress: 55, tokens: 182400, file: 'src/middleware/auth.ts' }),
+      T('t2', 'atlas', 'ATL-41', 'Tests e2e de réinitialisation du mot de passe', [['Parcours nominal couvert', true], 'Expiration du lien testée', 'CI verte'], 'doing', { aid: 'a2', iter: 1, progress: 62, tokens: 96300, file: 'e2e/reset-password.spec.ts' }),
+      T('t3', 'atlas', 'ATL-37', "Documenter les variables d'environnement", [['Section Configuration dans le README', true], ['Valeurs par défaut indiquées', true]], 'review', { aid: 'a3', iter: 1, progress: 100, tokens: 21800 }),
+      T('t4', 'atlas', 'ATL-42', 'Limiter les tentatives de connexion', ['5 essais par IP sur 15 min', 'Réponse 429 avec Retry-After', 'Tests unitaires'], 'todo', { file: 'src/middleware/rate-limit.ts' }),
+      T('t5', 'atlas', 'ATL-43', 'Endpoint DELETE /users/me (RGPD)', ['Suppression en cascade des données', 'Email de confirmation', "Tests d'intégration"], 'todo', { file: 'src/routes/users.ts' }),
+      T('t6', 'atlas', 'ATL-44', "Journal d'audit des connexions", ['Un événement par tentative de connexion', 'Rétention 90 jours'], 'todo', { file: 'src/audit/log.ts' }),
+      T('t7', 'atlas', 'ATL-35', 'Passer à Express 4.19', [['Dépendance à jour', true], ['Tests verts', true]], 'done', { aid: 'a3', iter: 1, tokens: 41000, outcome: '⤵ Mergé dans main · squash' }),
+      T('t8', 'atlas', 'ATL-33', "Supprimer l'endpoint /login-v1", [['Route retirée', true], ['Clients migrés', true], ['Tests verts', true]], 'done', { aid: 'a2', iter: 3, tokens: 128000, outcome: '⇡ PR #121 → main' }),
+      T('t9', 'studio', 'STU-12', 'Refonte du hero de la landing', [['Nouvelle typographie', true], 'Visuel produit intégré', 'Rendu mobile sous 390 px'], 'doing', { aid: 's1', iter: 1, progress: 48, tokens: 143900, file: 'components/Hero.tsx' }),
+      T('t10', 'studio', 'STU-11', "Corriger l'accessibilité de /pricing", ['Contrastes AA', 'Boutons avec libellé accessible', 'Audit axe sans violation'], 'doing', { aid: 's2', iter: 1, progress: 35, tokens: 58200 }),
+      T('t11', 'studio', 'STU-13', 'Page pricing : comparatif des offres', ['Tableau des 3 offres', 'Bascule mensuel / annuel', 'Responsive'], 'todo', { file: 'app/pricing/page.tsx' }),
+      T('t12', 'studio', 'STU-9', 'Formulaire de contact', [['Validation des champs', true], ["Envoi de l'email", true]], 'done', { aid: 's1', iter: 2, tokens: 88000, outcome: '⤵ Mergé dans main · squash' }),
+      T('t13', 'mobile', 'MOB-7', 'Deep-link notification vers écran commande', ['Route orders/:orderId', 'Ouverture depuis app fermée', 'Tests'], 'doing', { aid: 'm1', iter: 1, progress: 30, tokens: 71200, file: 'src/navigation/linking.ts' }),
+      T('t14', 'mobile', 'MOB-8', 'Panier hors ligne', ['Persistance locale', 'Synchronisation au retour du réseau'], 'todo', { file: 'src/cart/offline.ts' }),
+      T('t15', 'infra', 'INF-4', 'Audit des rôles IAM', [['Rôles « * » listés', true], ['Politique minimale proposée', true]], 'review', { aid: 'i1', iter: 1, progress: 100, tokens: 34100 }),
+      T('t16', 'infra', 'INF-5', 'Restreindre le rôle ci-deploy', ['Politique limitée à S3 et ECS', 'Plan Terraform sans destruction'], 'todo', { file: 'modules/iam/roles.tf' })
+    ];
+  }
+  kbOn() { const s = this.state; return !!(s.kb || {})[s.activeProject] && s.view === 'project'; }
+  autoOn(pid) { return (this.state.auto || {})[pid] !== false; }
+  kbStep() {
+    this.setState(st => {
+      if (!st.tickets) return null;
+      let changed = false; const msgs = {}, say = (aid, m) => (msgs[aid] = msgs[aid] || []).push(m);
+      const tickets = st.tickets.map(t => ({ ...t, criteria: t.criteria.map(c => ({ ...c })) }));
+      const agents = st.agents.map(a => ({ ...a }));
+      tickets.forEach(t => {
+        if (t.col !== 'doing') return;
+        const a = agents.find(x => x.id === t.aid); if (!a) return;
+        if (a.status === 'idle' || a.status === 'done') { a.status = 'running'; changed = true; }
+        if (a.status !== 'running') return;
+        changed = true;
+        t.progress = Math.min(100, t.progress + 5 + Math.random() * 7);
+        t.tokens += 400 + Math.round(Math.random() * 900);
+        if (t.progress < 100) return;
+        const pend = t.criteria.filter(c => !c.ok), n = Math.min(pend.length, Math.random() < 0.35 ? 2 : 1);
+        for (let i = 0; i < n; i++) pend[i].ok = true;
+        const ok = t.criteria.filter(c => c.ok).length, tot = t.criteria.length;
+        say(a.id, { k: 'tool', tool: 'Edit', arg: t.file, add: 10 + Math.round(Math.random() * 50), del: Math.round(Math.random() * 15) });
+        say(a.id, { k: 'tool', tool: 'Bash', arg: 'npm test', res: ok === tot ? 'tous les critères validés' : (tot - ok) + ' critère(s) non atteint(s)' });
+        if (ok === tot) { t.col = 'review'; a.status = 'done'; this._kbChime = true; say(a.id, { k: 'a', t: 'Objectif atteint en ' + t.iter + (t.iter > 1 ? ' boucles' : ' boucle') + '. Ticket ' + t.key + ' passé en « À tester ».' }); }
+        else if (t.iter >= t.max) { t.col = 'review'; t.partial = true; a.status = 'done'; this._kbChime = true; say(a.id, { k: 'a', t: 'Limite de ' + t.max + ' boucles atteinte : ' + ok + '/' + tot + ' critères. Ticket passé en « À tester » pour arbitrage.' }); }
+        else { say(a.id, { k: 'a', t: 'Boucle ' + t.iter + ' : ' + ok + '/' + tot + ' critères atteints. Je relance une boucle.' }); t.iter++; t.progress = 0; }
+      });
+      st.projects.forEach(pr => {
+        const auto = (st.auto || {})[pr.id] !== false;
+        agents.filter(a => a.pid === pr.id && (a.status === 'idle' || a.status === 'done') && !tickets.some(t => t.col === 'doing' && t.aid === a.id)).forEach(a => {
+          const todo = tickets.filter(t => t.pid === pr.id && t.col === 'todo');
+          const t = todo.find(x => x.force) || (auto ? todo[0] : null); if (!t) return;
+          Object.assign(t, { col: 'doing', aid: a.id, iter: 1, progress: 0, force: false, partial: false }); a.status = 'running'; changed = true;
+          say(a.id, { k: 'u', t: 'Ticket ' + t.key + ' · ' + t.title + ' — critères : ' + t.criteria.map(c => c.t).join(' ; ') });
+          say(a.id, { k: 'a', t: "Je prends ce ticket et je boucle jusqu'à valider les " + t.criteria.length + ' critères (max ' + t.max + ' boucles).' });
+        });
+      });
+      if (!changed) return null;
+      return { tickets, agents: agents.map(a => msgs[a.id] ? { ...a, msgs: [...a.msgs, ...msgs[a.id]] } : a) };
+    }, () => { if (this._kbChime) { this._kbChime = false; this.chime(); } });
+  }
+  moveTicket(id, col, patch) { this.setState(st => ({ tickets: st.tickets.map(t => t.id === id ? { ...t, col, ...(patch || {}) } : t) })); }
+  addTicket(pr) {
+    const s = this.state, f = s.kbForm || {}, title = (f.title || '').trim(); if (!title) return;
+    const pre = pr.name.replace(/[^a-z]/gi, '').slice(0, 3).toUpperCase();
+    const num = Math.max(0, ...s.tickets.filter(t => t.pid === pr.id).map(t => parseInt(t.key.split('-')[1]) || 0)) + 1;
+    const crit = (f.crit || '').split('\n').map(x => x.trim()).filter(Boolean);
+    const t = { id: 'tk' + Date.now(), pid: pr.id, key: pre + '-' + num, title, criteria: (crit.length ? crit : ['Implémentation conforme au ticket', 'Tests verts']).map(c => ({ t: c, ok: false })), col: 'todo', aid: null, iter: 0, max: f.max || 5, progress: 0, tokens: 0, file: 'src/' + pre.toLowerCase() + '-' + num + '.ts' };
+    this.setState({ tickets: [...s.tickets, t], kbForm: null });
+  }
+  kbCfg(pid) { return { action: 'merge', target: 'main', strategy: 'squash', draft: false, testsFirst: true, cleanup: true, conv: true, conflict: 'ask', ...((this.state.kbCfg || {})[pid] || {}) }; }
+  setCfg(p) { this.setState(st => ({ kbCfg: { ...(st.kbCfg || {}), [st.activeProject]: { ...this.kbCfg(st.activeProject), ...p } } })); }
+  outcome(t, c) {
+    const SL = { merge: 'merge commit', squash: 'squash', rebase: 'rebase' };
+    if (c.action === 'merge') return '⤵ Mergé dans ' + c.target + ' · ' + SL[c.strategy] + (c.cleanup ? ' · worktree supprimé' : '');
+    if (c.action === 'pr') return '⇡ PR #' + (128 + Math.floor(Math.random() * 40)) + ' → ' + c.target + (c.draft ? ' · brouillon' : '');
+    if (c.action === 'push') return '⇡ Poussé sur ticket/' + t.key.toLowerCase();
+    return '◇ Laissé dans le worktree';
+  }
+  settingsVals(pr) {
+    const s = this.state, c = this.kbCfg(s.activeProject), open = !!s.kbSettings;
+    const tg = (key, label, desc) => ({ label, desc, onClick: () => this.setCfg({ [key]: !c[key] }), bg: c[key] ? 'var(--ok)' : 'var(--elev2)', j: c[key] ? 'flex-end' : 'flex-start' });
+    const ring = on => on ? 'var(--accent)' : 'var(--line2)';
+    const chip = (on) => ({ bg: on ? 'var(--elev2)' : 'transparent', color: on ? 'var(--text)' : 'var(--muted)', bc: on ? 'var(--accent)' : 'var(--line2)' });
+    const branches = [...new Set(['main', 'develop', pr.branch])];
+    const SUM = { merge: 'merge ' + c.strategy + ' → ' + c.target, pr: 'PR → ' + c.target, push: 'push ticket/*', keep: 'laisser en l\'état' };
+    return {
+      setOpen: open, openSettings: () => this.setState({ kbSettings: true }), closeSettings: () => this.setState({ kbSettings: false }),
+      cfgSummary: SUM[c.action],
+      approveLabel: { merge: 'Valider et merger', pr: 'Valider + PR', push: 'Valider et pousser', keep: 'Valider' }[c.action],
+      actionOpts: [
+        ['merge', 'Merger dans une branche', "Fusionne le worktree de l'agent dans la branche cible, puis libère l'agent."],
+        ['pr', 'Ouvrir une pull request', 'Pousse ticket/<clé> et ouvre une PR vers la branche cible pour relecture.'],
+        ['push', 'Pousser la branche du ticket', 'Commit et push sur ticket/<clé>, sans merge ni PR.'],
+        ['keep', "Laisser en l'état", 'Les modifications restent non commitées dans le worktree.']
+      ].map(([k, l, d]) => ({ label: l, desc: d, onClick: () => this.setCfg({ action: k }), bc: ring(c.action === k), bg: c.action === k ? 'var(--elev)' : 'transparent', dot: c.action === k ? 'var(--accent)' : 'transparent' })),
+      showTarget: c.action === 'merge' || c.action === 'pr', showStrategy: c.action === 'merge', showDraft: c.action === 'pr',
+      branchOpts: branches.map(b => ({ label: b, onClick: () => this.setCfg({ target: b }), ...chip(c.target === b) })),
+      strategyOpts: [['merge', 'Merge commit'], ['squash', 'Squash'], ['rebase', 'Rebase']].map(([k, l]) => ({ label: l, onClick: () => this.setCfg({ strategy: k }), ...chip(c.strategy === k) })),
+      draftToggle: tg('draft', 'Ouvrir en brouillon', ''),
+      cfgToggles: [
+        tg('testsFirst', 'Relancer les tests avant', "Bloque l'action si un test échoue et renvoie le ticket à l'agent."),
+        tg('cleanup', 'Supprimer le worktree après merge', "Libère l'espace disque et repart d'une branche propre."),
+        tg('conv', 'Message de commit généré', 'Format Conventional Commits, avec la clé du ticket.')
+      ],
+      conflictOpts: [['ask', 'Me demander'], ['agent', "L'agent résout"], ['abort', 'Annuler']].map(([k, l]) => ({ label: l, onClick: () => this.setCfg({ conflict: k }), ...chip(c.conflict === k) })),
+      commitPreview: c.conv ? 'feat(auth): limiter les tentatives de connexion [ATL-42]' : 'ATL-42 Limiter les tentatives de connexion'
+    };
+  }
+  kanbanVals(pr) {
+    if (!this.kbTick) this.kbTick = setInterval(() => this.kbStep(), 1000);
+    const s = this.state, pid = s.activeProject, on = this.kbOn(), tk = (s.tickets || []).filter(t => t.pid === pid);
+    const reviewN = tk.filter(t => t.col === 'review').length;
+    const doingFor = aid => tk.find(t => t.col === 'doing' && t.aid === aid);
+    const out = {
+      viewOpts: [['agents', 'Agents'], ['kanban', 'Tableau']].map(([k, l]) => { const act = (k === 'kanban') === on; return { label: l, badge: reviewN, hasBadge: k === 'kanban' && reviewN > 0, bg: act ? 'var(--elev2)' : 'transparent', color: act ? 'var(--text)' : 'var(--muted)', onClick: () => this.setState({ kb: { ...(s.kb || {}), [pid]: k === 'kanban' }, srcMenu: false }) }; }),
+      agentTickets: {}, kbOn: on
+    };
+    s.agents.filter(a => a.pid === pid).forEach(a => { const t = doingFor(a.id); if (t) out.agentTickets[a.id] = t.key + ' · boucle ' + t.iter + '/' + t.max; });
+    if (!on) return out;
+    const auto = this.autoOn(pid), agents = s.agents.filter(a => a.pid === pid);
+    const free = agents.filter(a => (a.status === 'idle' || a.status === 'done') && !doingFor(a.id));
+    const ACT = p => p < 20 ? 'Lit le code concerné' : p < 55 ? 'Implémente' : p < 80 ? 'Lance les tests' : 'Vérifie les critères';
+    const dots = React.createElement('span', { style: { display: 'inline-flex', gap: 3, flex: 'none' } }, [0, 1, 2].map(i => React.createElement('span', { key: i, style: { width: 4, height: 4, borderRadius: '50%', background: 'var(--accent)', animation: 'ccBlink 1.2s ' + (i * 0.15) + 's infinite' } })));
+    const COLS = [['todo', 'À faire', 'var(--dim)'], ['doing', 'En cours', 'var(--accent)'], ['review', 'À tester', 'var(--wait)'], ['done', 'Terminé', 'var(--ok)']];
+    const f = s.kbForm, setF = p => this.setState(st => ({ kbForm: { ...(st.kbForm || {}), ...p } }));
+    const card = (t, k) => {
+      const a = s.agents.find(x => x.id === t.aid), ok = t.criteria.filter(c => c.ok).length, tot = t.criteria.length;
+      const waiting = k === 'doing' && a && a.status === 'waiting';
+      return {
+        key: t.key, title: t.title, isTodo: k === 'todo', isDoing: k === 'doing', isReview: k === 'review', isDone: k === 'done',
+        loop: 'Boucle ' + t.iter + '/' + t.max, partial: !!t.partial, showCrit: k === 'doing' || k === 'review',
+        critList: t.criteria.map(c => ({ t: c.t, mark: c.ok ? '✓' : '○', color: c.ok ? 'var(--ok)' : 'var(--dim)', tc: c.ok ? 'var(--muted)' : 'var(--text)' })),
+        progW: t.progress + '%', activity: waiting ? 'Question en attente de ta réponse' : ACT(t.progress), actColor: waiting ? 'var(--wait)' : 'var(--muted)', actIcon: waiting ? this.pulse(7) : dots,
+        border: waiting ? 'var(--wait)' : 'var(--line)', op: k === 'done' ? 0.72 : 1,
+        showFooter: !!a && k !== 'todo', agentName: a ? a.name : '', agentDot: a ? this.statusDot(a.status, 7) : null,
+        reviewMeta: ok + '/' + tot + ' critères', doneMeta: t.iter + (t.iter > 1 ? ' boucles' : ' boucle') + ' · ' + this.fUsd(t.tokens * 4.6e-6),
+        todoMeta: tot + (tot > 1 ? ' critères' : ' critère') + ' · max ' + t.max + ' boucles',
+        todoWait: t.force ? 'Lancement demandé…' : auto ? (free.length ? 'Pris au prochain cycle' : "En attente d'un agent libre") : 'Pilote auto désactivé',
+        canStart: !auto && !t.force && free.length > 0,
+        start: ev => { ev.stopPropagation(); this.setState(st => ({ tickets: st.tickets.map(x => x.id === t.id ? { ...x, force: true } : x) })); },
+        cursor: a && k !== 'todo' ? 'pointer' : 'default',
+        open: a && k !== 'todo' ? () => this.setState({ kb: { ...(s.kb || {}), [pid]: false }, selected: { ...s.selected, [pid]: a.id }, selTerm: { ...s.selTerm, [pid]: null }, ed: this.edOff() }) : undefined,
+        approve: ev => { ev.stopPropagation(); this.moveTicket(t.id, 'done', { outcome: this.outcome(t, this.kbCfg(pid)) }); },
+        outcome: t.outcome || '', hasOutcome: k === 'done' && !!t.outcome,
+        reject: ev => { ev.stopPropagation(); this.moveTicket(t.id, 'todo', { aid: null, iter: 0, progress: 0, partial: false }); }
+      };
+    };
+    return Object.assign(out, {
+      showConv: false, showTerm: false, edOn: false, filesOpen: false, minW: '1280px',
+      kbSummary: tk.length + ' tickets · ' + tk.filter(t => t.col === 'doing').length + ' en boucle',
+      kbFree: free.length ? free.length + (free.length > 1 ? ' agents libres' : ' agent libre') : 'Tous les agents sont occupés',
+      autoBg: auto ? 'var(--ok)' : 'var(--elev2)', autoJ: auto ? 'flex-end' : 'flex-start', autoLabel: auto ? 'Pilote auto' : 'Pilote auto · off',
+      toggleAuto: () => this.setState(st => ({ auto: { ...(st.auto || {}), [pid]: !auto } })),
+      kbCols: COLS.map(([k, l, c]) => {
+        const cards = tk.filter(t => t.col === k).map(t => card(t, k));
+        return { label: l, color: c, count: cards.length, cards, isTodo: k === 'todo', empty: !cards.length && !(k === 'todo' && f),
+          emptyText: { todo: 'Ajoute un ticket : un agent libre le prendra.', doing: 'Aucun agent en boucle', review: 'Rien à tester', done: 'Aucun ticket terminé' }[k],
+          openForm: () => this.setState({ kbForm: { title: '', crit: '', max: 5 } }),
+          showForm: k === 'todo' && !!f,
+          form: { title: f ? f.title : '', crit: f ? f.crit : '', onTitle: e => setF({ title: e.target.value }), onCrit: e => setF({ crit: e.target.value }),
+            maxOpts: [3, 5, 8].map(n => ({ label: String(n), onClick: () => setF({ max: n }), bg: f && f.max === n ? 'var(--elev2)' : 'transparent', color: f && f.max === n ? 'var(--text)' : 'var(--muted)' })),
+            cancel: () => this.setState({ kbForm: null }), add: () => this.addTicket(pr), addBg: f && f.title && f.title.trim() ? 'var(--accent)' : 'var(--elev2)', addColor: f && f.title && f.title.trim() ? 'var(--accent-ink)' : 'var(--dim)' } };
+      })
+    });
   }
   renderVals() {
     const s = this.state, p = this.props;
@@ -757,12 +1664,12 @@ class Component extends DCLogic {
     const SC = { running: 'var(--ok)', waiting: 'var(--wait)', idle: 'var(--dim)', done: 'var(--ok)' };
     const agentRows = list.map(a => {
       const sel = ag && a.id === ag.id;
-      return { name: a.name, select: () => this.setState({ selected: { ...s.selected, [s.activeProject]: a.id }, selTerm: { ...s.selTerm, [s.activeProject]: null }, draft: '' }), bg: sel && !s.selTerm[s.activeProject] ? 'var(--elev)' : 'transparent', bc: sel && !s.selTerm[s.activeProject] ? 'var(--line2)' : 'transparent', dot: this.statusDot(a.status, 8), model: a.model, dur: this.fDur(a.secs), tok: this.fTok(a.tokens), cost: this.fUsd(this.cost(a)), files: this.agentFiles(a).length + ' fich.', isWaiting: a.status === 'waiting', notWaiting: a.status !== 'waiting', statusLabel: SL[a.status], statusColor: SC[a.status], qTag: this.pill('Question') };
+      return { name: a.name, select: () => this.setState({ selected: { ...s.selected, [s.activeProject]: a.id }, selTerm: { ...s.selTerm, [s.activeProject]: null }, draft: '', ed: this.edSwitch(a.id), kb: { ...(s.kb || {}), [s.activeProject]: false } }), bg: sel && !s.selTerm[s.activeProject] ? 'var(--elev)' : 'transparent', bc: sel && !s.selTerm[s.activeProject] ? 'var(--line2)' : 'transparent', dot: this.statusDot(a.status, 8), model: a.model, dur: this.fDur(a.secs), tok: this.fTok(a.tokens), cost: this.fUsd(this.cost(a)), files: this.agentFiles(a).length + ' fich.', isWaiting: a.status === 'waiting', notWaiting: a.status !== 'waiting', statusLabel: SL[a.status], statusColor: SC[a.status], hasTicket: !!((s.tickets || []).find(t => t.col === 'doing' && t.aid === a.id)), ticketLabel: (() => { const t = (s.tickets || []).find(t => t.col === 'doing' && t.aid === a.id); return t ? t.key + ' · boucle ' + t.iter + '/' + t.max : ''; })(), qTag: this.pill('Question') };
     });
     const pending = ag ? ag.msgs.some(m => m.k === 'q' && !m.ans) : false;
     const messages = ag ? ag.msgs.map((m, i) => ({
       isUser: m.k === 'u', isAssistant: m.k === 'a', isTool: m.k === 'tool', qPending: m.k === 'q' && !m.ans, qDone: m.k === 'q' && !!m.ans,
-      text: m.t, tool: m.tool, arg: m.arg, res: m.res, hasDiff: m.add != null, noDiff: m.add == null, add: '+' + m.add, del: '−' + m.del, ans: m.ans,
+      text: m.t, tool: m.tool, arg: m.arg, open: (m.tool === 'Edit' || m.tool === 'Write') ? () => this.openEditor(ag.id, m.arg) : undefined, cursor: (m.tool === 'Edit' || m.tool === 'Write') ? 'pointer' : 'default', res: m.res, hasDiff: m.add != null, noDiff: m.add == null, add: '+' + m.add, del: '−' + m.del, ans: m.ans,
       pulse: m.k === 'q' ? this.pulse(8) : null,
       opts: (m.opts || []).map((o, j) => ({ label: o, onClick: () => this.answer(ag.id, i, o), bg: j === 0 ? 'var(--wait)' : 'transparent', color: j === 0 ? '#2a1f05' : 'var(--text)', bc: j === 0 ? 'var(--wait)' : 'var(--line2)' }))
     })) : [];
@@ -796,7 +1703,7 @@ class Component extends DCLogic {
       placeholder: pending ? 'Réponds à la question ou écris une réponse libre…' : (ag && ag.msgs.length ? 'Envoyer un message à ' + ag.name + '…' : 'Décris la tâche à confier à Claude…'),
       modelOpts: ['Opus', 'Sonnet', 'Haiku'].map(m => ({ label: m, onClick: () => ag && this.setState(st => ({ agents: st.agents.map(a => a.id === ag.id ? { ...a, model: m } : a) })), bg: ag && ag.model === m ? 'var(--elev2)' : 'transparent', color: ag && ag.model === m ? 'var(--text)' : 'var(--muted)' })),
       effortOpts: [['low', 'Bas', 'Réponses rapides, peu de réflexion'], ['med', 'Moyen', 'Équilibré'], ['high', 'Élevé', 'Réflexion approfondie'], ['max', 'Max', 'Réflexion maximale, plus de tokens']].map(([k, l, t]) => { const cur = (ag && ag.effort) || 'med'; return { label: l, title: t, onClick: () => ag && this.setState(st => ({ agents: st.agents.map(a => a.id === ag.id ? { ...a, effort: k } : a) })), bg: cur === k ? 'var(--accent)' : 'transparent', color: cur === k ? 'var(--accent-ink)' : 'var(--muted)' }; }),
-      ...this.filesVals(ag, list), ...this.modalVals(), ...this.termVals(pr),
+      ...this.filesVals(ag, list), ...this.modalVals(), ...this.termVals(pr), ...this.editorVals(pr), ...this.kanbanVals(pr), ...this.settingsVals(pr),
       composerBorder: pending ? 'var(--wait)' : 'var(--line2)',
       runCount: all.filter(a => a.status === 'running').length, doneCount: all.filter(a => a.status === 'done').length, waitCount: waitN, waitColor: waitN ? 'var(--wait)' : 'var(--muted)', waitDot: waitN ? this.pulse(7) : this.dot('var(--dim)', 7),
       sessW: sess + '%', sessPct: Math.round(sess) + ' %', sessColor: sess > 80 ? 'var(--wait)' : 'var(--accent)', sessReset: Math.floor(rs / 3600) + 'h' + String(Math.floor(rs % 3600 / 60)).padStart(2, '0'),
