@@ -3,7 +3,10 @@ import type {
   Agent,
   Attachment,
   ConvItem,
+  FileBase,
   FileChange,
+  FileText,
+  FileTree,
   FolderInfo,
   GitLog,
   InitialState,
@@ -60,6 +63,20 @@ export const api = {
   stats: (range: string) => invoke<StatsView>('stats', { range }),
   refreshUsage: () => invoke<void>('refresh_usage'),
   gitDiscard: (projectId: string, agentId: string | null, path: string) => invoke<void>('git_discard', { projectId, agentId, path }),
+  fsTree: (projectId: string, agentId: string | null) => invoke<FileTree>('fs_tree', { projectId, agentId }),
+  fsRead: (projectId: string, agentId: string | null, path: string) => invoke<FileText>('fs_read', { projectId, agentId, path }),
+  /** Refused with "changed" / "deleted" when the file is no longer the one read (`expectedHash`); null forces. */
+  fsWrite: (a: {
+    projectId: string;
+    agentId: string | null;
+    path: string;
+    text: string;
+    eol: 'lf' | 'crlf';
+    bom: boolean;
+    expectedHash: string | null;
+  }) => invoke<string>('fs_write', a),
+  fsBase: (projectId: string, agentId: string | null, path: string) => invoke<FileBase | null>('fs_base', { projectId, agentId, path }),
+  setUnsaved: (count: number) => invoke<void>('set_unsaved', { count }),
   cancelResume: (id: string) => invoke<void>('cancel_resume', { id }),
   termSpawn: (a: { projectId: string; shell: string; name: string; cols: number; rows: number }, onData: (d: ArrayBuffer) => void) => {
     const output = new Channel<ArrayBuffer>();

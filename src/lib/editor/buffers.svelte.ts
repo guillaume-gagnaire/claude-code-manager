@@ -1,0 +1,220 @@
+// Files open in the editor: their text, as last read or saved, and the state of the file on disk.
+// A source is 'project' (the project's checkout) or the id of an agent (its worktree).
+
+import { api } from '../ipc';
+import type { FileBase, FileText } from '../types';
+
+export type BufferKind = 'text' | 'binary' | 'tooLarge' | 'missing' | 'error';
+
+export interface Buffer {
+  key: string;
+  projectId: string;
+  source: string;
+  path: string;
+  kind: BufferKind;
+  /** Text in the editor (LF line endings). */
+  text: string;
+  /** Text as last read or saved. */
+  saved: string;
+  /** Of the file on disk as last read or saved. */
+  hash: string;
+  eol: 'lf' | 'crlf';
+  bom: boolean;
+  size: number;
+  /** The version compared with: undefined while loading, null without one (not a repository). */
+  base?: FileBase | null;
+  /** The file on disk changed or vanished since it was read. */
+  disk: 'ok' | 'changed' | 'deleted';
+  error: string | null;
+  /** Bumped when the text is replaced from disk, for the editor to take it. */
+  version: number;
+}
+
+export const sourceAgent = (source: string) => (source === 'project' ? null : source);
+
+const notFound = (e: unknown) => String(e).includes('introuvable');
+
+class Buffers {
+  all = $state<Record<string, Buffer>>({});
+  private sent = 0;
+  private pending = new Map<string, Promise<Buffer>>();
+  private saving = new Set<string>();
+
+  key(projectId: string, source: string, path: string) {
+    return `${projectId}|${source}|${path}`;
+  }
+
+  isDirty(b: Buffer | undefined): boolean {
+    return !!b && b.kind === 'text' && b.text !== b.saved;
+  }
+
+  get unsaved(): number {
+    return Object.values(this.all).filter((b) => this.isDirty(b)).length;
+  }
+
+  open(projectId: string, source: string, path: string): Promise<Buffer> {
+    const key = this.key(projectId, source, path);
+    if (this.all[key]) return Promise.resolve(this.all[key]);
+    let p = this.pending.get(key);
+    if (!p) {
+      p = this.load(key, projectId, source, path).finally(() => this.pending.delete(key));
+      this.pending.set(key, p);
+    }
+    return p;
+  }
+
+  private async load(key: string, projectId: string, source: string, path: string): Promise<Buffer> {
+    const b: Buffer = {
+      key,
+      projectId,
+      source,
+      path,
+      kind: 'text',
+      text: '',
+      saved: '',
+      hash: '',
+      eol: 'lf',
+      bom: false,
+      size: 0,
+      base: undefined,
+      disk: 'ok',
+      error: null,
+      version: 0,
+    };
+    try {
+      this.take(b, await api.fsRead(projectId, sourceAgent(source), path));
+    } catch (e) {
+      Object.assign(b, notFound(e) ? { kind: 'missing' } : { kind: 'error', error: String(e) });
+    }
+    this.all[key] = b;
+    if (b.kind === 'text') this.loadBase(key);
+    return this.all[key];
+  }
+
+  private take(b: Buffer, f: FileText) {
+    Object.assign(b, { kind: f.kind, text: f.text ?? '', saved: f.text ?? '', hash: f.hash, eol: f.eol, bom: f.bom, size: f.size });
+  }
+
+  private loadBase(key: string) {
+    const b = this.all[key];
+    if (!b) return;
+    api
+      .fsBase(b.projectId, sourceAgent(b.source), b.path)
+      .then((base) => {
+        const x = this.all[key];
+        if (x) x.base = base;
+      })
+      .catch(() => {
+        const x = this.all[key];
+        if (x) x.base = null;
+      });
+  }
+
+  edit(key: string, text: string) {
+    const b = this.all[key];
+    if (!b || b.kind !== 'text') return;
+    b.text = text;
+    this.sync();
+  }
+
+  /** Writes the file; false when it changed or vanished on disk meanwhile (see `disk`). */
+  async save(key: string, force = false): Promise<boolean> {
+    const b = this.all[key];
+    if (!b || b.kind !== 'text') return false;
+    if (!force && !this.isDirty(b) && b.disk === 'ok') return true;
+    if (this.saving.has(key)) return false;
+    this.saving.add(key);
+    const text = b.text;
+    try {
+      const hash = await api.fsWrite({
+        projectId: b.projectId,
+        agentId: sourceAgent(b.source),
+        path: b.path,
+        text,
+        eol: b.eol,
+        bom: b.bom,
+        expectedHash: force ? null : b.hash,
+      });
+      Object.assign(b, { saved: text, hash, disk: 'ok' });
+      this.sync();
+      return true;
+    } catch (e) {
+      const msg = String(e);
+      if (msg.startsWith('changed')) b.disk = 'changed';
+      else if (msg.startsWith('deleted')) b.disk = 'deleted';
+      else throw e;
+      return false;
+    } finally {
+      this.saving.delete(key);
+    }
+  }
+
+  /** Saves over what changed on disk (or creates the file again). */
+  keepMine(key: string): Promise<boolean> {
+    return this.save(key, true);
+  }
+
+  /** Reads the file again: a clean one takes the new text, a modified one is flagged. */
+  async refresh(key: string) {
+    const b = this.all[key];
+    if (!b || b.kind !== 'text') return;
+    let f: FileText;
+    try {
+      f = await api.fsRead(b.projectId, sourceAgent(b.source), b.path);
+    } catch (e) {
+      if (notFound(e)) b.disk = 'deleted';
+      return;
+    }
+    if (f.kind === 'text') {
+      if (f.hash === b.hash) {
+        b.disk = 'ok';
+      } else if (this.isDirty(b)) {
+        b.disk = 'changed';
+      } else {
+        this.take(b, f);
+        b.disk = 'ok';
+        b.version++;
+      }
+    }
+    this.loadBase(key);
+  }
+
+  async refreshAll(projectId: string, source: string) {
+    const open = Object.values(this.all).filter((b) => b.projectId === projectId && b.source === source);
+    await Promise.all(open.map((b) => this.refresh(b.key)));
+  }
+
+  /** Drops what was typed for the file as it is on disk. */
+  async reload(key: string) {
+    const b = this.all[key];
+    if (!b) return;
+    const f = await api.fsRead(b.projectId, sourceAgent(b.source), b.path);
+    this.take(b, f);
+    b.disk = 'ok';
+    b.version++;
+    this.sync();
+    this.loadBase(key);
+  }
+
+  close(key: string) {
+    delete this.all[key];
+    this.sync();
+  }
+
+  reset() {
+    this.all = {};
+    this.sent = 0;
+    this.pending.clear();
+    this.saving.clear();
+  }
+
+  /** Tells the backend how many files are unsaved, for "Quitter". */
+  private sync() {
+    const n = this.unsaved;
+    if (n === this.sent) return;
+    this.sent = n;
+    api.setUnsaved(n).catch(() => {});
+  }
+}
+
+export const buffers = new Buffers();

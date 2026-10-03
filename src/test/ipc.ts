@@ -1,6 +1,8 @@
 // Test utilities: a fake Tauri backend recording every command.
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { buffers } from '../lib/editor/buffers.svelte';
+import { trees } from '../lib/editor/trees.svelte';
 import { app } from '../lib/state.svelte';
 import type { Agent, GitInfo, Project, Settings } from '../lib/types';
 
@@ -138,4 +140,6 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.update = null;
   app.models = [];
   app.ready = true;
+  buffers.reset();
+  trees.reset();
 }

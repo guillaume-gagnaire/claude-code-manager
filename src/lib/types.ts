@@ -165,6 +165,29 @@ export interface FileChange {
   inWorktree: boolean;
 }
 
+/** The files of an editor source, relative to `root`. */
+export interface FileTree {
+  root: string;
+  files: string[];
+  truncated: boolean;
+}
+
+/** A file as the editor reads it: its text with LF line endings, and how to write it back. */
+export interface FileText {
+  kind: 'text' | 'binary' | 'tooLarge';
+  text: string | null;
+  size: number;
+  hash: string;
+  eol: 'lf' | 'crlf';
+  bom: boolean;
+}
+
+/** The version a file is compared with ("HEAD", or the branch a worktree left). */
+export interface FileBase {
+  reference: string;
+  text: string | null;
+}
+
 export interface RateWindow {
   pct: number;
   resetsAt: number | null;
@@ -329,7 +352,8 @@ export type UiEvent =
   | { type: 'focus'; projectId: string; agentId: string | null }
   | { type: 'terminalExit'; id: string; code: number | null }
   | { type: 'resources'; resources: Resources }
-  | { type: 'models'; models: ModelInfo[] };
+  | { type: 'models'; models: ModelInfo[] }
+  | { type: 'quitRequested'; unsaved: number };
 
 export interface InitialState {
   projects: Project[];
