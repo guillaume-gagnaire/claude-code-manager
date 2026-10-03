@@ -283,4 +283,16 @@ describe('FilesPanel editor entry', () => {
     menu.open!.items.find((i) => i.label === 'Ouvrir dans l’éditeur')!.onClick!();
     expect(app.editorOn).toBe(true);
   });
+
+  it('opens the same menu from a right click on the row’s editor button', async () => {
+    resetApp({ agents: [agent()] });
+    menu.close();
+    fakeBackend({ git_files: () => [change('src/auth.ts', 'a1')] });
+    render(FilesPanel, { project: project(), agent: app.agents.a1 });
+    await fireEvent.contextMenu(await screen.findByRole('button', { name: 'Ouvrir auth.ts dans l’éditeur' }));
+    expect(menu.open?.items.filter((i) => !i.separator).map((i) => i.label)).toEqual([
+      'Ouvrir dans l’éditeur',
+      'Abandonner les modifications…',
+    ]);
+  });
 });

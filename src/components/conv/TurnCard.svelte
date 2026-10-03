@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fDur, fTok, fUsd, fWhen, plural } from '../../lib/format';
+  import { fDur, fTok, fUsd, fWhen, isAbsPath, plural } from '../../lib/format';
   import { api } from '../../lib/ipc';
   import { app } from '../../lib/state.svelte';
   import type { FileEdit } from '../../lib/tools';
@@ -48,7 +48,8 @@
                 app.openEditor({
                   projectId: agent.projectId,
                   source: agent.worktree ? agent.id : 'project',
-                  abs: `${agent.cwd}/${e.path}`,
+                  // A file outside the agent's folder is recapped by its absolute path.
+                  abs: isAbsPath(e.path) ? e.path : `${agent.cwd}/${e.path}`,
                 })}>{e.path}</button
             ><span class="add">+{e.add}</span><span class="del">−{e.del}</span>
           </li>

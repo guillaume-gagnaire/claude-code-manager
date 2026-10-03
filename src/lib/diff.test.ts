@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileLines, parseUnifiedDiff, patchLines, splitRows } from './diff';
+import { fileLines, firstChangedLine, parseUnifiedDiff, patchLines, splitRows } from './diff';
 
 const DIFF = `diff --git a/src/auth.ts b/src/auth.ts
 index 1111111..2222222 100644
@@ -84,6 +84,25 @@ describe('patchLines', () => {
       ['meta', null, null],
       ['add', null, 20],
     ]);
+  });
+});
+
+describe('firstChangedLine', () => {
+  const hunk = (newStart: number, lines: string[]) => [{ oldStart: newStart, newStart, lines }];
+  it('skips the context a hunk opens with', () => {
+    expect(firstChangedLine(hunk(10, [' a', ' b', '-old', '+new', ' c']))).toBe(12);
+    expect(firstChangedLine(hunk(7, ['+x']))).toBe(7);
+  });
+  it('gives the line where a pure deletion sits', () => {
+    expect(firstChangedLine(hunk(10, [' a', '-gone', ' b']))).toBe(11);
+  });
+  it('looks at the first hunk only, and at a line of the file at least', () => {
+    expect(firstChangedLine([...hunk(3, [' a', '+x']), ...hunk(40, ['+y'])])).toBe(4);
+    expect(firstChangedLine(hunk(0, ['-everything']))).toBe(1);
+  });
+  it('has no line without a patch', () => {
+    expect(firstChangedLine(undefined)).toBeNull();
+    expect(firstChangedLine([])).toBeNull();
   });
 });
 

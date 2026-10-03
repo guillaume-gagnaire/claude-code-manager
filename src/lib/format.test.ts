@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fAgo, fBytes, fCountdown, fDur, fTok, fUsd, fWhen, plural, relPath, tildify } from './format';
+import { basename, dirname, fAgo, fBytes, fCountdown, fDur, fTok, fUsd, fWhen, isAbsPath, plural, relPath, tildify } from './format';
 
 describe('fTok', () => {
   it.each([
@@ -51,6 +51,10 @@ describe('paths', () => {
     expect(basename('src\\middleware\\auth.ts')).toBe('auth.ts');
     expect(dirname('src/middleware/auth.ts')).toBe('src/middleware');
     expect(dirname('README.md')).toBe('.');
+  });
+  it('isAbsPath tells drive, rooted and UNC paths from relative ones', () => {
+    for (const p of ['C:\\code\\x.ts', 'c:/code/x.ts', '/tmp/x', '\\\\server\\share\\x']) expect(isAbsPath(p)).toBe(true);
+    for (const p of ['src/x.ts', 'x.ts', '../x.ts', 'C:x.ts']) expect(isAbsPath(p)).toBe(false);
   });
   it('tildify shortens the home folder only', () => {
     expect(tildify('C:\\Users\\guill\\dev\\app')).toBe('~/dev/app');

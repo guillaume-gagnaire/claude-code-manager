@@ -188,7 +188,8 @@
             class="edit"
             aria-label={`Ouvrir ${basename(f.path)} dans l’éditeur`}
             title="Ouvrir dans l’éditeur"
-            onclick={() => openInEditor(f)}>&lt;/&gt;</button
+            onclick={() => openInEditor(f)}
+            oncontextmenu={(e) => fileMenu(e, f)}>&lt;/&gt;</button
           >
         {/if}
       </div>

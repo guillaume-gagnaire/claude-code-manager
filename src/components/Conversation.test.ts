@@ -286,6 +286,13 @@ describe('Conversation editor entry', () => {
     expect(app.editor.p1.source).toBe('a1');
   });
 
+  it('names the header button without its text, which a narrow header hides', () => {
+    resetApp({ agents: [agent()] });
+    fakeBackend({ get_conversation: () => [] });
+    render(Conversation, { agent: app.agents.a1, project: project() });
+    expect(screen.getByRole('button', { name: 'Éditeur' })).toBeInTheDocument();
+  });
+
   it('opens the editor on the project checkout from the header of an agent without a worktree', async () => {
     resetApp({ agents: [agent()] });
     fakeBackend({ get_conversation: () => [] });

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TurnItem } from '../../lib/types';
 import { app } from '../../lib/state.svelte';
 import { agent, fakeBackend, resetApp } from '../../test/ipc';
@@ -57,6 +57,22 @@ describe('TurnCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'notes.md' }));
     await waitFor(() => expect(app.editor.p1?.places.project?.active).toBe('notes.md'));
     expect(app.editor.p1.source).toBe('project');
+  });
+
+  it('opens a recap file outside the agent’s folder by its own path, not under the folder', async () => {
+    const open = vi.spyOn(app, 'openEditor').mockResolvedValue();
+    try {
+      const edits = [
+        { path: 'C:/Users/guill/.claude/plans/plan.md', add: 9, del: 0 },
+        { path: '/tmp/notes.md', add: 1, del: 0 },
+      ];
+      render(TurnCard, { item: turn(), agent: agent({ status: 'done' }), last: true, edits });
+      await userEvent.click(screen.getByRole('button', { name: 'C:/Users/guill/.claude/plans/plan.md' }));
+      await userEvent.click(screen.getByRole('button', { name: '/tmp/notes.md' }));
+      expect(open.mock.calls.map(([r]) => r.abs)).toEqual(['C:/Users/guill/.claude/plans/plan.md', '/tmp/notes.md']);
+    } finally {
+      open.mockRestore();
+    }
   });
 
   it('says when the turn edited no file', () => {

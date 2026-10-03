@@ -296,6 +296,29 @@ describe('editor', () => {
     expect(app.editor.p1.reveal).toMatchObject({ path: 'src/x.ts', line: 12 });
   });
 
+  it.each([
+    ['a Windows file of another folder', 'C:\\Users\\guill\\.claude\\plans\\plan.md'],
+    ['a rooted file', '/tmp/notes.md'],
+    ['a file of a sibling folder', 'C:\\code\\demo-api-old\\x.ts'],
+    ['a file beside the folder, through ..', 'C:\\code\\demo-api\\..\\other\\x.ts'],
+  ])('does not open %s, and says it is outside the folder', async (_, abs) => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api', files: [], truncated: false }) });
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    app.closeEditor();
+    const before = JSON.parse(JSON.stringify(app.editor.p1));
+    await app.openEditor({ source: 'project', abs, line: 4 });
+    expect(JSON.parse(JSON.stringify(app.editor.p1))).toEqual(before);
+    expect(app.editorOn).toBe(false);
+    expect(app.toasts.at(-1)).toMatchObject({ kind: 'info', text: expect.stringMatching(/ est en dehors du dossier du projet\.$/) });
+  });
+
+  it('names the agent, not the project, for a file outside an agent’s folder', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false }) });
+    await app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\src\\x.ts' });
+    expect(app.toasts.at(-1)?.text).toBe('x.ts est en dehors du dossier de cet agent.');
+    expect(app.editor.p1).toBeUndefined();
+  });
+
   it('closes a tab and shows the last one left', async () => {
     fakeBackend();
     await app.openEditor({ source: 'project', path: 'a.ts' });
@@ -353,11 +376,15 @@ describe('editor', () => {
         return { root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false };
       },
     });
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    app.closeEditor();
+    const read = app.editor.p1;
     const opening = app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\.claude\\worktrees\\wt\\src\\x.ts', line: 3 });
-    const place = app.editor.p1.places.a2;
-    expect([place.active, place.open.length, app.editor.p1.reveal]).toEqual([null, 0, null]);
+    // The file is not resolved yet, and may turn out to be outside the folder: nothing shows until it is.
+    expect([read.on, read.source, read.places.a2, read.reveal]).toEqual([false, 'project', undefined, null]);
     release();
     await opening;
+    expect([read.on, read.source, read.places.a2.active]).toEqual([true, 'a2', 'src/x.ts']);
     expect(app.editor.p1.places.a2.active).toBe('src/x.ts');
     expect(app.editor.p1.places.a2.open).toEqual(['src/x.ts']);
     expect(app.editor.p1.places.a2.expanded).toEqual({ src: true });

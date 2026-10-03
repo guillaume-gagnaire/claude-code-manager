@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { patchLines } from '../../lib/diff';
+  import { firstChangedLine, patchLines } from '../../lib/diff';
   import { hasDiff, toolArg, toolLabel, toolResultSummary } from '../../lib/tools';
   import type { ConvItem, ToolItem } from '../../lib/types';
   import Markdown from './Markdown.svelte';
@@ -34,7 +34,7 @@
   const file = $derived(
     onOpenFile && FILE_TOOLS.has(item.name) && typeof item.input?.file_path === 'string' ? (item.input.file_path as string) : null,
   );
-  const firstLine = $derived(item.result?.patch?.[0]?.newStart ?? null);
+  const firstLine = $derived(firstChangedLine(item.result?.patch));
   const toggle = () => expandable && (open = !open);
 </script>
 
@@ -67,6 +67,8 @@
           onOpenFile?.(file, firstLine);
         }}>{arg}</button
       >
+      <!-- The link is as wide as its text: the rest of the row expands it. -->
+      <span class="fill"></span>
     {:else}
       <span class="arg">{arg}</span>
     {/if}
@@ -166,7 +168,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .fill {
+    flex: 1;
+    min-width: 0;
+  }
   .arg.link {
+    flex: 0 1 auto;
     border: none;
     background: none;
     padding: 0;

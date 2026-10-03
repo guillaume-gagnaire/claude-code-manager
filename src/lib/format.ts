@@ -81,6 +81,11 @@ export function relPath(base: string, p: string): string {
   return s.toLowerCase().startsWith(b.toLowerCase() + '/') ? s.slice(b.length + 1) : s;
 }
 
+/** A path from the root of a drive or of the filesystem (`C:\x`, `/x`, `\\server\x`), not relative to a folder. */
+export function isAbsPath(p: string): boolean {
+  return /^([A-Za-z]:[\\/]|[\\/])/.test(p);
+}
+
 /** Shortens the user's home folder to "~" for display. */
 export function tildify(p: string): string {
   const m = p.replace(/\\/g, '/').match(/^[A-Za-z]:\/Users\/[^/]+(\/.*)?$/);

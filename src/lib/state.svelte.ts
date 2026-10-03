@@ -4,7 +4,7 @@ import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
 import { ancestors } from './editor/tree';
 import { trees } from './editor/trees.svelte';
-import { plural, relPath } from './format';
+import { basename, isAbsPath, plural, relPath } from './format';
 import { readPref, writePref } from './prefs';
 import { applyTheme } from './theme';
 import type {
@@ -342,6 +342,18 @@ class AppState {
   async openEditor(req: { projectId?: string; source: string; path?: string; abs?: string; line?: number }) {
     const projectId = req.projectId ?? this.ui.activeProject;
     if (!projectId) return;
+    // The file comes first: one outside the source's folder opens nothing, the editor stays as it was.
+    let path = req.path;
+    if (!path && req.abs) {
+      const t = trees.get(projectId, req.source) ?? (await trees.load(projectId, req.source).catch(() => undefined));
+      if (t) {
+        path = relPath(t.root, req.abs);
+        if (isAbsPath(path) || path.split('/').includes('..')) {
+          this.toast(`${basename(req.abs)} est en dehors du dossier ${req.source === 'project' ? 'du projet' : 'de cet agent'}.`);
+          return;
+        }
+      }
+    }
     this.ui.activeProject = projectId;
     this.ui.view = 'project';
     this.selectedTerm[projectId] = null;
@@ -354,11 +366,6 @@ class AppState {
     st.source = req.source;
     st.places[req.source] ??= { open: [], active: null, expanded: {} };
     const place = st.places[req.source];
-    let path = req.path;
-    if (!path && req.abs) {
-      const t = trees.get(projectId, req.source) ?? (await trees.load(projectId, req.source).catch(() => undefined));
-      if (t) path = relPath(t.root, req.abs);
-    }
     if (path) {
       if (!place.open.includes(path)) place.open.push(path);
       place.active = path;

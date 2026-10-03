@@ -166,6 +166,19 @@ describe('Sidebar editor entries', () => {
     expect(app.editorOn).toBe(true);
   });
 
+  it('puts the browse button by the branch, full width for the path, and keeps it without a repository', async () => {
+    resetApp({ agents: [agent()] });
+    app.git.p1 = gitInfo({ branch: 'feat/x' });
+    fakeBackend();
+    const { unmount } = render(Sidebar, { project: project() });
+    expect(screen.getByRole('button', { name: 'Parcourir' }).closest('.branch')).toHaveTextContent('feat/x');
+    expect(screen.getByTitle(project().path).parentElement).toHaveClass('foot');
+    unmount();
+    app.git.p1 = gitInfo({ isRepo: false });
+    render(Sidebar, { project: project() });
+    expect(screen.getByRole('button', { name: 'Parcourir' }).closest('.branch')).toHaveTextContent('Pas de dépôt git');
+  });
+
   it('opens an agent with a worktree on that worktree, and offers nothing for an archived one', async () => {
     const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a2', branch: 'escouade/a2', baseBranch: 'main' };
     resetApp({ agents: [agent({ id: 'a2', name: 'wt-agent', worktree: wt }), agent({ id: 'a3', name: 'vieux', archived: true })] });

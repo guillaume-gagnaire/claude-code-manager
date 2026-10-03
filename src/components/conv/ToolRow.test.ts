@@ -120,6 +120,21 @@ describe('ToolRow', () => {
     expect(screen.getByText('x')).toBeInTheDocument();
   });
 
+  it('opens the edited file at the first line the edit changed, not at the top of its context', async () => {
+    const onOpenFile = vi.fn();
+    render(ToolRow, {
+      item: tool({
+        name: 'Edit',
+        input: { file_path: 'C:\\code\\app\\src\\auth.ts' },
+        result: { isError: false, add: 1, del: 1, patch: [{ oldStart: 10, newStart: 10, lines: [' a', ' b', '-old', '+new', ' c'] }] },
+      }),
+      cwd: CWD,
+      onOpenFile,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Ouvrir src/auth.ts dans l’éditeur' }));
+    expect(onOpenFile).toHaveBeenCalledWith('C:\\code\\app\\src\\auth.ts', 12);
+  });
+
   it('opens a written file without a line, and keeps the row’s own keys for the row only', async () => {
     const onOpenFile = vi.fn();
     render(ToolRow, {

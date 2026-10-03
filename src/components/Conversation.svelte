@@ -162,10 +162,11 @@
     <div style="flex:1"></div>
     <button
       class="btn edit"
+      aria-label="Éditeur"
       title="Parcourir et éditer les fichiers de cet agent"
       onclick={() => app.openEditor({ projectId: project.id, source: editorSource })}
     >
-      <span class="mono glyph">&lt;/&gt;</span>Éditeur
+      <span class="mono glyph">&lt;/&gt;</span><span class="lbl">Éditeur</span>
     </button>
     <div class="metrics">
       <span class="model mono">{modelLabel(agent.model, app.models)}</span>
@@ -431,6 +432,9 @@
   /* Half-width conversation (split layout): the agent's card in the sidebar shows these too. */
   @container (max-width: 680px) {
     .opt {
+      display: none;
+    }
+    .edit .lbl {
       display: none;
     }
   }

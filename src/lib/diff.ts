@@ -99,6 +99,21 @@ export function patchLines(hunks: { oldStart: number; newStart: number; lines: s
   return out;
 }
 
+/**
+ * The line of the file where a patch first changes it: its first hunk starts a few lines of
+ * context above the change. For a deletion, the line that now sits where the removed ones were.
+ */
+export function firstChangedLine(hunks: { newStart: number; lines: string[] }[] | undefined): number | null {
+  const first = hunks?.[0];
+  if (!first) return null;
+  let context = 0;
+  for (const l of first.lines) {
+    if (l[0] !== ' ') break;
+    context++;
+  }
+  return Math.max(1, first.newStart + context);
+}
+
 /** Pairs deletions and additions side by side for the split view. */
 export function splitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[] {
   const rows: { left: DiffLine | null; right: DiffLine | null }[] = [];

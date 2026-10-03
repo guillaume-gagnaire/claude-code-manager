@@ -122,6 +122,10 @@
   }
 </script>
 
+{#snippet browse()}
+  <button class="browse" onclick={() => app.openEditor({ projectId: project.id, source: 'project' })}>Parcourir</button>
+{/snippet}
+
 <aside class="side">
   <div class="head">
     <span class="section-label">Agents</span>
@@ -274,19 +278,25 @@
   </div>
 
   <div class="foot">
-    <div class="pathrow">
-      <div class="path mono" title={project.path}>{tildify(project.path)}</div>
-      <button class="browse" onclick={() => app.openEditor({ projectId: project.id, source: 'project' })}>Parcourir</button>
-    </div>
+    <div class="path mono" title={project.path}>{tildify(project.path)}</div>
     {#if git?.isRepo}
-      <div class="branch mono"><span class="ring"></span>{git.branch || '—'}</div>
+      <div class="branch mono">
+        <span class="ring"></span>{git.branch || '—'}
+        <div style="flex:1"></div>
+        {@render browse()}
+      </div>
       <div class="gitc mono">
         <span style="color:var(--wait)">~{git.modified} modifiés</span>
         <span style="color:var(--add)">+{git.added} ajoutés</span>
         <span style="color:var(--del)">−{git.deleted} supprimés</span>
       </div>
-    {:else if git}
-      <div class="branch mono" style="color:var(--dim)">Pas de dépôt git</div>
+    {:else}
+      <!-- No git information yet, or no repository: the project's folder can be browsed all the same. -->
+      <div class="branch mono">
+        {#if git}<span style="color:var(--dim)">Pas de dépôt git</span>{/if}
+        <div style="flex:1"></div>
+        {@render browse()}
+      </div>
     {/if}
   </div>
 </aside>
@@ -563,15 +573,6 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-  .pathrow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .pathrow .path {
-    flex: 1;
-    min-width: 0;
   }
   .browse {
     height: 22px;
