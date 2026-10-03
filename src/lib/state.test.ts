@@ -417,6 +417,18 @@ describe('editor and the agent a notification or Ctrl+J brings up', () => {
     expect(app.editorOn).toBe(false);
   });
 
+  it('closes the editor of the project for a new agent, to show its conversation, and keeps its source', async () => {
+    const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a9', branch: 'escouade/a9', baseBranch: 'main' };
+    await start({}, { create_agent: () => agent({ id: 'a9', name: 'agent-3', createdAt: 9, worktree: wt }) });
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    const focus = app.focusComposer;
+    await app.newAgent('p1');
+    expect(app.agent?.id).toBe('a9');
+    expect(app.editorOn).toBe(false);
+    expect(app.focusComposer).toBe(focus + 1);
+    expect(app.editor.p1).toMatchObject({ source: 'project', places: { project: { active: 'a.ts' } } });
+  });
+
   it('keeps the editor open when an agent is picked in the sidebar', async () => {
     await start();
     await app.openEditor({ source: 'project' });

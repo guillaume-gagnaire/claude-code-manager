@@ -445,6 +445,8 @@ class AppState {
     try {
       const a = await api.createAgent(projectId);
       this.agents[a.id] = a;
+      // Its composer is what a new agent is for: closed first, the editor keeps the source it was on.
+      this.closeEditor(projectId);
       this.selectAgent(a.id);
     } catch (e) {
       this.toast(String(e), 'error');
