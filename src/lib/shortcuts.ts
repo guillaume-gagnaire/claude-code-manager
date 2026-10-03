@@ -43,6 +43,10 @@ export function handleShortcut(e: KeyboardEvent, mac = IS_MAC): boolean {
   }
   if (!primaryKey(e, mac)) return false;
   const k = e.key.toLowerCase();
+  if (k === 's' && !e.shiftKey && app.editorOn) {
+    import('./editor/actions').then((m) => m.saveActive());
+    return true;
+  }
   const n = digit(e);
   if (n !== null && !e.shiftKey) {
     const p = app.projects[n - 1];

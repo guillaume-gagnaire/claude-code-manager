@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { agent, fakeBackend, project, resetApp } from '../test/ipc';
+import { buffers } from './editor/buffers.svelte';
 import { handleShortcut, isAppShortcut } from './shortcuts';
 import { app } from './state.svelte';
 
@@ -91,6 +92,26 @@ describe('handleShortcut', () => {
     app.selectAgent('a1');
     expect(handleShortcut(key('Tab'), true)).toBe(true);
     expect(app.agent?.id).toBe('a2');
+  });
+
+  it('saves the file open in the editor with Ctrl+S', async () => {
+    resetApp();
+    const be = fakeBackend({
+      fs_read: () => ({ kind: 'text', text: 'a', size: 1, hash: 'h1', eol: 'lf', bom: false }),
+      fs_base: () => null,
+      fs_write: () => 'h2',
+      set_unsaved: () => null,
+    });
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    const b = await buffers.open('p1', 'project', 'a.ts');
+    buffers.edit(b.key, 'b');
+    expect(handleShortcut(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }), false)).toBe(true);
+    await expect.poll(() => be.called('fs_write').length).toBe(1);
+  });
+
+  it('leaves Ctrl+S alone without the editor', () => {
+    resetApp();
+    expect(handleShortcut(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }), false)).toBe(false);
   });
 });
 

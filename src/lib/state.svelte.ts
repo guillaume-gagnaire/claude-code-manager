@@ -34,6 +34,8 @@ export type Modal =
       confirm: string;
       danger?: boolean;
       option?: { label: string; value: boolean };
+      /** A third choice, between cancelling and confirming. */
+      alt?: { label: string; onClick: () => void | Promise<void> };
       onConfirm: (option: boolean) => void | Promise<void>;
     }
   | { kind: 'rename'; title: string; value: string; onSubmit: (v: string) => void | Promise<void> }

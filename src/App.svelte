@@ -8,6 +8,7 @@
   import ContextMenu from './components/ContextMenu.svelte';
   import Conversation from './components/Conversation.svelte';
   import DiffModal from './components/DiffModal.svelte';
+  import EditorView from './components/editor/EditorView.svelte';
   import SidePanel from './components/SidePanel.svelte';
   import ConfirmModal from './components/modals/ConfirmModal.svelte';
   import NewProjectModal from './components/modals/NewProjectModal.svelte';
@@ -68,7 +69,11 @@
     {:else if app.project}
       {@const project = app.project}
       <Sidebar {project} />
-      {#if app.runCommand}
+      {#if app.editorOn}
+        {#key project.id}
+          <EditorView {project} />
+        {/key}
+      {:else if app.runCommand}
         <RunView cmd={app.runCommand} {project} />
       {:else if app.term}
         <TerminalView term={app.term} {project} />

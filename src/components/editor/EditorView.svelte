@@ -1,0 +1,422 @@
+<script lang="ts">
+  import type { Extension } from '@codemirror/state';
+  import { onDestroy, untrack } from 'svelte';
+  import { saveActive, saveKey } from '../../lib/editor/actions';
+  import { buffers, sourceAgent } from '../../lib/editor/buffers.svelte';
+  import { lineChanges, type LineChanges } from '../../lib/editor/changes';
+  import { detectIndent } from '../../lib/editor/indent';
+  import { languageLabel, loadLanguage } from '../../lib/editor/languages';
+  import { treeRows, type FileStatus } from '../../lib/editor/tree';
+  import { trees } from '../../lib/editor/trees.svelte';
+  import { basename, plural, tildify } from '../../lib/format';
+  import { api } from '../../lib/ipc';
+  import { keyLabel } from '../../lib/platform';
+  import { app } from '../../lib/state.svelte';
+  import type { Project } from '../../lib/types';
+  import CodeEditor from './CodeEditor.svelte';
+  import EditorTabs from './EditorTabs.svelte';
+  import FileTree from './FileTree.svelte';
+  import SourcePicker from './SourcePicker.svelte';
+
+  let { project }: { project: Project } = $props();
+
+  const NONE: LineChanges = { changed: [], deleted: [], count: 0 };
+
+  const st = $derived(app.editor[project.id]);
+  const source = $derived(st?.source ?? 'project');
+  const place = $derived(st?.places[source]);
+  const tree = $derived(trees.get(project.id, source));
+  const srcAgent = $derived(source === 'project' ? null : (app.agents[source] ?? null));
+  const activePath = $derived(place?.active ?? null);
+  const activeKey = $derived(activePath ? buffers.key(project.id, source, activePath) : null);
+  const buf = $derived(activeKey ? buffers.all[activeKey] : undefined);
+  const dirty = $derived(buffers.isDirty(buf));
+
+  let status = $state<Record<string, FileStatus>>({});
+  let cursor = $state({ line: 1, col: 1 });
+  let language = $state<Extension | null>(null);
+  let changes = $state<LineChanges>(NONE);
+
+  /** Tree, git status and open files of the source, then a first file when none is open. */
+  async function refresh(pid: string, src: string) {
+    const [t, files] = await Promise.all([
+      trees.load(pid, src).catch((e) => {
+        app.toast(String(e), 'error');
+        return undefined;
+      }),
+      api.gitFiles(pid, sourceAgent(src)).catch(() => []),
+    ]);
+    if (!alive || pid !== project.id || src !== source) return;
+    status = Object.fromEntries(
+      files.filter((f) => (src === 'project' ? !f.inWorktree : f.inWorktree && f.agentId === src)).map((f) => [f.path, f.status]),
+    );
+    await buffers.refreshAll(pid, src);
+    const p = app.editor[pid]?.places[src];
+    if (alive && t && p && !p.active && !p.open.length) {
+      const first = t.files.find((f) => status[f]) ?? (t.files.includes('README.md') ? 'README.md' : null);
+      if (first) await app.openEditor({ projectId: pid, source: src, path: first });
+    }
+  }
+
+  // Right away for each source, then 300 ms after each git event of the project.
+  $effect(() => {
+    const pid = project.id;
+    const src = source;
+    untrack(() => refresh(pid, src));
+  });
+  let tick = untrack(() => app.gitTick);
+  let gitTimer: ReturnType<typeof setTimeout> | undefined;
+  /** False once the view is gone: a reply arriving late must not open a file or bring the project back. */
+  let alive = true;
+  onDestroy(() => {
+    alive = false;
+    clearTimeout(gitTimer);
+  });
+  $effect(() => {
+    const t = app.gitTick;
+    if (t === tick) return;
+    tick = t;
+    clearTimeout(gitTimer);
+    gitTimer = setTimeout(() => refresh(project.id, source), 300);
+  });
+
+  // A tab shown again is read again: the agent may have changed its file meanwhile.
+  $effect(() => {
+    const p = activePath;
+    const pid = project.id;
+    const src = source;
+    if (!p) return;
+    untrack(() => {
+      const k = buffers.key(pid, src, p);
+      if (buffers.all[k]) buffers.refresh(k);
+      else buffers.open(pid, src, p);
+    });
+  });
+
+  $effect(() => {
+    const p = activePath;
+    language = null;
+    if (!p) return;
+    let live = true;
+    loadLanguage(p).then((l) => live && (language = l));
+    return () => {
+      live = false;
+    };
+  });
+
+  const indent = $derived.by(() => {
+    void buf?.key;
+    void buf?.version;
+    return untrack(() => detectIndent(buf?.saved ?? ''));
+  });
+
+  let changeTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const b = buf;
+    const text = b?.text ?? '';
+    const base = b?.base;
+    clearTimeout(changeTimer);
+    if (!b || b.kind !== 'text' || !base) {
+      changes = NONE;
+      return;
+    }
+    changeTimer = setTimeout(() => (changes = lineChanges(base.text, text)), 300);
+    return () => clearTimeout(changeTimer);
+  });
+
+  const rows = $derived(tree ? treeRows(tree.files, place?.expanded ?? {}, status) : []);
+  const changedCount = $derived(Object.keys(status).length);
+  const tabs = $derived(
+    (place?.open ?? []).map((p) => ({
+      path: p,
+      name: basename(p),
+      dirty: buffers.isDirty(buffers.all[buffers.key(project.id, source, p)]),
+      status: status[p] ?? null,
+      active: p === activePath,
+    })),
+  );
+
+  const diffLabel = $derived.by(() => {
+    const base = buf?.base;
+    if (!buf || buf.kind !== 'text' || !base) return '';
+    if (base.text === null) return `Nouveau fichier · absent de ${base.reference}`;
+    return changes.count
+      ? `${plural(changes.count, 'ligne modifiée', 'lignes modifiées')} vs ${base.reference}`
+      : `Identique à ${base.reference}`;
+  });
+
+  const reveal = $derived(st?.reveal && st.reveal.path === activePath ? st.reveal : null);
+  const sizeMb = (n: number) => (n / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+
+  function closeTab(path: string) {
+    const key = buffers.key(project.id, source, path);
+    const drop = () => {
+      buffers.close(key);
+      app.closeEditorTab(project.id, source, path);
+    };
+    if (!buffers.isDirty(buffers.all[key])) return drop();
+    app.modal = {
+      kind: 'confirm',
+      title: `Enregistrer « ${basename(path)} » ?`,
+      body: 'Ses modifications seront perdues si tu ne les enregistres pas.',
+      confirm: 'Enregistrer',
+      alt: { label: 'Ne pas enregistrer', onClick: drop },
+      onConfirm: async () => {
+        if (await saveKey(key)) drop();
+      },
+    };
+  }
+
+  const keep = (key: string) => buffers.keepMine(key).catch((e) => app.toast(`Enregistrement impossible : ${e}`, 'error'));
+  const reload = (key: string) => buffers.reload(key).catch((e) => app.toast(String(e), 'error'));
+</script>
+
+<main class="editor">
+  <header class="head">
+    <button class="back" onclick={() => app.closeEditor(project.id)}>← Conversation</button>
+    <span class="sep"></span>
+    <SourcePicker
+      {project}
+      {source}
+      agents={app.projectAgents.filter((a) => a.worktree)}
+      git={app.git[project.id]}
+      onpick={(s) => app.openEditor({ projectId: project.id, source: s })}
+    />
+    <div style="flex:1"></div>
+    {#if buf?.kind === 'text'}
+      <span class="hint mono" class:dirty>{dirty ? `● Non enregistré · ${keyLabel('Ctrl+S')}` : 'Enregistré'}</span>
+    {/if}
+    <button class="btn" class:primary={dirty} disabled={buf?.kind !== 'text' || (!dirty && buf.disk === 'ok')} onclick={() => saveActive()}
+      >Enregistrer</button
+    >
+  </header>
+  <div class="body">
+    <aside class="files">
+      <div class="ftitle">
+        <div class="row">
+          <span class="label">Fichiers</span><span class="mono dim">{tree ? `${tree.files.length} · ${changedCount} modif.` : ''}</span>
+        </div>
+        <span class="mono dim root" title={tree?.root}>{srcAgent ? `.claude/worktrees/${srcAgent.name}` : tildify(project.path)}</span>
+        {#if tree?.truncated}<span class="dim small">Liste tronquée à {tree.files.length} fichiers.</span>{/if}
+      </div>
+      <div class="scroll">
+        <FileTree
+          {rows}
+          active={activePath}
+          ontoggle={(d) => app.toggleEditorDir(project.id, source, d)}
+          onopen={(p) => app.openEditor({ projectId: project.id, source, path: p })}
+        />
+      </div>
+    </aside>
+    <section class="pane">
+      <EditorTabs {tabs} onselect={(p) => app.openEditor({ projectId: project.id, source, path: p })} onclose={closeTab} />
+      {#if !activePath}
+        <div class="empty">Sélectionne un fichier dans l’arborescence.</div>
+      {:else}
+        <div class="crumbs mono">
+          <span class="path">{activePath.split('/').join('  /  ')}</span>
+          <div style="flex:1"></div>
+          <span class:add={!!diffLabel && !diffLabel.startsWith('Identique')}>{diffLabel}</span>
+        </div>
+        {#if buf?.disk === 'changed'}
+          <div class="banner" role="alert">
+            Ce fichier a changé sur le disque.
+            <button class="btn small" onclick={() => reload(buf.key)}>Recharger</button>
+            <button class="btn small" onclick={() => keep(buf.key)}>Garder ma version</button>
+          </div>
+        {:else if buf?.disk === 'deleted'}
+          <div class="banner" role="alert">
+            Ce fichier a été supprimé.
+            <button class="btn small" onclick={() => closeTab(buf.path)}>Fermer</button>
+            <button class="btn small" onclick={() => keep(buf.key)}>Le recréer en enregistrant</button>
+          </div>
+        {/if}
+        {#if !buf}
+          <div class="empty"></div>
+        {:else if buf.kind === 'binary'}
+          <div class="empty">Fichier binaire : pas d’aperçu.</div>
+        {:else if buf.kind === 'tooLarge'}
+          <div class="empty">Fichier trop volumineux pour l’éditeur ({sizeMb(buf.size)} Mo).</div>
+        {:else if buf.kind === 'missing'}
+          <div class="empty">Ce fichier n’existe pas (ou plus).</div>
+        {:else if buf.kind === 'error'}
+          <div class="empty">{buf.error}</div>
+        {:else}
+          <CodeEditor
+            docKey={buf.key}
+            text={buf.text}
+            version={buf.version}
+            {language}
+            {indent}
+            {changes}
+            {reveal}
+            onchange={(t) => buffers.edit(buf.key, t)}
+            oncursor={(c) => (cursor = c)}
+          />
+          <div class="status mono">
+            <span>Ln {cursor.line}, Col {cursor.col}</span>
+            <span>{languageLabel(activePath)}</span>
+            <span>UTF-8</span>
+            <span>{buf.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
+            <span>{indent.tabs ? 'Tabulations' : `Espaces : ${indent.size}`}</span>
+            <div style="flex:1"></div>
+            <span>{srcAgent ? `worktree · ${srcAgent.name}` : `branche · ${app.git[project.id]?.branch ?? project.name}`}</span>
+          </div>
+        {/if}
+      {/if}
+    </section>
+  </div>
+</main>
+
+<style>
+  .editor {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .head {
+    height: 60px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px 0 14px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .back {
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .back:hover {
+    background: var(--elev2);
+    color: var(--text);
+  }
+  .sep {
+    width: 1px;
+    height: 22px;
+    background: var(--line2);
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .hint.dirty {
+    color: var(--wait);
+  }
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .files {
+    width: 240px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .ftitle {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 14px 10px 16px;
+  }
+  .ftitle .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .dim {
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .root {
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .small {
+    font-size: 10.5px;
+  }
+  .scroll {
+    flex: 1;
+    overflow: auto;
+  }
+  .pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--term);
+  }
+  .crumbs {
+    height: 30px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .crumbs .path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .crumbs .add {
+    color: var(--add);
+  }
+  .banner {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--wait-soft);
+    border-bottom: 1px solid var(--line);
+    color: var(--wait);
+    font-size: 12.5px;
+  }
+  .empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .status {
+    height: 26px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 14px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+    font-size: 10.5px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+</style>

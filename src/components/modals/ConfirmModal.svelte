@@ -9,6 +9,7 @@
     confirm,
     danger = false,
     option,
+    alt,
     onConfirm,
   }: {
     title: string;
@@ -16,6 +17,7 @@
     confirm: string;
     danger?: boolean;
     option?: { label: string; value: boolean };
+    alt?: { label: string; onClick: () => void | Promise<void> };
     onConfirm: (option: boolean) => void | Promise<void>;
   } = $props();
 
@@ -40,6 +42,18 @@
   {/if}
   {#snippet footer()}
     <button class="btn ghost" onclick={() => (app.modal = null)}>Annuler</button>
+    {#if alt}
+      <button
+        class="btn"
+        disabled={busy}
+        onclick={async () => {
+          busy = true;
+          await alt.onClick();
+          busy = false;
+          app.modal = null;
+        }}>{alt.label}</button
+      >
+    {/if}
     <button class="btn {danger ? 'danger' : 'primary'}" disabled={busy} onclick={go}>{confirm}</button>
   {/snippet}
 </Modal>
