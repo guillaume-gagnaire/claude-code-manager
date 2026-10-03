@@ -37,22 +37,28 @@
   let language = $state<Extension | null>(null);
   let changes = $state<LineChanges>(NONE);
 
-  /** Tree, git status and open files of the source, then a first file when none is open. */
-  async function refresh(pid: string, src: string) {
+  /**
+   * Tree, git status and open files of the source. Only the refresh `pick`ing, the one a source is shown with, opens
+   * a first file when none is open and tells that the tree could not be read: a tab closed on purpose stays closed
+   * while the agent works.
+   */
+  async function refresh(pid: string, src: string, pick: boolean) {
     const [t, files] = await Promise.all([
       trees.load(pid, src).catch((e) => {
-        app.toast(String(e), 'error');
+        if (pick) app.toast(String(e), 'error');
         return undefined;
       }),
       api.gitFiles(pid, sourceAgent(src)).catch(() => []),
     ]);
-    if (!alive || pid !== project.id || src !== source) return;
+    const current = () => alive && pid === project.id && src === source;
+    if (!current()) return;
     status = Object.fromEntries(
       files.filter((f) => (src === 'project' ? !f.inWorktree : f.inWorktree && f.agentId === src)).map((f) => [f.path, f.status]),
     );
     await buffers.refreshAll(pid, src);
+    if (!pick || !current()) return;
     const p = app.editor[pid]?.places[src];
-    if (alive && t && p && !p.active && !p.open.length) {
+    if (t && p && !p.active && !p.open.length) {
       const first = t.files.find((f) => status[f]) ?? (t.files.includes('README.md') ? 'README.md' : null);
       if (first) await app.openEditor({ projectId: pid, source: src, path: first });
     }
@@ -62,7 +68,7 @@
   $effect(() => {
     const pid = project.id;
     const src = source;
-    untrack(() => refresh(pid, src));
+    untrack(() => refresh(pid, src, true));
   });
   let tick = untrack(() => app.gitTick);
   let gitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -77,7 +83,7 @@
     if (t === tick) return;
     tick = t;
     clearTimeout(gitTimer);
-    gitTimer = setTimeout(() => refresh(project.id, source), 300);
+    gitTimer = setTimeout(() => refresh(project.id, source, false), 300);
   });
 
   // A tab shown again is read again: the agent may have changed its file meanwhile.
@@ -88,7 +94,8 @@
     if (!p) return;
     untrack(() => {
       const k = buffers.key(pid, src, p);
-      if (buffers.all[k]) buffers.refresh(k);
+      // A file that was missing or unreadable is read again by `open`: the agent may have created it since.
+      if (buffers.all[k]?.kind === 'text') buffers.refresh(k);
       else buffers.open(pid, src, p);
     });
   });
@@ -111,6 +118,8 @@
   });
 
   let changeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The file `changes` were computed for: another one's marks and counts are not shown on the file now open. */
+  let changesKey = $state<string | null>(null);
   $effect(() => {
     const b = buf;
     const text = b?.text ?? '';
@@ -118,9 +127,20 @@
     clearTimeout(changeTimer);
     if (!b || b.kind !== 'text' || !base) {
       changes = NONE;
+      changesKey = null;
       return;
     }
-    changeTimer = setTimeout(() => (changes = lineChanges(base.text, text)), 300);
+    const key = b.key;
+    untrack(() => {
+      if (changesKey !== key) {
+        changes = NONE;
+        changesKey = null;
+      }
+    });
+    changeTimer = setTimeout(() => {
+      changes = lineChanges(base.text, text);
+      changesKey = key;
+    }, 300);
     return () => clearTimeout(changeTimer);
   });
 
@@ -140,6 +160,7 @@
     const base = buf?.base;
     if (!buf || buf.kind !== 'text' || !base) return '';
     if (base.text === null) return `Nouveau fichier · absent de ${base.reference}`;
+    if (changesKey !== buf.key) return '';
     return changes.count
       ? `${plural(changes.count, 'ligne modifiée', 'lignes modifiées')} vs ${base.reference}`
       : `Identique à ${base.reference}`;
@@ -149,10 +170,12 @@
   const sizeMb = (n: number) => (n / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
 
   function closeTab(path: string) {
-    const key = buffers.key(project.id, source, path);
+    // The source now: the prompt may stay up while the view moves to another one.
+    const src = source;
+    const key = buffers.key(project.id, src, path);
     const drop = () => {
       buffers.close(key);
-      app.closeEditorTab(project.id, source, path);
+      app.closeEditorTab(project.id, src, path);
     };
     if (!buffers.isDirty(buffers.all[key])) return drop();
     app.modal = {
@@ -163,6 +186,8 @@
       alt: { label: 'Ne pas enregistrer', onClick: drop },
       onConfirm: async () => {
         if (await saveKey(key)) drop();
+        // Refused: show the tab, the banner telling why is only drawn for the file on screen.
+        else app.openEditor({ projectId: project.id, source: src, path });
       },
     };
   }
@@ -196,7 +221,11 @@
         <div class="row">
           <span class="label">Fichiers</span><span class="mono dim">{tree ? `${tree.files.length} · ${changedCount} modif.` : ''}</span>
         </div>
-        <span class="mono dim root" title={tree?.root}>{srcAgent ? `.claude/worktrees/${srcAgent.name}` : tildify(project.path)}</span>
+        <span class="mono dim root" title={tree?.root}
+          >{srcAgent
+            ? `.claude/worktrees/${srcAgent.worktree ? basename(srcAgent.worktree.path) : srcAgent.name}`
+            : tildify(project.path)}</span
+        >
         {#if tree?.truncated}<span class="dim small">Liste tronquée à {tree.files.length} fichiers.</span>{/if}
       </div>
       <div class="scroll">
@@ -260,7 +289,7 @@
             <span>{buf.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
             <span>{indent.tabs ? 'Tabulations' : `Espaces : ${indent.size}`}</span>
             <div style="flex:1"></div>
-            <span>{srcAgent ? `worktree · ${srcAgent.name}` : `branche · ${app.git[project.id]?.branch ?? project.name}`}</span>
+            <span>{srcAgent ? `worktree · ${srcAgent.name}` : `branche · ${app.git[project.id]?.branch || 'projet'}`}</span>
           </div>
         {/if}
       {/if}

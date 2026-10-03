@@ -109,6 +109,22 @@ describe('handleShortcut', () => {
     await expect.poll(() => be.called('fs_write').length).toBe(1);
   });
 
+  it('leaves Ctrl+S alone when the statistics hide the editor', async () => {
+    resetApp();
+    const be = fakeBackend({
+      fs_read: () => ({ kind: 'text', text: 'a', size: 1, hash: 'h1', eol: 'lf', bom: false }),
+      fs_base: () => null,
+      fs_write: () => 'h2',
+      set_unsaved: () => null,
+    });
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    const b = await buffers.open('p1', 'project', 'a.ts');
+    buffers.edit(b.key, 'b');
+    app.ui.view = 'stats';
+    expect(handleShortcut(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }), false)).toBe(false);
+    expect(be.called('fs_write')).toHaveLength(0);
+  });
+
   it('leaves Ctrl+S alone without the editor', () => {
     resetApp();
     expect(handleShortcut(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }), false)).toBe(false);

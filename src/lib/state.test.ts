@@ -280,6 +280,15 @@ describe('editor', () => {
     expect(app.editor.p1.places.a2.open).toEqual(['src/a/x.ts']);
   });
 
+  it('does not count the editor as open behind the statistics', async () => {
+    fakeBackend();
+    await app.openEditor({ source: 'project', path: 'a.ts' });
+    app.ui.view = 'stats';
+    expect(app.editorOn).toBe(false);
+    app.ui.view = 'project';
+    expect(app.editorOn).toBe(true);
+  });
+
   it('opens an absolute path from its source root, at a line', async () => {
     fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false }) });
     await app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\.claude\\worktrees\\wt\\src\\x.ts', line: 12 });

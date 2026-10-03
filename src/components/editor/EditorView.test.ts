@@ -131,4 +131,163 @@ describe('EditorView', () => {
     expect(app.editorOn).toBe(false);
     expect(app.editor.p1.places.project.open).toEqual([]);
   });
+
+  it('keeps an empty editor empty while git events come in', async () => {
+    const be = backend();
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    // The first refresh (tree, status, open files) is over once the comparison shows.
+    await screen.findByText('1 ligne modifiée vs HEAD');
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer app.ts' }));
+    expect(screen.getByText('Sélectionne un fichier dans l’arborescence.')).toBeInTheDocument();
+    const listed = be.called('git_files').length;
+    app.gitTick++;
+    await expect.poll(() => be.called('git_files').length).toBe(listed + 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText('Sélectionne un fichier dans l’arborescence.')).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  });
+
+  it('saves from the close prompt, then closes the tab', async () => {
+    const be = backend();
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const key = buffers.key('p1', 'project', 'src/app.ts');
+    await expect.poll(() => buffers.all[key]?.kind).toBe('text');
+    buffers.edit(key, 'mine\n');
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer app.ts' }));
+    await (app.modal as any).onConfirm(false);
+    expect(be.called('fs_write')[0].args).toMatchObject({ path: 'src/app.ts', text: 'mine\n', expectedHash: 'h1' });
+    expect(app.editor.p1.places.project.open).toEqual([]);
+    expect(buffers.all[key]).toBeUndefined();
+  });
+
+  it('shows why a save from the close prompt was refused, on the tab it concerns', async () => {
+    let onDisk = 'h1';
+    backend({
+      fs_read: (a) => text(a.path === 'README.md' ? '# demo\n' : 'const a = 2;\n', a.path === 'README.md' ? onDisk : 'h1'),
+      fs_write: () => {
+        onDisk = 'h9';
+        return Promise.reject('changed');
+      },
+    });
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const readme = buffers.key('p1', 'project', 'README.md');
+    await userEvent.click(screen.getByRole('tab', { name: /README\.md/ }));
+    await expect.poll(() => buffers.all[readme]?.kind).toBe('text');
+    buffers.edit(readme, 'mine\n');
+    // README.md goes to the background: its banner is not on screen.
+    await userEvent.click(screen.getByRole('tab', { name: /app\.ts/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer README.md' }));
+    await (app.modal as any).onConfirm(false);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ce fichier a changé sur le disque.');
+    expect(screen.getByRole('tab', { name: /README\.md/ })).toHaveAttribute('aria-selected', 'true');
+    expect(app.editor.p1.places.project.open).toContain('README.md');
+  });
+
+  it('saves over what changed on disk with "Garder ma version"', async () => {
+    const be = backend({ fs_write: (a) => (a.expectedHash === null ? 'h3' : Promise.reject('changed')) });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const key = buffers.key('p1', 'project', 'src/app.ts');
+    await expect.poll(() => buffers.all[key]?.kind).toBe('text');
+    buffers.edit(key, 'mine\n');
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ce fichier a changé sur le disque.');
+    await userEvent.click(screen.getByRole('button', { name: 'Garder ma version' }));
+    await expect.poll(() => be.called('fs_write').length).toBe(2);
+    expect(be.called('fs_write')[1].args).toMatchObject({ path: 'src/app.ts', text: 'mine\n', expectedHash: null });
+    await expect.poll(() => screen.queryByRole('alert')).toBeNull();
+    expect(await screen.findByText('Enregistré')).toBeInTheDocument();
+  });
+
+  it('closes the tab of a deleted file from its banner', async () => {
+    let gone = false;
+    backend({ fs_read: () => (gone ? Promise.reject('fichier introuvable') : text('const a = 2;\n')) });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const key = buffers.key('p1', 'project', 'src/app.ts');
+    await expect.poll(() => buffers.all[key]?.kind).toBe('text');
+    gone = true;
+    await buffers.refresh(key);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ce fichier a été supprimé.');
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer' }));
+    expect(app.editor.p1.places.project.open).toEqual([]);
+    expect(buffers.all[key]).toBeUndefined();
+  });
+
+  it('reads a file again that was missing, when its tab is shown again', async () => {
+    let there = false;
+    backend({ fs_read: (a) => (a.path === 'README.md' && !there ? Promise.reject('fichier introuvable') : text('# demo\n')) });
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    await screen.findByText('1 ligne modifiée vs HEAD');
+    await userEvent.click(screen.getByRole('tab', { name: /README\.md/ }));
+    expect(await screen.findByText('Ce fichier n’existe pas (ou plus).')).toBeInTheDocument();
+    there = true;
+    await userEvent.click(screen.getByRole('tab', { name: /app\.ts/ }));
+    await userEvent.click(screen.getByRole('tab', { name: /README\.md/ }));
+    await expect.poll(() => buffers.all[buffers.key('p1', 'project', 'README.md')]?.kind).toBe('text');
+  });
+
+  it('names the worktree folder of an agent source', async () => {
+    resetApp({
+      agents: [agent({ worktree: { path: 'C:\\code\\demo-api\\.claude\\worktrees\\wt-x', branch: 'escouade/wt-x', baseBranch: 'main' } })],
+    });
+    backend();
+    await app.openEditor({ source: 'a1', path: 'README.md' });
+    render(EditorView, { project: project() });
+    expect(await screen.findByText('.claude/worktrees/wt-x')).toBeInTheDocument();
+  });
+
+  it('never says "branche" without a branch name', async () => {
+    app.git.p1 = gitInfo({ branch: '' });
+    backend();
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    render(EditorView, { project: project() });
+    expect(await screen.findByText('branche · projet')).toBeInTheDocument();
+  });
+
+  it('closes the tab of the source it was asked on, even if the source changed meanwhile', async () => {
+    backend();
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const key = buffers.key('p1', 'project', 'src/app.ts');
+    await expect.poll(() => buffers.all[key]?.kind).toBe('text');
+    buffers.edit(key, 'mine\n');
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer app.ts' }));
+    await app.openEditor({ projectId: 'p1', source: 'a1' });
+    await (app.modal as any).alt.onClick();
+    expect(app.editor.p1.places.project.open).toEqual([]);
+    expect(buffers.all[key]).toBeUndefined();
+  });
+
+  it('tells that the tree could not be read once, not at every git event', async () => {
+    const be = backend({ fs_tree: () => Promise.reject('boom') });
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    render(EditorView, { project: project() });
+    await expect.poll(() => app.toasts.map((t) => t.text)).toEqual(['boom']);
+    const listed = be.called('git_files').length;
+    app.gitTick++;
+    await expect.poll(() => be.called('git_files').length).toBe(listed + 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(app.toasts).toHaveLength(1);
+  });
+
+  it('does not show the previous file’s comparison on the one just opened', async () => {
+    backend({ fs_base: (a) => ({ reference: 'HEAD', text: a.path === 'README.md' ? '# demo\n' : 'const a = 1;\n' }) });
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    await screen.findByText('1 ligne modifiée vs HEAD');
+    await userEvent.click(screen.getByRole('tab', { name: /README\.md/ }));
+    await screen.findByText('Identique à HEAD');
+    // Both files are loaded now: back on app.ts, README.md’s comparison must not stay until app.ts’s is computed.
+    await userEvent.click(screen.getByRole('tab', { name: /app\.ts/ }));
+    expect(screen.queryByText('Identique à HEAD')).not.toBeInTheDocument();
+    expect(await screen.findByText('1 ligne modifiée vs HEAD')).toBeInTheDocument();
+  });
 });

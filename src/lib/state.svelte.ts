@@ -114,8 +114,8 @@ class AppState {
   editor = $state<Record<string, EditorState>>({});
 
   project = $derived(this.projects.find((p) => p.id === this.ui.activeProject) ?? null);
-  /** The editor of the project on screen is open. */
-  editorOn = $derived(!!(this.project && this.editor[this.project.id]?.on));
+  /** The editor of the project on screen is open, and on screen: the statistics hide it. */
+  editorOn = $derived(this.ui.view === 'project' && !!(this.project && this.editor[this.project.id]?.on));
   split = $derived(this.ui.layout === 'split');
   /** Estimated cost of the turns running now (their exact cost joins `usage.todayCost` at their end). */
   liveCost = $derived(Object.values(this.agents).reduce((sum, a) => sum + (a.liveCost ?? 0), 0));
