@@ -10,6 +10,7 @@ import type {
   EditorInfo,
   GitInfo,
   LaunchState,
+  ModelInfo,
   Project,
   Resources,
   Settings,
@@ -70,6 +71,8 @@ class AppState {
   selectedLaunch = $state<Record<string, string | null>>({});
   selectedTerm = $state<Record<string, string | null>>({});
   claudeFound = $state(true);
+  /** Claude Code's models as it last reported them: the version each alias runs. */
+  models = $state<ModelInfo[]>([]);
   version = $state('');
   filesOpen = $state(false);
   filesScope = $state<'agent' | 'project'>('agent');
@@ -157,6 +160,7 @@ class AppState {
     this.editors = s.editors;
     this.claudeFound = s.claudeFound;
     this.version = s.version;
+    this.models = s.models;
     const early = this.early;
     this.early = null;
     for (const e of early) this.onEvent(e);
@@ -189,6 +193,9 @@ class AppState {
         break;
       case 'resources':
         this.resources = e.resources;
+        break;
+      case 'models':
+        this.models = e.models;
         break;
       case 'focus':
         this.selectProject(e.projectId);

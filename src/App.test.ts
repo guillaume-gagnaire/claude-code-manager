@@ -26,6 +26,7 @@ function start(layout: '' | 'split') {
     terminals: [],
     claudeFound: true,
     version: '0.1.0',
+    models: [],
   };
   fakeBackend({
     subscribe: () => initial,

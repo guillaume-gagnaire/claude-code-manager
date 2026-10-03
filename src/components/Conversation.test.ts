@@ -138,6 +138,12 @@ describe('Conversation', () => {
     });
   });
 
+  it('names the agent’s model with the version Claude Code runs for it', () => {
+    const { container } = setup({ model: 'sonnet' });
+    app.models = [{ value: 'sonnet', resolvedModel: 'claude-sonnet-5-5' }];
+    return waitFor(() => expect(container.querySelector('.head .model')).toHaveTextContent('Sonnet 5.5'));
+  });
+
   it('says so when the conversation cannot be loaded', async () => {
     const a = agent({ id: `w${Math.random()}` });
     resetApp({ projects: [project()], agents: [a] });

@@ -138,5 +138,6 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.modal = null;
   app.toasts = [];
   app.update = null;
+  app.models = [];
   app.ready = true;
 }

@@ -192,12 +192,36 @@ pub struct UiState {
     pub layout: String,
 }
 
+/// A choice of Claude Code's model picker (`initialize`): an alias or a full id, and the model
+/// it runs (an alias follows the version of Claude Code).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ModelInfo {
+    pub value: String,
+    pub resolved_model: String,
+}
+
+impl ModelInfo {
+    /// The models of an `initialize` response, skipping the entries that say no model.
+    pub fn list(reported: &Value) -> Vec<Self> {
+        reported
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| serde_json::from_value::<Self>(m.clone()).ok())
+            .filter(|m| !m.value.is_empty() && !m.resolved_model.is_empty())
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PersistedState {
     pub projects: Vec<Project>,
     pub agents: Vec<AgentMeta>,
     pub ui: UiState,
+    /// Claude Code's models as it last reported them, to label the aliases from the start.
+    pub models: Vec<ModelInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -332,6 +356,9 @@ pub enum UiEvent {
     Resources {
         resources: Resources,
     },
+    Models {
+        models: Vec<ModelInfo>,
+    },
 }
 
 pub fn now_ms() -> i64 {
@@ -400,6 +427,23 @@ mod tests {
                 { "op": "delta", "id": "a", "text": "?" },
             ])
         );
+    }
+
+    #[test]
+    fn the_models_claude_code_reports_are_read_one_by_one() {
+        let reported = json!([
+            { "value": "sonnet", "resolvedModel": "claude-sonnet-5-5", "displayName": "Sonnet 5.5" },
+            { "value": "odd", "resolvedModel": null },
+            "garbage",
+            { "value": "bare" },
+            { "value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001" },
+        ]);
+        let values: Vec<String> = ModelInfo::list(&reported)
+            .into_iter()
+            .map(|m| m.value)
+            .collect();
+        assert_eq!(values, ["sonnet", "haiku"]);
+        assert!(ModelInfo::list(&Value::Null).is_empty());
     }
 
     #[test]

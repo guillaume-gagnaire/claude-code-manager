@@ -43,6 +43,16 @@ describe('Composer', () => {
     expect(screen.getByRole('button', { name: 'Modèle : Opus' })).toBeInTheDocument();
   });
 
+  it('names each model with the version Claude Code runs for it', async () => {
+    setup({ model: 'sonnet' });
+    app.models = [
+      { value: 'opus', resolvedModel: 'claude-opus-5-5' },
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5' },
+    ];
+    await userEvent.click(await screen.findByRole('button', { name: 'Modèle : Sonnet 5.5' }));
+    expect(screen.getByRole('menuitemradio', { name: /Opus 5\.5/ })).toBeInTheDocument();
+  });
+
   it('keeps a single menu open at a time', async () => {
     setup({ model: 'sonnet', mode: 'auto' });
     await userEvent.click(screen.getByRole('button', { name: /^Modèle/ }));

@@ -17,6 +17,14 @@ test('a new project opens an agent that streams Claude’s reply', async ({ app 
   await expect(page.locator('footer')).toContainText('12 %');
 });
 
+test('the model picker names the version Claude Code runs for each model', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  // The fake CLI reports Sonnet by its alias, Fable only by its full id, as Claude Code 2.1.284.
+  await page.getByRole('button', { name: 'Modèle : Sonnet 5.5' }).click();
+  await expect(page.getByRole('menuitemradio', { name: /Fable 5\.1/ })).toBeVisible();
+});
+
 test('a question from Claude is signalled and answered in one click', async ({ app }) => {
   const { page } = app;
   await addProject(page, app.repo);

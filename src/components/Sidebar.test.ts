@@ -28,6 +28,14 @@ describe('Sidebar', () => {
     expect(screen.getByText(/Archivés \(1\)/)).toBeInTheDocument();
   });
 
+  it('names an agent’s model with the version Claude Code runs for it', () => {
+    fakeBackend();
+    app.models = [{ value: 'opus', resolvedModel: 'claude-opus-5-5' }];
+    render(Sidebar, { project: project() });
+    const card = screen.getByRole('button', { name: /refacto-auth/ });
+    expect(within(card).getByText('Opus 5.5')).toBeInTheDocument();
+  });
+
   it('makes the card of an agent to look at blink until it is seen', async () => {
     fakeBackend();
     render(Sidebar, { project: project() });

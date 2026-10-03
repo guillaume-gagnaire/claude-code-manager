@@ -33,6 +33,7 @@ pub struct InitialState {
     terminals: Vec<TermInfo>,
     claude_found: bool,
     version: String,
+    models: Vec<ModelInfo>,
 }
 
 #[tauri::command]
@@ -51,6 +52,7 @@ pub fn subscribe(core: CoreState, channel: Channel<UiEvent>) -> InitialState {
         git: core.git_cache.read().clone(),
         terminals: core.pty.list(),
         version: core.app.package_info().version.to_string(),
+        models: core.models.read().clone(),
     }
 }
 

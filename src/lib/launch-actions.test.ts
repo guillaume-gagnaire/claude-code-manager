@@ -52,6 +52,7 @@ async function boot(handlers: Record<string, (args: any) => unknown> = {}) {
     terminals: [],
     claudeFound: true,
     version: '0.1.0',
+    models: [],
   };
   let n = 0;
   const backend = fakeBackend({

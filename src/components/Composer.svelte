@@ -13,7 +13,7 @@
   import { injectedSource } from '../lib/events';
   import { basename, dirname } from '../lib/format';
   import { api } from '../lib/ipc';
-  import { EFFORTS, MODELS, MODES, supportsAuto, supportsEffort } from '../lib/models';
+  import { EFFORTS, MODES, modelOptions, supportsAuto, supportsEffort } from '../lib/models';
   import { observeWidth } from '../lib/resize';
   import { app } from '../lib/state.svelte';
   import type { Agent, QuestionItem } from '../lib/types';
@@ -387,7 +387,7 @@
       <Dropdown
         caption="Modèle"
         value={agent.model}
-        options={MODELS}
+        options={modelOptions(app.models)}
         open={menu === 'model'}
         showCaption={!tight}
         onToggle={() => toggleMenu('model')}

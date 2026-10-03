@@ -19,6 +19,7 @@ async function start(over: Partial<InitialState> = {}) {
     terminals: [],
     claudeFound: true,
     version: '0.1.0',
+    models: [],
     ...over,
   };
   const backend = fakeBackend({
@@ -48,6 +49,13 @@ describe('AppState', () => {
   it('falls back to the first project when the saved one is gone', async () => {
     await start({ ui: { activeProject: 'deleted', view: 'project', selectedAgent: {} } });
     expect(app.project?.id).toBe('p1');
+  });
+
+  it('knows which model each alias runs, from the start and as Claude Code reports it', async () => {
+    const { emit } = await start({ models: [{ value: 'sonnet', resolvedModel: 'claude-sonnet-5' }] });
+    expect(app.models).toEqual([{ value: 'sonnet', resolvedModel: 'claude-sonnet-5' }]);
+    emit({ type: 'models', models: [{ value: 'sonnet', resolvedModel: 'claude-sonnet-5-5' }] });
+    expect(app.models).toEqual([{ value: 'sonnet', resolvedModel: 'claude-sonnet-5-5' }]);
   });
 
   it('keeps what the running Claude processes use', async () => {
@@ -210,6 +218,7 @@ describe('AppState start-up', () => {
       terminals: [],
       claudeFound: true,
       version: '0.1.0',
+      models: [],
     });
     await init;
     expect(app.agents.a1).toMatchObject({ status: 'running', tokens: 500 });

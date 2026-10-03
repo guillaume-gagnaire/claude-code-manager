@@ -157,6 +157,8 @@ pub struct Core<R: Runtime = Wry> {
     pub agents: RwLock<HashMap<String, AgentHandle>>,
     pub stats: Stats,
     pub usage: Mutex<UsageSnapshot>,
+    /// Claude Code's models as it last reported them (the version each alias runs).
+    pub models: RwLock<Vec<ModelInfo>>,
     pub git: GitService,
     pub git_cache: RwLock<HashMap<String, GitInfo>>,
     pub pty: PtyManager,
@@ -329,6 +331,7 @@ impl<R: Runtime> Core<R> {
             ui: RwLock::new(state.ui),
             agents: RwLock::new(agents),
             usage: Mutex::new(UsageSnapshot::default()),
+            models: RwLock::new(state.models),
             git,
             git_cache: RwLock::default(),
             pty: PtyManager::default(),
@@ -433,10 +436,12 @@ impl<R: Runtime> Core<R> {
         // One lock at a time (each guard ends with its statement).
         let projects = self.projects.read().clone();
         let ui = self.ui.read().clone();
+        let models = self.models.read().clone();
         PersistedState {
             projects,
             agents,
             ui,
+            models,
         }
     }
 
@@ -827,6 +832,7 @@ impl<R: Runtime> Core<R> {
             Ok(resp) => {
                 log::info!("agent {id}: ready in {} ms", started.elapsed().as_millis());
                 h.lock().commands = resp["commands"].as_array().cloned().unwrap_or_default();
+                self.set_models(&resp["models"]);
                 if h.lock().meta.remote_control {
                     if let Err(e) = self.link_remote(&h, &proc).await {
                         log::warn!("agent {id}: remote control failed: {e:#}");
@@ -847,6 +853,20 @@ impl<R: Runtime> Core<R> {
             ),
         }
         Ok(proc)
+    }
+
+    /// Keeps the models Claude Code reported at a process start, for every label of the UI. What it
+    /// no longer reports goes: better a bare "Sonnet" than a version it no longer runs.
+    fn set_models(&self, reported: &Value) {
+        let models = ModelInfo::list(reported);
+        let mut current = self.models.write();
+        if *current == models {
+            return;
+        }
+        *current = models.clone();
+        // Under the lock: two processes starting together leave the UI with what is kept.
+        self.hub.emit(UiEvent::Models { models });
+        self.request_save();
     }
 
     /// Starts the agent's process in the background so the first message answers fast.

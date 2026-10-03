@@ -157,7 +157,7 @@
     </div>
     <div style="flex:1"></div>
     <div class="metrics">
-      <span class="model mono">{modelLabel(agent.model)}</span>
+      <span class="model mono">{modelLabel(agent.model, app.models)}</span>
       <div class="m" title={context.title}>
         <span class="k">Contexte</span><span class="v mono" class:full={context.full}>{context.shown}</span>
       </div>

@@ -317,7 +317,12 @@ function startSession() {
               { name: 'compact', description: 'Compacte le contexte', argumentHint: '' },
               { name: 'review', description: 'Revue de code', argumentHint: '[pr]' },
             ],
-            models: [],
+            // As Claude Code 2.1.284 lists them (abridged): an alias and the model it runs.
+            models: [
+              { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)' },
+              { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5' },
+              { value: 'claude-fable-5-1', resolvedModel: 'claude-fable-5-1', displayName: 'Fable 5.1' },
+            ],
             account: {},
           });
         case 'get_usage':

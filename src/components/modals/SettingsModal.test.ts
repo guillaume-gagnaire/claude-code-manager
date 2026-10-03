@@ -42,6 +42,13 @@ describe('SettingsModal', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
     expect(backend.called('save_settings')[0].args.settings.idleStopMinutes).toBe(0);
   });
+
+  it('names the default models with the version Claude Code runs for them', () => {
+    fakeBackend();
+    app.models = [{ value: 'sonnet', resolvedModel: 'claude-sonnet-5-5' }];
+    render(SettingsModal);
+    expect(screen.getByRole('button', { name: 'Sonnet 5.5' })).toBeInTheDocument();
+  });
 });
 
 describe('SettingsModal editor', () => {

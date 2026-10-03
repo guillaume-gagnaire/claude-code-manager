@@ -103,6 +103,13 @@ export interface Agent {
   resumeAt: number | null;
 }
 
+/** A choice of Claude Code's model picker: an alias or a full id, and the model it stands for. */
+export interface ModelInfo {
+  value: string;
+  /** Full model id, e.g. "claude-sonnet-5-5". */
+  resolvedModel: string;
+}
+
 export interface UiState {
   activeProject: string | null;
   view: string;
@@ -329,7 +336,8 @@ export type UiEvent =
   | { type: 'usage'; usage: Usage }
   | { type: 'focus'; projectId: string; agentId: string | null }
   | { type: 'terminalExit'; id: string; code: number | null }
-  | { type: 'resources'; resources: Resources };
+  | { type: 'resources'; resources: Resources }
+  | { type: 'models'; models: ModelInfo[] };
 
 export interface InitialState {
   projects: Project[];
@@ -343,6 +351,8 @@ export interface InitialState {
   terminals: TermInfo[];
   claudeFound: boolean;
   version: string;
+  /** Claude Code's models as it last reported them, empty until a process has started. */
+  models: ModelInfo[];
 }
 
 export interface Bucket {

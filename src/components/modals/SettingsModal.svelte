@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '../../lib/ipc';
-  import { EFFORTS, MODELS, MODES } from '../../lib/models';
+  import { EFFORTS, MODES, modelOptions } from '../../lib/models';
   import { IS_MAC } from '../../lib/platform';
   import { app } from '../../lib/state.svelte';
   import { checkForUpdate } from '../../lib/updater';
@@ -66,8 +66,9 @@
     <div class="f">
       <span>Modèle par défaut</span>
       <div class="segmented">
-        {#each MODELS as m (m.value)}<button class:on={s.defaultModel === m.value} onclick={() => (s.defaultModel = m.value)}
-            >{m.label}</button
+        {#each modelOptions(app.models) as m (m.value)}<button
+            class:on={s.defaultModel === m.value}
+            onclick={() => (s.defaultModel = m.value)}>{m.label}</button
           >{/each}
       </div>
     </div>

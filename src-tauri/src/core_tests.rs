@@ -981,6 +981,55 @@ async fn state_is_saved_and_reloaded_with_the_session() {
 }
 
 #[tokio::test]
+async fn the_models_claude_code_runs_reach_the_ui_and_are_kept_for_the_next_launch() {
+    let h = harness("models-catalog");
+    let (p, _) = h.project(false).await;
+    h.core.create_agent(&p.id, None).await.unwrap();
+    h.wait("the models", |h| {
+        h.events.lock().iter().any(|e| e["type"] == "models")
+    })
+    .await;
+    let event = h
+        .events
+        .lock()
+        .iter()
+        .find(|e| e["type"] == "models")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        event["models"][1],
+        json!({ "value": "sonnet", "resolvedModel": "claude-sonnet-5-5" })
+    );
+    h.core.save_now();
+    let app = mock_app();
+    let (reloaded, _rx) = Core::load(app.handle().clone(), h.core.data.clone());
+    let models = reloaded.models.read().clone();
+    assert_eq!(models.len(), 3);
+    assert_eq!(models[1].value, "sonnet");
+    assert_eq!(models[1].resolved_model, "claude-sonnet-5-5");
+}
+
+#[tokio::test]
+async fn the_same_models_reported_again_do_not_notify_the_ui_again() {
+    let h = harness("models-again");
+    let (p, _) = h.project(false).await;
+    for _ in 0..2 {
+        let id = h.core.create_agent(&p.id, None).await.unwrap().meta.id;
+        h.core.ensure_process(&id).await.unwrap();
+    }
+    let reports = |h: &Harness| {
+        h.events
+            .lock()
+            .iter()
+            .filter(|e| e["type"] == "models")
+            .count()
+    };
+    h.wait("the models", |h| reports(h) > 0).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(reports(&h), 1);
+}
+
+#[tokio::test]
 async fn remote_control_links_the_agent_to_claude_ai() {
     let h = harness("remote-on");
     let (p, r) = h.project(false).await;

@@ -188,7 +188,7 @@
           {/if}
         </div>
         <div class="meta">
-          <span>{modelLabel(a.model)}</span><span class="sep">·</span><span>{duration(a)}</span>
+          <span>{modelLabel(a.model, app.models)}</span><span class="sep">·</span><span>{duration(a)}</span>
           {#if a.worktree}<span class="sep">·</span><span class="wt" title={a.worktree.branch}>⎇ {shortBranch(a.worktree.branch)}</span
             >{/if}
         </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
   import { api } from '../../lib/ipc';
-  import { MODELS } from '../../lib/models';
+  import { modelOptions } from '../../lib/models';
   import { app } from '../../lib/state.svelte';
   import { PROJECT_COLORS } from '../../lib/theme';
   import type { FolderInfo } from '../../lib/types';
@@ -122,7 +122,7 @@
     {#if firstAgent}
       <div class="models">
         <span class="ts">Modèle</span>
-        {#each MODELS as m (m.value)}
+        {#each modelOptions(app.models) as m (m.value)}
           <button class="mbtn mono" class:on={model === m.value} onclick={() => (model = m.value)}>{m.label}</button>
         {/each}
       </div>
