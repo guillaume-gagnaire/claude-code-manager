@@ -6,6 +6,7 @@ mod core;
 #[cfg(test)]
 mod core_tests;
 mod editor;
+mod fsedit;
 mod git;
 mod hub;
 mod job;

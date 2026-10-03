@@ -1,0 +1,252 @@
+//! The embedded editor's access to files: a source's file list, reading and writing a file, and
+//! the version a file is compared with.
+
+use crate::paths::contained;
+use anyhow::{anyhow, bail, Result};
+use serde::Serialize;
+use std::path::Path;
+
+/// Larger files are not opened in the editor.
+pub const MAX_EDIT_BYTES: u64 = 2 * 1024 * 1024;
+/// Errors of `write` when the file is no longer what the editor read.
+pub const CHANGED: &str = "changed";
+pub const DELETED: &str = "deleted";
+
+/// What the editor gets of a file: its text with LF line endings, and how to write it back.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileText {
+    /// "text", "binary" or "tooLarge" (no text for the last two).
+    pub kind: &'static str,
+    pub text: Option<String>,
+    pub size: u64,
+    /// Of the bytes on disk: tells whether the file changed since it was read.
+    pub hash: String,
+    /// "crlf" when most lines end so, else "lf".
+    pub eol: &'static str,
+    pub bom: bool,
+}
+
+/// FNV-1a of the bytes, with their length.
+pub fn hash(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}-{}", bytes.len())
+}
+
+pub fn decode(bytes: &[u8]) -> FileText {
+    let (bom, body) = match bytes.strip_prefix(b"\xEF\xBB\xBF") {
+        Some(rest) => (true, rest),
+        None => (false, bytes),
+    };
+    let (size, h) = (bytes.len() as u64, hash(bytes));
+    let binary = body[..body.len().min(8192)].contains(&0);
+    let text = if binary {
+        None
+    } else {
+        std::str::from_utf8(body).ok()
+    };
+    let Some(text) = text else {
+        return FileText {
+            kind: "binary",
+            text: None,
+            size,
+            hash: h,
+            eol: "lf",
+            bom,
+        };
+    };
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count() - crlf;
+    FileText {
+        kind: "text",
+        text: Some(text.replace("\r\n", "\n")),
+        size,
+        hash: h,
+        eol: if crlf > lf { "crlf" } else { "lf" },
+        bom,
+    }
+}
+
+pub fn encode(text: &str, eol: &str, bom: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() + 3);
+    if bom {
+        out.extend_from_slice(b"\xEF\xBB\xBF");
+    }
+    if eol == "crlf" {
+        out.extend_from_slice(text.replace("\r\n", "\n").replace('\n', "\r\n").as_bytes());
+    } else {
+        out.extend_from_slice(text.as_bytes());
+    }
+    out
+}
+
+pub fn read(root: &Path, rel: &str) -> Result<FileText> {
+    let path = contained(root, rel)?;
+    let meta = match std::fs::metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{rel} introuvable"),
+        Err(e) => return Err(e.into()),
+    };
+    if meta.is_dir() {
+        bail!("{rel} est un dossier");
+    }
+    if meta.len() > MAX_EDIT_BYTES {
+        return Ok(FileText {
+            kind: "tooLarge",
+            text: None,
+            size: meta.len(),
+            hash: String::new(),
+            eol: "lf",
+            bom: false,
+        });
+    }
+    Ok(decode(&std::fs::read(&path)?))
+}
+
+/// Writes `text` back with the file's line endings and BOM, through a temporary file renamed
+/// over it. With `expected`, refused (`changed` / `deleted`) when the file is no longer the one
+/// read; without, written anyway (created if need be, parent folders included).
+pub fn write(
+    root: &Path,
+    rel: &str,
+    text: &str,
+    eol: &str,
+    bom: bool,
+    expected: Option<&str>,
+) -> Result<String> {
+    let path = contained(root, rel)?;
+    if let Some(exp) = expected {
+        match std::fs::read(&path) {
+            Ok(bytes) if hash(&bytes) != exp => bail!(CHANGED),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(DELETED),
+            _ => {}
+        }
+    }
+    let bytes = encode(text, eol, bom);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("chemin invalide : {rel}"))?
+        .to_string_lossy()
+        .into_owned();
+    let tmp = path.with_file_name(format!(".{name}.escouade-tmp"));
+    std::fs::write(&tmp, &bytes)?;
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(&path) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    Ok(hash(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::test_dir;
+
+    #[test]
+    fn decodes_text_line_endings_bom_and_binary() {
+        let t = decode(b"\xEF\xBB\xBFa\r\nb\r\nc\n");
+        assert_eq!(
+            (t.kind, t.text.as_deref(), t.eol, t.bom),
+            ("text", Some("a\nb\nc\n"), "crlf", true)
+        );
+        let t = decode(b"a\nb\n");
+        assert_eq!((t.kind, t.eol, t.bom), ("text", "lf", false));
+        assert_eq!(decode(b"PNG\0\x01").kind, "binary");
+        assert_eq!(decode(&[0xff, 0xfe, 0x41]).kind, "binary");
+        assert_eq!(decode(b"").text.as_deref(), Some(""));
+        assert_eq!(decode(b"x\r\n").hash, hash(b"x\r\n"));
+    }
+
+    #[test]
+    fn encodes_back_with_the_line_endings_and_bom_of_the_file() {
+        assert_eq!(
+            encode("a\nb\n", "crlf", true),
+            b"\xEF\xBB\xBFa\r\nb\r\n".to_vec()
+        );
+        assert_eq!(encode("a\nb", "lf", false), b"a\nb".to_vec());
+        // A stray CRLF typed or pasted in does not become CRCRLF.
+        assert_eq!(encode("a\r\nb\n", "crlf", false), b"a\r\nb\r\n".to_vec());
+    }
+
+    #[test]
+    fn reads_a_file_of_its_root_and_leaves_a_big_one_out() {
+        let dir = test_dir("fsedit-read");
+        std::fs::write(dir.join("a.ts"), "x\r\n").unwrap();
+        let t = read(&dir, "a.ts").unwrap();
+        assert_eq!((t.text.as_deref(), t.eol), (Some("x\n"), "crlf"));
+        assert_eq!(t.hash, hash(b"x\r\n"));
+        std::fs::write(
+            dir.join("big.txt"),
+            vec![b'a'; (MAX_EDIT_BYTES + 1) as usize],
+        )
+        .unwrap();
+        let t = read(&dir, "big.txt").unwrap();
+        assert_eq!((t.kind, t.text), ("tooLarge", None));
+        assert_eq!(t.size, MAX_EDIT_BYTES + 1);
+        let missing = read(&dir, "missing.ts").unwrap_err().to_string();
+        assert!(missing.contains("introuvable"), "{missing}");
+        assert!(read(&dir, "../x").is_err());
+    }
+
+    #[test]
+    fn writes_atomically_keeping_crlf_and_refuses_a_file_changed_on_disk() {
+        let dir = test_dir("fsedit-write");
+        let p = dir.join("a.ts");
+        std::fs::write(&p, "a\r\n").unwrap();
+        let first = read(&dir, "a.ts").unwrap();
+        let h = write(&dir, "a.ts", "a\nb\n", "crlf", false, Some(&first.hash)).unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"a\r\nb\r\n");
+        assert_eq!(h, hash(b"a\r\nb\r\n"));
+        // Changed behind the editor's back: refused, unless forced.
+        std::fs::write(&p, "agent\n").unwrap();
+        let err = write(&dir, "a.ts", "mine\n", "lf", false, Some(&h)).unwrap_err();
+        assert_eq!(err.to_string(), CHANGED);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "agent\n");
+        write(&dir, "a.ts", "mine\n", "lf", false, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "mine\n");
+        // Deleted behind its back.
+        let h = hash(b"mine\n");
+        std::fs::remove_file(&p).unwrap();
+        let err = write(&dir, "a.ts", "x\n", "lf", false, Some(&h)).unwrap_err();
+        assert_eq!(err.to_string(), DELETED);
+        // Forced: created again, parent folders included, no temporary file left behind.
+        write(&dir, "new/deep/b.ts", "b\n", "lf", false, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("new/deep/b.ts")).unwrap(),
+            "b\n"
+        );
+        let left: Vec<_> = std::fs::read_dir(dir.join("new/deep"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("b.ts")]);
+        assert!(write(&dir, "../escape.ts", "x", "lf", false, None).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_the_permissions_of_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = test_dir("fsedit-perms");
+        let p = dir.join("run.sh");
+        std::fs::write(&p, "echo a\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write(&dir, "run.sh", "echo b\n", "lf", false, None).unwrap();
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+}
