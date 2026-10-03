@@ -1,5 +1,7 @@
+import { Text } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { lineChanges } from './changes';
+import { markerRanges } from './gutter';
 
 describe('lineChanges', () => {
   it('marks the lines changed or added since the reference', () => {
@@ -85,5 +87,16 @@ describe('lineChanges on big files', () => {
     const two = [...one];
     two[200] = 'Y';
     expect(lineChanges(base, two.join('\n'))).toEqual({ changed: [], deleted: [], count: 0 });
+  });
+});
+
+describe('markerRanges', () => {
+  it('puts one marker per marked line, both kinds on the same line', () => {
+    const doc = Text.of(['a', 'b', 'c']);
+    const marks = markerRanges(doc, { changed: [2], deleted: [2, 3, 9], count: 1 });
+    expect(marks.map((r) => [r.from, (r.value as any).kind])).toEqual([
+      [2, 'changed deleted'],
+      [4, 'deleted'],
+    ]);
   });
 });
