@@ -1126,6 +1126,11 @@ impl<R: Runtime> Core<R> {
         }
     }
 
+    /// A window that subscribes (started, or reloaded and so without the files it held) has no unsaved file yet.
+    pub fn reset_unsaved(&self) {
+        self.unsaved.store(0, Ordering::Release);
+    }
+
     /// "Quitter" goes to the window first when the editor has unsaved files: true when it did.
     pub fn ask_before_quit(&self) -> bool {
         let unsaved = self.unsaved.load(Ordering::Acquire);

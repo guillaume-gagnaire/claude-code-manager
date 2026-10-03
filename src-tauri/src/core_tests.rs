@@ -1227,3 +1227,12 @@ async fn quitting_with_unsaved_files_asks_the_window_first() {
         .iter()
         .any(|e| e["type"] == "quitRequested" && e["unsaved"] == 2));
 }
+
+#[tokio::test]
+async fn a_reloaded_window_holds_no_unsaved_file_any_more() {
+    use std::sync::atomic::Ordering;
+    let h = harness("core-unsaved-reload");
+    h.core.unsaved.store(2, Ordering::Release);
+    h.core.reset_unsaved();
+    assert!(!h.core.ask_before_quit());
+}

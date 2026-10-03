@@ -38,6 +38,7 @@ pub struct InitialState {
 #[tauri::command]
 pub fn subscribe(core: CoreState, channel: Channel<UiEvent>) -> InitialState {
     core.hub.set_channel(channel);
+    core.reset_unsaved();
     let settings = core.settings.read().clone();
     InitialState {
         projects: core.projects.read().clone(),
