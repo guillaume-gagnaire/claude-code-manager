@@ -21,7 +21,8 @@ interface Node {
 }
 
 const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1);
-const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }) || (a < b ? -1 : a > b ? 1 : 0);
+const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
+const byName = (a: string, b: string) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
 
 export function treeRows(files: string[], expanded: Record<string, boolean>, status: Record<string, FileStatus>): TreeRow[] {
   const root: Node = { dirs: new Map(), files: [] };
@@ -39,12 +40,20 @@ export function treeRows(files: string[], expanded: Record<string, boolean>, sta
   const walk = (n: Node, depth: number, prefix: string) => {
     for (const name of [...n.dirs.keys()].sort(byName)) {
       const path = prefix + name;
-      const open = !!expanded[path];
+      const open = Object.hasOwn(expanded, path) && !!expanded[path];
       rows.push({ kind: 'dir', path, name, depth, open, status: null, changedInside: changed.some((p) => p.startsWith(path + '/')) });
       if (open) walk(n.dirs.get(name)!, depth + 1, path + '/');
     }
     for (const path of [...n.files].sort((a, b) => byName(nameOf(a), nameOf(b)))) {
-      rows.push({ kind: 'file', path, name: nameOf(path), depth, open: false, status: status[path] ?? null, changedInside: false });
+      rows.push({
+        kind: 'file',
+        path,
+        name: nameOf(path),
+        depth,
+        open: false,
+        status: Object.hasOwn(status, path) ? status[path] : null,
+        changedInside: false,
+      });
     }
   };
   walk(root, 0, '');

@@ -12,7 +12,8 @@ export function detectIndent(text: string): { tabs: boolean; size: number } {
       continue;
     }
     const width = line.length - line.trimStart().length;
-    if (width > 0) spaces++;
+    // A single space is a continuation (" * " in a block comment), not an indentation.
+    if (width >= 2) spaces++;
     const step = Math.abs(width - prev);
     if (step > 1 && step <= 8) steps.set(step, (steps.get(step) ?? 0) + 1);
     prev = width;

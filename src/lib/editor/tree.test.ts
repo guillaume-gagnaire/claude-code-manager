@@ -24,6 +24,15 @@ describe('treeRows', () => {
   });
 });
 
+describe('treeRows with names that Object has too', () => {
+  it('keeps a folder named like an Object member closed and a file named so unchanged', () => {
+    const rows = treeRows(['constructor/x.ts', 'toString'], {}, {});
+    expect(rows.find((r) => r.name === 'constructor')).toMatchObject({ kind: 'dir', open: false });
+    expect(rows.find((r) => r.name === 'toString')).toMatchObject({ kind: 'file', status: null });
+    expect(shape(rows)).toEqual(['0d constructor', '0f toString']);
+  });
+});
+
 describe('ancestors', () => {
   it('gives the folders above a file, outermost first', () => {
     expect(ancestors('src/a/x.ts')).toEqual(['src', 'src/a']);
