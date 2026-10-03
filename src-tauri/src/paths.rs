@@ -223,6 +223,10 @@ pub fn contained(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
             }
             break;
         }
+        // An entry exists (symlink or file) but can't be resolved (dangling link, permission error, etc.)
+        if p.symlink_metadata().is_ok() {
+            return Err(out());
+        }
         probe = p.parent();
     }
     Ok(full)
@@ -272,6 +276,29 @@ pub fn test_dir(name: &str) -> PathBuf {
         dir
     } else {
         dir.canonicalize().unwrap()
+    }
+}
+
+#[cfg(test)]
+fn make_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        // Try symlink first (requires admin/developer mode)
+        if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+            return true;
+        }
+        // Fall back to junction (no special privileges needed)
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 }
 
@@ -506,14 +533,23 @@ mod tests {
     fn refuses_a_link_that_points_outside() {
         let root = test_dir("contained-link");
         let outside = test_dir("contained-link-target");
-        #[cfg(unix)]
-        let made = std::os::unix::fs::symlink(&outside, root.join("out")).is_ok();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_dir(&outside, root.join("out")).is_ok();
+        let made = make_link(&outside, &root.join("out"));
         if !made {
-            // Windows without the right to create links (no developer mode): nothing to check.
+            eprintln!("Could not create link/junction (skipping test)");
             return;
         }
         assert!(contained(&root, "out/secret.txt").is_err());
+    }
+
+    #[test]
+    fn refuses_a_link_that_cannot_be_resolved() {
+        let root = test_dir("contained-dangling");
+        let target = root.join("missing-target");
+        let made = make_link(&target, &root.join("dangling"));
+        if !made {
+            eprintln!("Could not create link/junction (skipping test)");
+            return;
+        }
+        assert!(contained(&root, "dangling/file.txt").is_err());
     }
 }
