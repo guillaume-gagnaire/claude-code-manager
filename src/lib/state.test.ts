@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { agent, fakeBackend, gitInfo, project, resetApp, SETTINGS } from '../test/ipc';
 import { conversationOf } from './conversations.svelte';
+import { buffers } from './editor/buffers.svelte';
+import { trees } from './editor/trees.svelte';
 import { app } from './state.svelte';
 import type { InitialState, LaunchState, UiEvent } from './types';
 
 /** Starts the app against a fake backend and returns a function pushing backend events. */
-async function start(over: Partial<InitialState> = {}) {
+async function start(over: Partial<InitialState> = {}, handlers: Record<string, (args: any) => unknown> = {}) {
   let channel: { onmessage: (e: UiEvent) => void } | null = null;
   const initial: InitialState = {
     projects: [project(), project({ id: 'p2', name: 'studio-web' })],
@@ -27,6 +29,7 @@ async function start(over: Partial<InitialState> = {}) {
       return initial;
     },
     get_conversation: () => [],
+    ...handlers,
   });
   await app.init();
   return { backend, emit: (e: UiEvent) => channel!.onmessage(e) };
@@ -419,6 +422,64 @@ describe('editor and the agent a notification or Ctrl+J brings up', () => {
     await app.openEditor({ source: 'project' });
     app.selectAgent('a2');
     expect(app.editorOn).toBe(true);
+  });
+});
+
+describe('editor of a removed agent or project', () => {
+  const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\wt', branch: 'escouade/wt', baseBranch: 'main' };
+  const files = {
+    fs_tree: () => ({ root: 'C:/code/demo-api', files: ['x.ts'], truncated: false }),
+    fs_read: () => ({ kind: 'text', text: 'a\n', size: 2, hash: 'h1', eol: 'lf', bom: false }),
+    fs_base: () => null,
+    set_unsaved: () => null,
+  };
+  beforeEach(() => resetApp());
+
+  it('forgets the files and tabs of a deleted agent’s worktree, and shows the project instead', async () => {
+    const { emit, backend } = await start({ agents: [agent(), agent({ id: 'a2', name: 'wt', createdAt: 2, worktree: wt })] }, files);
+    await app.openEditor({ source: 'project', path: 'x.ts' });
+    await app.openEditor({ source: 'a2', path: 'x.ts', line: 3 });
+    await trees.load('p1', 'a2');
+    const mine = (await buffers.open('p1', 'a2', 'x.ts')).key;
+    const kept = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(mine, 'mine\n');
+    buffers.edit(kept, 'kept\n');
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 2 });
+    emit({ type: 'agentRemoved', id: 'a2', projectId: 'p1' });
+    expect(buffers.all[mine]).toBeUndefined();
+    expect(buffers.all[kept]?.text).toBe('kept\n');
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 1 });
+    expect(trees.get('p1', 'a2')).toBeUndefined();
+    expect(app.editor.p1).toMatchObject({ on: true, source: 'project', reveal: null });
+    expect(app.editor.p1.places.a2).toBeUndefined();
+    expect(app.editor.p1.places.project.active).toBe('x.ts');
+  });
+
+  it('keeps the editor on its source when another agent is deleted', async () => {
+    const { emit } = await start({ agents: [agent(), agent({ id: 'a2', name: 'wt', createdAt: 2, worktree: wt })] }, files);
+    await app.openEditor({ source: 'a2', path: 'x.ts' });
+    emit({ type: 'agentRemoved', id: 'a1', projectId: 'p1' });
+    expect(app.editor.p1.source).toBe('a2');
+    expect(app.editor.p1.places.a2.active).toBe('x.ts');
+  });
+
+  it('forgets the editor of a closed project, its unsaved files included', async () => {
+    const { backend } = await start({}, files);
+    app.selectProject('p2');
+    await app.openEditor({ projectId: 'p2', source: 'project', path: 'x.ts' });
+    await trees.load('p2', 'project');
+    const gone = (await buffers.open('p2', 'project', 'x.ts')).key;
+    const kept = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(gone, 'mine\n');
+    buffers.edit(kept, 'kept\n');
+    app.forgetProject('p2');
+    expect(app.projects.map((p) => p.id)).toEqual(['p1']);
+    expect(app.ui.activeProject).toBe('p1');
+    expect(app.editor.p2).toBeUndefined();
+    expect(buffers.all[gone]).toBeUndefined();
+    expect(buffers.all[kept]?.text).toBe('kept\n');
+    expect(trees.get('p2', 'project')).toBeUndefined();
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 1 });
   });
 });
 

@@ -1,6 +1,7 @@
 // Files open in the editor: their text, as last read or saved, and the state of the file on disk.
 // A source is 'project' (the project's checkout) or the id of an agent (its worktree).
 
+import { plural } from '../format';
 import { api } from '../ipc';
 import type { FileBase, FileText } from '../types';
 
@@ -31,6 +32,10 @@ export interface Buffer {
 }
 
 export const sourceAgent = (source: string) => (source === 'project' ? null : source);
+
+/** The sentence a confirmation adds when removing something loses `n` unsaved files ('' for none). */
+export const lossNotice = (n: number) =>
+  n ? ` ${plural(n, 'fichier non enregistré dans l’éditeur sera perdu', 'fichiers non enregistrés dans l’éditeur seront perdus')}.` : '';
 
 const notFound = (e: unknown) => String(e).includes('introuvable');
 
@@ -88,6 +93,8 @@ class Buffers {
     } catch (e) {
       Object.assign(b, notFound(e) ? { kind: 'missing' } : { kind: 'error', error: String(e) });
     }
+    // Forgotten while it was read (its source or its project is gone): not brought back.
+    if (!this.pending.has(key)) return b;
     this.all[key] = b;
     if (b.kind === 'text') this.loadBase(key);
     return this.all[key];
@@ -225,6 +232,33 @@ class Buffers {
 
   close(key: string) {
     delete this.all[key];
+    this.sync();
+  }
+
+  /** Unsaved files of a project, or of one of its sources. */
+  unsavedIn(projectId: string, source?: string): number {
+    return Object.values(this.all).filter(
+      (b) => b.projectId === projectId && (source === undefined || b.source === source) && this.isDirty(b),
+    ).length;
+  }
+
+  /** Forgets the files of a source that is gone (a deleted agent's worktree), unsaved changes included. */
+  closeSource(projectId: string, source: string) {
+    this.drop((b) => b.projectId === projectId && b.source === source);
+  }
+
+  /** Forgets the files of a closed project, unsaved changes included. */
+  closeProject(projectId: string) {
+    this.drop((b) => b.projectId === projectId);
+  }
+
+  private drop(gone: (b: Pick<Buffer, 'projectId' | 'source'>) => boolean) {
+    for (const b of Object.values(this.all)) if (gone(b)) delete this.all[b.key];
+    // A read under way is not taken when it arrives.
+    for (const k of this.pending.keys()) {
+      const [projectId, source] = k.split('|');
+      if (gone({ projectId, source })) this.pending.delete(k);
+    }
     this.sync();
   }
 

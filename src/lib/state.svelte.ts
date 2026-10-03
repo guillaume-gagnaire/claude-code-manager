@@ -2,6 +2,7 @@
 
 import { api } from './ipc';
 import { applyConvOps, dropConversation } from './conversations.svelte';
+import { buffers } from './editor/buffers.svelte';
 import { ancestors } from './editor/tree';
 import { trees } from './editor/trees.svelte';
 import { basename, isAbsPath, plural, relPath } from './format';
@@ -201,6 +202,7 @@ class AppState {
         delete this.agents[e.id];
         delete this.attention[e.id];
         dropConversation(e.id);
+        this.forgetEditorSource(e.projectId, e.id);
         break;
       case 'conv':
         applyConvOps(e.agentId, e.ops);
@@ -390,6 +392,30 @@ class AppState {
   toggleEditorDir(projectId: string, source: string, dir: string) {
     const place = this.editor[projectId]?.places[source];
     if (place) place.expanded[dir] = !place.expanded[dir];
+  }
+
+  /** A deleted agent's worktree is no source any more: its files and tabs go, the editor shows the project instead. */
+  private forgetEditorSource(projectId: string, agentId: string) {
+    buffers.closeSource(projectId, agentId);
+    trees.closeSource(projectId, agentId);
+    const st = this.editor[projectId];
+    if (!st) return;
+    delete st.places[agentId];
+    if (st.source !== agentId) return;
+    st.source = 'project';
+    st.places.project ??= { open: [], active: null, expanded: {} };
+    // The line was asked for in the worktree's file, not in the project's of the same name.
+    st.reveal = null;
+  }
+
+  /** Forgets a project the backend removed, with its editor (unsaved files included: the close was confirmed). */
+  forgetProject(id: string) {
+    this.projects = this.projects.filter((x) => x.id !== id);
+    if (this.ui.activeProject === id) this.ui.activeProject = this.projects[0]?.id ?? null;
+    delete this.editor[id];
+    buffers.closeProject(id);
+    trees.closeProject(id);
+    this.persistUi();
   }
 
   /** A launch command's process is up; it may have ended, or been stopped, in the meantime. */

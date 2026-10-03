@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBackend } from '../../test/ipc';
-import { buffers } from './buffers.svelte';
+import { buffers, lossNotice } from './buffers.svelte';
 import { trees } from './trees.svelte';
 
 const text = (t: string, hash = 'h1', eol: 'lf' | 'crlf' = 'lf') => ({ kind: 'text', text: t, size: t.length, hash, eol, bom: false });
@@ -123,6 +123,38 @@ describe('buffers', () => {
     buffers.close(k);
     expect(buffers.all[k]).toBeUndefined();
     expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 0 });
+  });
+
+  it('forgets the files of a source, or of a project, gone with their unsaved changes', async () => {
+    const backend = fakeBackend({ fs_read: () => text('a'), fs_base: () => null, set_unsaved: () => null });
+    const wt = (await buffers.open('p1', 'a2', 'x.ts')).key;
+    const proj = (await buffers.open('p1', 'project', 'x.ts')).key;
+    const other = (await buffers.open('p2', 'project', 'y.ts')).key;
+    for (const k of [wt, proj, other]) buffers.edit(k, 'b');
+    expect(buffers.unsavedIn('p1', 'a2')).toBe(1);
+    expect(buffers.unsavedIn('p1')).toBe(2);
+    buffers.closeSource('p1', 'a2');
+    expect(Object.keys(buffers.all)).toEqual([proj, other]);
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 2 });
+    buffers.closeProject('p2');
+    expect(Object.keys(buffers.all)).toEqual([proj]);
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 1 });
+  });
+
+  it('does not bring back a file of a forgotten source whose read was under way', async () => {
+    const gate = deferred<unknown>();
+    fakeBackend({ fs_read: () => gate.promise, fs_base: () => null, set_unsaved: () => null });
+    const opening = buffers.open('p1', 'a2', 'x.ts');
+    buffers.closeSource('p1', 'a2');
+    gate.resolve(text('a'));
+    await opening;
+    expect(buffers.all).toEqual({});
+  });
+
+  it('warns of the unsaved files a removal loses, in a sentence of their own', () => {
+    expect(lossNotice(0)).toBe('');
+    expect(lossNotice(1)).toBe(' 1 fichier non enregistré dans l’éditeur sera perdu.');
+    expect(lossNotice(3)).toBe(' 3 fichiers non enregistrés dans l’éditeur seront perdus.');
   });
 
   it('reads a file once when it is opened twice at the same time', async () => {
@@ -296,5 +328,16 @@ describe('trees', () => {
     expect(backend.called('fs_tree').map((c) => c.args.agentId)).toEqual(['a2', null]);
     expect(trees.get('p1', 'a2')?.root).toBe('C:/wt');
     expect(trees.get('p1', 'project')?.root).toBe('C:/p');
+  });
+
+  it('forgets the tree of a source, or the trees of a project', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/p', files: [], truncated: false }) });
+    await trees.load('p1', 'a2');
+    await trees.load('p1', 'project');
+    await trees.load('p2', 'project');
+    trees.closeSource('p1', 'a2');
+    expect(Object.keys(trees.all)).toEqual(['p1|project', 'p2|project']);
+    trees.closeProject('p1');
+    expect(Object.keys(trees.all)).toEqual(['p2|project']);
   });
 });

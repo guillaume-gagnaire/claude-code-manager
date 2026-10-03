@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { buffers } from '../lib/editor/buffers.svelte';
 import { menu } from '../lib/menu.svelte';
 import { PROJECT_COLORS } from '../lib/theme';
 import { app } from '../lib/state.svelte';
@@ -72,6 +73,25 @@ describe('TitleBar', () => {
     await closeProjectFromMenu('studio-web');
     expect(backend.called('remove_project')[0].args).toEqual({ id: 'p2' });
     expect(app.projects.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('warns that a closed project’s unsaved files are lost, then forgets its editor', async () => {
+    const backend = fakeBackend({
+      fs_read: () => ({ kind: 'text', text: 'a\n', size: 2, hash: 'h1', eol: 'lf', bom: false }),
+      fs_base: () => null,
+      set_unsaved: () => null,
+    });
+    await app.openEditor({ projectId: 'p2', source: 'project', path: 'x.ts' });
+    const k = (await buffers.open('p2', 'project', 'x.ts')).key;
+    buffers.edit(k, 'mine\n');
+    render(TitleBar);
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /studio-web/ }));
+    menu.open!.items.find((i) => i.label.startsWith('Fermer le projet'))!.onClick!();
+    expect((app.modal as any).body).toMatch(/ 1 fichier non enregistré dans l’éditeur sera perdu\.$/);
+    await (app.modal as any).onConfirm(false);
+    expect(app.editor.p2).toBeUndefined();
+    expect(buffers.all[k]).toBeUndefined();
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 0 });
   });
 
   it('stops the launch commands of a closed project without calling it a crash', async () => {

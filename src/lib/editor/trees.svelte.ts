@@ -17,6 +17,16 @@ class Trees {
     return t;
   }
 
+  /** Forgets the tree of a source that is gone (a deleted agent's worktree). */
+  closeSource(projectId: string, source: string) {
+    delete this.all[`${projectId}|${source}`];
+  }
+
+  /** Forgets the trees of a closed project. */
+  closeProject(projectId: string) {
+    for (const k of Object.keys(this.all)) if (k.startsWith(`${projectId}|`)) delete this.all[k];
+  }
+
   reset() {
     this.all = {};
   }

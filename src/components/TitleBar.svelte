@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { openPath } from '@tauri-apps/plugin-opener';
+  import { buffers, lossNotice } from '../lib/editor/buffers.svelte';
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
   import { app } from '../lib/state.svelte';
@@ -81,7 +82,9 @@
           app.modal = {
             kind: 'confirm',
             title: `Fermer « ${p.name} » ?`,
-            body: "Le projet et ses agents sont retirés de l'application (conversations comprises). Les fichiers et les worktrees sur le disque ne sont pas touchés.",
+            body:
+              "Le projet et ses agents sont retirés de l'application (conversations comprises). Les fichiers et les worktrees sur le disque ne sont pas touchés." +
+              lossNotice(buffers.unsavedIn(p.id)),
             confirm: 'Fermer le projet',
             danger: true,
             onConfirm: async () => {
@@ -93,9 +96,7 @@
               if (!removed) return undo();
               forgetLaunches(runs);
               for (const t of app.terminals.filter((x) => x.projectId === p.id)) closeTerminal(t.id);
-              app.projects = app.projects.filter((x) => x.id !== p.id);
-              if (app.ui.activeProject === p.id) app.ui.activeProject = app.projects[0]?.id ?? null;
-              app.persistUi();
+              app.forgetProject(p.id);
             },
           };
         },

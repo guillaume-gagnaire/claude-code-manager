@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { buffers } from '../lib/editor/buffers.svelte';
 import { menu } from '../lib/menu.svelte';
 import { app } from '../lib/state.svelte';
 import { agent, fakeBackend, gitInfo, project, resetApp } from '../test/ipc';
@@ -177,6 +178,32 @@ describe('Sidebar editor entries', () => {
     app.git.p1 = gitInfo({ isRepo: false });
     render(Sidebar, { project: project() });
     expect(screen.getByRole('button', { name: 'Parcourir' }).closest('.branch')).toHaveTextContent('Pas de dépôt git');
+  });
+
+  it('warns that the unsaved files of an agent’s worktree are lost when it is deleted', async () => {
+    const wt = { path: 'C:\\code\\demo-api\\.claude\\worktrees\\a2', branch: 'escouade/a2', baseBranch: 'main' };
+    resetApp({ agents: [agent(), agent({ id: 'a2', name: 'wt-agent', worktree: wt })] });
+    fakeBackend({
+      fs_read: () => ({ kind: 'text', text: 'a\n', size: 2, hash: 'h1', eol: 'lf', bom: false }),
+      fs_base: () => null,
+      set_unsaved: () => null,
+    });
+    for (const [source, path] of [
+      ['a2', 'x.ts'],
+      ['a2', 'y.ts'],
+      ['project', 'x.ts'],
+    ]) {
+      buffers.edit((await buffers.open('p1', source, path)).key, 'mine\n');
+    }
+    render(Sidebar, { project: project() });
+    const deleteBody = async (name: RegExp) => {
+      await fireEvent.contextMenu(screen.getByRole('button', { name }));
+      menu.open!.items.find((i) => i.label === 'Supprimer…')!.onClick!();
+      return (app.modal as any).body as string;
+    };
+    expect(await deleteBody(/wt-agent/)).toMatch(/\. 2 fichiers non enregistrés dans l’éditeur seront perdus\.$/);
+    // An agent without a worktree edits the project's checkout: its files stay open with the project.
+    expect(await deleteBody(/refacto-auth/)).not.toContain('éditeur');
   });
 
   it('opens an agent with a worktree on that worktree, and offers nothing for an archived one', async () => {

@@ -4,6 +4,7 @@
   import { fDur, fTok, fUsd, fWhen, tildify } from '../lib/format';
   import { copyRemoteLink, openRemote, toggleRemote } from '../lib/agent-actions';
   import { shortBranch } from '../lib/branches';
+  import { buffers, lossNotice } from '../lib/editor/buffers.svelte';
   import { menu, type MenuItem } from '../lib/menu.svelte';
   import { modelLabel } from '../lib/models';
   import { ESTIMATE_HINT, fSpentUsd, spent } from '../lib/spend';
@@ -98,7 +99,10 @@
     app.modal = {
       kind: 'confirm',
       title: `Supprimer l'agent « ${a.name} » ?`,
-      body: 'Le processus Claude est arrêté et la conversation est retirée de l’application (la session Claude Code reste sur le disque).',
+      body:
+        'Le processus Claude est arrêté et la conversation est retirée de l’application (la session Claude Code reste sur le disque).' +
+        // The files of its worktree, open in the editor: an agent without one edits the project's, which stay.
+        lossNotice(buffers.unsavedIn(a.projectId, a.id)),
       confirm: 'Supprimer',
       danger: true,
       option: a.worktree ? { label: `Supprimer aussi le worktree et la branche ${a.worktree.branch}`, value: true } : undefined,
