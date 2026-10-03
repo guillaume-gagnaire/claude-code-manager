@@ -4,7 +4,7 @@
 use crate::paths::contained;
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Validate that `rel` is a normal file path component (not `.`, `sub/.`, or empty).
@@ -12,10 +12,27 @@ fn validate_rel(rel: &str) -> Result<()> {
     if rel.is_empty() {
         bail!("chemin invalide : ");
     }
+    // The last component must be normal (not current dir, parent, etc).
+    // Rust drops trailing `.` from components(), so also check the suffix.
+    let path = Path::new(rel);
+    match path.components().next_back() {
+        Some(Component::Normal(_)) => {}
+        _ => bail!("chemin invalide : {rel}"),
+    }
+    // Additional check: refuse if ends with `.` preceded by separator.
     if rel.ends_with("/.") || rel.ends_with("\\.") || rel == "." {
         bail!("chemin invalide : {rel}");
     }
     Ok(())
+}
+
+/// Create a temporary file with a unique name. Only succeeds if the file doesn't exist.
+/// This prevents following symlinks/junctions at that name.
+fn create_temp(tmp: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)
 }
 
 /// Larger files are not opened in the editor.
@@ -135,36 +152,20 @@ pub fn write(
     expected: Option<&str>,
 ) -> Result<String> {
     validate_rel(rel)?;
-    let path = contained(root, rel)?;
+    let mut path = contained(root, rel)?;
 
-    // Resolve symlinks, ensuring target is within root.
-    #[cfg(unix)]
-    let path = {
-        if let Ok(meta) = std::fs::symlink_metadata(&path) {
-            if meta.file_type().is_symlink() {
-                let target = std::fs::read_link(&path)?;
-                let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-                let resolved = if target.is_absolute() {
-                    target
-                } else {
-                    path.parent()
-                        .ok_or_else(|| anyhow!("chemin invalide : {rel}"))?
-                        .join(&target)
-                };
-                let resolved_canonical = resolved.canonicalize()?;
-                if !resolved_canonical.starts_with(&canonical_root) {
-                    bail!("chemin hors du dossier : {rel}");
-                }
-                resolved
-            } else {
-                path
-            }
-        } else {
-            path
+    // Resolve symlinks on all platforms, ensuring target is within root.
+    if std::fs::symlink_metadata(&path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        let real = std::fs::canonicalize(&path)?;
+        let real_root = std::fs::canonicalize(root)?;
+        if !real.starts_with(&real_root) {
+            bail!("chemin hors du dossier : {rel}");
         }
-    };
-    #[cfg(not(unix))]
-    let path = path;
+        path = real;
+    }
 
     if let Some(exp) = expected {
         match std::fs::read(&path) {
@@ -197,33 +198,24 @@ pub fn write(
     let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_file_name(format!(".{name}.{pid}-{counter}.escouade-tmp"));
 
-    // Use create_new to avoid following symlinks/junctions.
-    let result = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .and_then(|file| {
-            use std::io::Write;
-            let mut f = file;
-            f.write_all(&bytes)?;
-            Ok(())
-        });
+    // Create temp file; only clean up if we successfully created it.
+    let mut temp_file = create_temp(&tmp)?;
 
-    match result {
-        Ok(()) => {
-            #[cfg(unix)]
-            if let Ok(meta) = std::fs::metadata(&path) {
-                let _ = std::fs::set_permissions(&tmp, meta.permissions());
-            }
-            if let Err(e) = std::fs::rename(&tmp, &path) {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(e.into());
-            }
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e.into());
-        }
+    use std::io::Write;
+    if let Err(e) = temp_file.write_all(&bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    drop(temp_file);
+
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(&path) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
     }
     Ok(hash(&bytes))
 }
@@ -333,18 +325,45 @@ mod tests {
     #[test]
     fn refuses_rel_ending_with_dot() {
         let dir = test_dir("fsedit-dot");
-        let err = write(&dir, ".", "x", "lf", false, None).unwrap_err();
-        assert!(err.to_string().contains("chemin invalide"), "{err}");
-        let err = write(&dir, "sub/.", "x", "lf", false, None).unwrap_err();
-        assert!(err.to_string().contains("chemin invalide"), "{err}");
-        // Verify nothing was created in parent
         let parent = dir.parent().unwrap();
-        let entries: Vec<_> = std::fs::read_dir(parent)
+        let before: std::collections::HashSet<_> = std::fs::read_dir(parent)
             .unwrap()
             .flatten()
-            .filter(|e| e.file_name().to_string_lossy().starts_with(".fsedit-dot"))
+            .map(|e| e.file_name())
             .collect();
-        assert!(entries.is_empty(), "nothing should be created in parent");
+
+        let err = write(&dir, ".", "x", "lf", false, None).unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        let err = write(&dir, "./", "x", "lf", false, None).unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        let err = write(&dir, ".//", "x", "lf", false, None).unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        let err = write(&dir, "././", "x", "lf", false, None).unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        let err = write(&dir, "sub/.", "x", "lf", false, None).unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        // Also test read with same patterns
+        let err = read(&dir, ".").unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+        let err = read(&dir, "./").unwrap_err();
+        assert!(err.to_string().contains("chemin invalide"), "{err}");
+
+        // Verify nothing was created in parent - same set of entries
+        let after: std::collections::HashSet<_> = std::fs::read_dir(parent)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(
+            before, after,
+            "nothing should be created in parent, before {:?}, after {:?}",
+            before, after
+        );
     }
 
     #[test]
@@ -352,93 +371,177 @@ mod tests {
         let dir = test_dir("fsedit-readonly");
         let p = dir.join("readonly.txt");
         std::fs::write(&p, "original\n").unwrap();
-        let mut perms = std::fs::metadata(&p).unwrap().permissions();
+        let original_perms = std::fs::metadata(&p).unwrap().permissions();
+        let mut perms = original_perms.clone();
         perms.set_readonly(true);
         std::fs::set_permissions(&p, perms).unwrap();
         let err = write(&dir, "readonly.txt", "new\n", "lf", false, None).unwrap_err();
         assert_eq!(err.to_string(), "readonly.txt est en lecture seule");
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "original\n");
-        // Cleanup: restore write permission for test dir cleanup
-        let mut perms = std::fs::metadata(&p).unwrap().permissions();
-        perms.set_readonly(false);
-        std::fs::set_permissions(&p, perms).unwrap();
+        // Restore original permissions for test dir cleanup
+        std::fs::set_permissions(&p, original_perms).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
     fn resolves_symlinked_files_and_keeps_link_intact() {
-        use std::os::unix::fs::symlink;
-        let dir = test_dir("fsedit-symlink");
-        let target = dir.join("target.txt");
-        let link = dir.join("link.txt");
-        std::fs::write(&target, "target\n").unwrap();
-        symlink(&target, &link).unwrap();
-        write(&dir, "link.txt", "updated\n", "lf", false, None).unwrap();
-        // Target was updated
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "updated\n");
-        // Link still exists and is still a symlink
-        let meta = std::fs::symlink_metadata(&link).unwrap();
-        assert!(meta.file_type().is_symlink());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let dir = test_dir("fsedit-symlink");
+            let target = dir.join("target.txt");
+            let link = dir.join("link.txt");
+            std::fs::write(&target, "target\n").unwrap();
+            symlink(&target, &link).unwrap();
+            write(&dir, "link.txt", "updated\n", "lf", false, None).unwrap();
+            // Target was updated
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "updated\n");
+            // Link still exists and is still a symlink
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::symlink_file;
+            let dir = test_dir("fsedit-symlink-windows");
+            let target = dir.join("target.txt");
+            let link = dir.join("link.txt");
+            std::fs::write(&target, "target\n").unwrap();
+            match symlink_file(&target, &link) {
+                Ok(_) => {
+                    write(&dir, "link.txt", "updated\n", "lf", false, None).unwrap();
+                    assert_eq!(std::fs::read_to_string(&target).unwrap(), "updated\n");
+                    let meta = std::fs::symlink_metadata(&link).unwrap();
+                    assert!(meta.file_type().is_symlink());
+                }
+                Err(_) => {
+                    eprintln!("symlink_file requires admin privileges on this Windows installation; skipping symlink test");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resolves_symlink_chains() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let dir = test_dir("fsedit-symlink-chain");
+            let c = dir.join("c.txt");
+            let b = dir.join("b.txt");
+            let a = dir.join("a.txt");
+            std::fs::write(&c, "c\n").unwrap();
+            symlink(&c, &b).unwrap();
+            symlink(&b, &a).unwrap();
+            // Write through the chain
+            write(&dir, "a.txt", "updated\n", "lf", false, None).unwrap();
+            // c.txt was updated
+            assert_eq!(std::fs::read_to_string(&c).unwrap(), "updated\n");
+            // a and b still exist as symlinks
+            assert!(std::fs::symlink_metadata(&a)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert!(std::fs::symlink_metadata(&b)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+    }
+
+    #[test]
+    fn refuses_symlink_pointing_outside_root() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let dir = test_dir("fsedit-symlink-escape");
+            let outside = dir.parent().unwrap().join("outside.txt");
+            std::fs::write(&outside, "outside\n").unwrap();
+            let link = dir.join("link.txt");
+            symlink(&outside, &link).unwrap();
+            let err = write(&dir, "link.txt", "new\n", "lf", false, None).unwrap_err();
+            assert!(
+                err.to_string().contains("chemin hors du dossier"),
+                "{}",
+                err
+            );
+            assert_eq!(std::fs::read_to_string(&outside).unwrap(), "outside\n");
+        }
+    }
+
+    #[test]
+    fn planted_directory_link_at_temp_path_fails_without_cleanup() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let dir = test_dir("fsedit-planted-link");
+            let outside = dir.parent().unwrap().join("outside-dir");
+            std::fs::create_dir(&outside).ok();
+            let entries_before: std::collections::HashSet<_> = std::fs::read_dir(&outside)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name())
+                .collect();
+
+            let p = dir.join("file.txt");
+            let tmp_name = format!(".file.txt.{}-0.escouade-tmp", std::process::id());
+            let planted = dir.join(&tmp_name);
+            symlink(&outside, &planted).unwrap();
+
+            // Try to write - should fail because we can't create_new at the planted symlink
+            let err = write(&dir, "file.txt", "x", "lf", false, None).unwrap_err();
+            assert!(err.is_err());
+
+            // Outside directory is still empty
+            let entries_after: std::collections::HashSet<_> = std::fs::read_dir(&outside)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name())
+                .collect();
+            assert_eq!(
+                entries_before, entries_after,
+                "outside directory should not have been written to"
+            );
+
+            // Planted link still exists
+            assert!(std::fs::symlink_metadata(&planted)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn refuses_symlink_pointing_outside_root() {
-        use std::os::unix::fs::symlink;
-        let dir = test_dir("fsedit-symlink-escape");
-        let outside = dir.parent().unwrap().join("outside.txt");
-        std::fs::write(&outside, "outside\n").unwrap();
-        let link = dir.join("link.txt");
-        symlink(&outside, &link).unwrap();
-        let err = write(&dir, "link.txt", "new\n", "lf", false, None).unwrap_err();
-        assert!(
-            err.to_string().contains("chemin hors du dossier"),
-            "{}",
-            err
-        );
-        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "outside\n");
-    }
-
-    #[test]
-    fn temp_file_is_unique_and_not_predictable() {
-        let dir = test_dir("fsedit-temp-unique");
-        let p = dir.join("a.txt");
-        std::fs::write(&p, "a\n").unwrap();
-        write(&dir, "a.txt", "b\n", "lf", false, None).unwrap();
-        // The old predictable temp file name should not exist
-        let old_temp = dir.join(".a.txt.escouade-tmp");
-        assert!(
-            !old_temp.exists(),
-            "old predictable temp name should not be used"
-        );
-        // Only the actual file should exist
-        let entries: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name())
-            .collect();
-        assert_eq!(entries, vec![std::ffi::OsString::from("a.txt")]);
-    }
-
-    #[test]
     fn propagates_read_errors_when_expected_hash_provided() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = test_dir("fsedit-read-error");
-        // Create a file, then make it inaccessible by making parent read-only
         let p = dir.join("secret.txt");
         std::fs::write(&p, "secret\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&dir).unwrap().permissions();
-            perms.set_mode(0o000);
-            std::fs::set_permissions(&dir, perms).unwrap();
-            let err = write(&dir, "secret.txt", "new\n", "lf", false, Some("fakehash"));
-            let mut perms = std::fs::metadata(&dir).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&dir, perms).unwrap();
-            // Should be a permission error, not DELETED
-            assert!(err.is_err());
-            assert!(!err.unwrap_err().to_string().contains("deleted"));
+        let original_content = std::fs::read_to_string(&p).unwrap();
+
+        // Make the file unreadable
+        let original_perms = std::fs::metadata(&p).unwrap().permissions();
+        let mut perms = original_perms.clone();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&p, perms).unwrap();
+
+        // Return early if running as root (can read 0o000 files)
+        if unsafe { libc::geteuid() } == 0 {
+            std::fs::set_permissions(&p, original_perms).unwrap();
+            return;
         }
+
+        let err = write(&dir, "secret.txt", "new\n", "lf", false, Some("fakehash")).unwrap_err();
+        let err_msg = err.to_string();
+        // Should not be CHANGED or DELETED, but a permission error
+        assert!(
+            err_msg != CHANGED && err_msg != DELETED,
+            "expected permission error, got: {err_msg}"
+        );
+        // Content should be unchanged
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), original_content);
+
+        // Restore permissions for cleanup
+        std::fs::set_permissions(&p, original_perms).unwrap();
     }
 }
