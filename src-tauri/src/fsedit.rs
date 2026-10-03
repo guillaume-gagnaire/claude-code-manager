@@ -198,31 +198,16 @@ pub fn write(
     let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_file_name(format!(".{name}.{pid}-{counter}.escouade-tmp"));
 
-    // Create temp file; only clean up if we successfully created it.
-    let mut temp_file = create_temp(&tmp)?;
-
-    use std::io::Write;
-    if let Err(e) = temp_file.write_all(&bytes) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    drop(temp_file);
-
-    #[cfg(unix)]
-    if let Ok(meta) = std::fs::metadata(&path) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
-    }
-
-    if let Err(e) = std::fs::rename(&tmp, &path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
+    write_via(&path, &tmp, &bytes)?;
     Ok(hash(&bytes))
 }
 
-/// Writes bytes to a specific temporary path, handling the atomic rename.
-/// Used by both `write()` and tests to allow parameterized temp paths.
+/// The one way bytes reach a file: written to the temporary path `tmp` (created only if nothing
+/// is there, so a planted link is never followed), then renamed over `path`. The temporary file
+/// is removed only when this call created it and the write or the rename failed. `write()` calls
+/// it with a unique name; the planted-link test calls it with a name it chose.
 fn write_via(path: &Path, tmp: &Path, bytes: &[u8]) -> Result<()> {
+    // Create temp file; only clean up if we successfully created it.
     let mut temp_file = create_temp(tmp)?;
     use std::io::Write;
     if let Err(e) = temp_file.write_all(bytes) {
@@ -441,15 +426,40 @@ mod tests {
         let outside = base.join("outside");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
-        let tmp = root.join(".a.txt.planted.escouade-tmp");
-        if !crate::paths::make_dir_link(&outside, &tmp) {
-            eprintln!("skipped: cannot create a directory link here");
-            return;
+        let target = root.join("a.txt");
+
+        // A plain file already at the temporary name is neither overwritten nor removed. This
+        // part runs on every system and tells `create_new` from `File::create`.
+        let tmp = root.join(".a.txt.file.escouade-tmp");
+        std::fs::write(&tmp, "foreign").unwrap();
+        assert!(write_via(&target, &tmp, b"x").is_err());
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "foreign");
+        assert!(!target.exists());
+
+        // A link to a file outside the folder is not written through. (A link to a folder cannot
+        // be opened for writing whatever the flags, so it would not tell them apart.)
+        let secret = outside.join("secret.txt");
+        std::fs::write(&secret, "secret").unwrap();
+        let tmp = root.join(".a.txt.filelink.escouade-tmp");
+        if crate::paths::make_file_link(&secret, &tmp) {
+            assert!(write_via(&target, &tmp, b"x").is_err());
+            assert_eq!(std::fs::read_to_string(&secret).unwrap(), "secret");
+            assert!(std::fs::symlink_metadata(&tmp).is_ok());
+            assert!(!target.exists());
+        } else {
+            eprintln!("skipped: cannot create file links here");
         }
-        assert!(write_via(&root.join("a.txt"), &tmp, b"x").is_err());
-        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
-        assert!(std::fs::symlink_metadata(&tmp).is_ok());
-        assert!(!root.join("a.txt").exists());
+
+        // A link to a folder outside: nothing is created in it, the link stays.
+        let tmp = root.join(".a.txt.dirlink.escouade-tmp");
+        if crate::paths::make_dir_link(&outside, &tmp) {
+            assert!(write_via(&target, &tmp, b"x").is_err());
+            assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 1);
+            assert!(std::fs::symlink_metadata(&tmp).is_ok());
+            assert!(!target.exists());
+        } else {
+            eprintln!("skipped: cannot create a directory link here");
+        }
     }
 
     #[cfg(unix)]
