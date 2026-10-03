@@ -11,6 +11,7 @@ import { applyTheme } from './theme';
 import type {
   Agent,
   AgentStatus,
+  FileTree,
   GitInfo,
   LaunchState,
   ModelInfo,
@@ -349,11 +350,12 @@ class AppState {
     if (!path && req.abs) {
       const t = trees.get(projectId, req.source) ?? (await trees.load(projectId, req.source).catch(() => undefined));
       if (t) {
-        path = relPath(t.root, req.abs);
-        if (isAbsPath(path) || path.split('/').includes('..')) {
+        const found = this.sourcePath(projectId, req.source, t, req.abs);
+        if (found === null) {
           this.toast(`${basename(req.abs)} est en dehors du dossier ${req.source === 'project' ? 'du projet' : 'de cet agent'}.`);
           return;
         }
+        path = found;
       }
     }
     this.ui.activeProject = projectId;
@@ -375,6 +377,24 @@ class AppState {
       if (req.line) st.reveal = { path, line: req.line, seq: (st.reveal?.seq ?? 0) + 1 };
     }
     this.persistUi();
+  }
+
+  /**
+   * `abs` from the root of a source's tree, null when it is outside. The root is taken as git spells it, then as the
+   * app does (the project's folder, the agent's worktree): the two differ with 8.3 short names or a junction.
+   */
+  private sourcePath(projectId: string, source: string, tree: FileTree, abs: string): string | null {
+    const folder = source === 'project' ? this.projects.find((p) => p.id === projectId)?.path : this.agents[source]?.worktree?.path;
+    for (const root of [tree.root, folder]) {
+      if (!root) continue;
+      const path = relPath(root, abs);
+      if (isAbsPath(path) || path.split('/').includes('..')) continue;
+      // Spelled in another case, the tree's file is the same one on Windows and macOS: not a second tab.
+      if (tree.files.includes(path)) return path;
+      const lower = path.toLowerCase();
+      return tree.files.find((f) => f.toLowerCase() === lower) ?? path;
+    }
+    return null;
   }
 
   closeEditor(projectId = this.ui.activeProject) {

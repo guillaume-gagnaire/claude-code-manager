@@ -315,6 +315,27 @@ describe('editor', () => {
     expect(app.toasts.at(-1)).toMatchObject({ kind: 'info', text: expect.stringMatching(/ est en dehors du dossier du projet\.$/) });
   });
 
+  it.each([
+    ['the project', 'project', 'C:/Users/RUNNER~1/demo-api', 'C:\\code\\demo-api\\src\\x.ts'],
+    ['an agent’s worktree', 'a2', 'D:/real/demo-api/.claude/worktrees/wt', 'C:\\code\\demo-api\\.claude\\worktrees\\wt\\src\\x.ts'],
+  ])('opens a link into %s spelled from its folder when git spells the root otherwise', async (_, source, root, abs) => {
+    fakeBackend({ fs_tree: () => ({ root, files: ['src/x.ts'], truncated: false }) });
+    await app.openEditor({ source, abs, line: 2 });
+    expect(app.editor.p1.places[source]?.active).toBe('src/x.ts');
+    expect(app.toasts).toEqual([]);
+  });
+
+  it('opens a link spelled in another case on the tree’s file, not in a second tab', async () => {
+    fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api', files: ['src/app.ts', 'lib/util.ts', 'lib/Util.ts'], truncated: false }) });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    await app.openEditor({ source: 'project', abs: 'C:\\code\\demo-api\\src\\App.ts', line: 1 });
+    expect(app.editor.p1.places.project).toMatchObject({ open: ['src/app.ts'], active: 'src/app.ts' });
+    expect(app.editor.p1.reveal).toMatchObject({ path: 'src/app.ts' });
+    // Both spellings in the tree (a case-sensitive disk): the one linked.
+    await app.openEditor({ source: 'project', abs: 'C:\\code\\demo-api\\lib\\Util.ts' });
+    expect(app.editor.p1.places.project.active).toBe('lib/Util.ts');
+  });
+
   it('names the agent, not the project, for a file outside an agent’s folder', async () => {
     fakeBackend({ fs_tree: () => ({ root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false }) });
     await app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\src\\x.ts' });
