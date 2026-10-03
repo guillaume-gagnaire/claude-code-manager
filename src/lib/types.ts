@@ -9,7 +9,6 @@ export interface Settings {
   defaultMode: string;
   sound: boolean;
   osNotifications: boolean;
-  editorCommand: string;
   idleStopMinutes: number;
   pwshPath: string;
   bashPath: string;
@@ -188,13 +187,6 @@ export interface Resources {
   agents: { id: string; memory: number; cpu: number }[];
 }
 
-export interface EditorInfo {
-  id: string;
-  label: string;
-  /** Its value for the "Éditeur" setting. */
-  command: string;
-}
-
 export interface ShellInfo {
   id: string;
   label: string;
@@ -347,7 +339,6 @@ export interface InitialState {
   usage: Usage;
   git: Record<string, GitInfo>;
   shells: ShellInfo[];
-  editors: EditorInfo[];
   terminals: TermInfo[];
   claudeFound: boolean;
   version: string;

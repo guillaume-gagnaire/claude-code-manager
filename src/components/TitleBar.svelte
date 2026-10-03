@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { openPath } from '@tauri-apps/plugin-opener';
-  import { editorItems } from '../lib/editors';
   import { api } from '../lib/ipc';
   import { menu } from '../lib/menu.svelte';
   import { app } from '../lib/state.svelte';
@@ -101,18 +100,6 @@
     ]);
   }
 
-  let editorBtn = $state<HTMLButtonElement>();
-  const activeProject = $derived(app.ui.view === 'project' ? (app.projects.find((p) => p.id === app.ui.activeProject) ?? null) : null);
-
-  function editorMenu(p: Project) {
-    if (!editorBtn) return;
-    menu.showAt(editorBtn, [
-      ...editorItems('Ouvrir dans', app.editors, app.settings.editorCommand, (editor) => app.run(api.openInEditor(p.path, editor))),
-      { label: '', separator: true },
-      { label: 'Ouvrir dans l’explorateur', onClick: () => openPath(p.path).catch((err) => app.toast(String(err), 'error')) },
-    ]);
-  }
-
   async function save(p: Project) {
     const i = app.projects.findIndex((x) => x.id === p.id);
     if (i >= 0) app.projects[i] = p;
@@ -186,21 +173,6 @@
   </nav>
   <div class="spacer" data-tauri-drag-region></div>
   <div class="right">
-    {#if activeProject}
-      <button
-        class="tab stats"
-        bind:this={editorBtn}
-        aria-haspopup="menu"
-        aria-label="Ouvrir le projet dans un éditeur"
-        title="Ouvrir le dossier du projet dans un éditeur"
-        onclick={() => editorMenu(activeProject)}
-      >
-        <svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"
-          ><path d="M4.5 2.5 1 6l3.5 3.5M9.5 2.5 13 6l-3.5 3.5" /></svg
-        >
-        Éditeur <span class="chev">▾</span>
-      </button>
-    {/if}
     <button class="tab stats" class:active={app.ui.view === 'stats'} onclick={() => app.openStats()}>
       <span class="bars"><span style="height:6px"></span><span style="height:12px"></span><span style="height:9px"></span></span>
       Stats
@@ -366,11 +338,6 @@
     font-weight: 600;
     gap: 8px;
     padding: 0 16px;
-  }
-  .chev {
-    margin-left: -3px;
-    font-size: 9px;
-    color: var(--dim);
   }
   .bars {
     display: flex;

@@ -64,19 +64,8 @@ test('uncommitted changes show up in the tab counter, the files panel and the di
   await expect(diff).toBeHidden();
 });
 
-test('a changed file is opened in the editor, reverted or deleted from its context menu', async ({ app }) => {
+test('a changed file is reverted or deleted from its context menu', async ({ app }) => {
   const { page } = app;
-  // An "editor" recording the path it is asked to open, set in the settings.
-  const opened = path.join(app.data, 'opened.txt');
-  const editor = path.join(app.data, 'record-editor.cjs');
-  fs.writeFileSync(editor, `require('fs').writeFileSync(${JSON.stringify(opened)}, process.argv[2]);\n`);
-  await page.getByTitle('Réglages (Ctrl+,)').click();
-  const settings = page.getByRole('dialog', { name: 'Réglages' });
-  await settings.getByRole('combobox', { name: /Éditeur par défaut/ }).selectOption({ label: 'Autre commande…' });
-  await settings.getByRole('textbox', { name: /Commande pour ouvrir/ }).fill(`node "${editor}"`);
-  await settings.getByRole('button', { name: 'Enregistrer' }).click();
-  await expect(settings).toBeHidden();
-
   await addProject(page, app.repo);
   fs.writeFileSync(path.join(app.repo, 'src', 'app.ts'), 'const a = 2;\n');
   fs.writeFileSync(path.join(app.repo, 'notes.md'), 'brouillon\n');
@@ -84,12 +73,6 @@ test('a changed file is opened in the editor, reverted or deleted from its conte
   await page.getByRole('button', { name: 'Tout le projet' }).click();
   const panel = page.locator('.panel');
   const file = (name: RegExp) => panel.getByRole('button', { name });
-
-  await file(/app\.ts/).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: /Éditer dans node/ }).click();
-  await expect.poll(() => fs.existsSync(opened)).toBe(true);
-  // git spells the repository's path its own way (long names): compare the files themselves.
-  expect(fs.realpathSync.native(fs.readFileSync(opened, 'utf8'))).toBe(fs.realpathSync.native(path.join(app.repo, 'src', 'app.ts')));
 
   await file(/app\.ts/).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Abandonner les modifications…' }).click();

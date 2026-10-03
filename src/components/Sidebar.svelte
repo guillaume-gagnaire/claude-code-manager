@@ -58,7 +58,6 @@
       a.archived
         ? { label: 'Restaurer', onClick: () => app.run(api.archiveAgent(a.id, false)) }
         : { label: 'Archiver', hint: 'garde la conversation', onClick: () => app.run(api.archiveAgent(a.id, true)) },
-      ...(a.worktree ? [{ label: 'Ouvrir le worktree dans l’éditeur', onClick: () => app.run(api.openInEditor(a.worktree!.path)) }] : []),
       ...remoteItems(a),
       { label: '', separator: true },
       { label: 'Supprimer…', danger: true, onClick: () => confirmDelete(a) },

@@ -3,7 +3,6 @@ import type {
   Agent,
   Attachment,
   ConvItem,
-  EditorInfo,
   FileChange,
   FolderInfo,
   GitLog,
@@ -61,12 +60,7 @@ export const api = {
   stats: (range: string) => invoke<StatsView>('stats', { range }),
   refreshUsage: () => invoke<void>('refresh_usage'),
   gitDiscard: (projectId: string, agentId: string | null, path: string) => invoke<void>('git_discard', { projectId, agentId, path }),
-  detectEditors: () => invoke<EditorInfo[]>('detect_editors'),
   cancelResume: (id: string) => invoke<void>('cancel_resume', { id }),
-  /** `editor`: an id from `detectEditors`; null for the one of the settings. */
-  openInEditor: (path: string, editor: string | null = null) => invoke<void>('open_in_editor', { path, editor }),
-  openFile: (projectId: string, agentId: string | null, path: string, editor: string | null = null) =>
-    invoke<void>('open_file', { projectId, agentId, path, editor }),
   termSpawn: (a: { projectId: string; shell: string; name: string; cols: number; rows: number }, onData: (d: ArrayBuffer) => void) => {
     const output = new Channel<ArrayBuffer>();
     output.onmessage = onData;

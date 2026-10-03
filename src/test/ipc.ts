@@ -33,7 +33,6 @@ export const SETTINGS: Settings = {
   defaultMode: 'auto',
   sound: true,
   osNotifications: true,
-  editorCommand: 'code',
   idleStopMinutes: 30,
   pwshPath: '',
   bashPath: '',
@@ -125,7 +124,6 @@ export function resetApp(over: { projects?: Project[]; agents?: Agent[] } = {}) 
   app.resources = { instances: 0, memory: 0, cpu: 0, agents: [] };
   app.git = {};
   app.shells = [];
-  app.editors = [];
   app.terminals = [];
   app.exitedTerms = {};
   app.launches = {};

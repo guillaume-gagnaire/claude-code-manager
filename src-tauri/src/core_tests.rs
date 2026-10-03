@@ -749,7 +749,7 @@ async fn the_git_log_shows_every_agent_branch_and_which_one_is_the_agents() {
 }
 
 #[tokio::test]
-async fn a_file_is_discarded_and_located_in_the_checkout_that_holds_it() {
+async fn a_file_is_discarded_and_read_in_the_checkout_that_holds_it() {
     let h = harness("core-git-discard");
     let (p, r) = h.project(true).await;
     let a = h.core.create_agent(&p.id, None).await.unwrap();
@@ -777,17 +777,13 @@ async fn a_file_is_discarded_and_located_in_the_checkout_that_holds_it() {
             ("src/app.ts".into(), id.clone(), true),
         ]
     );
-    // git spells the repository's path its own way (long names, forward slashes).
-    let same = |a: PathBuf, b: PathBuf| {
-        if cfg!(windows) {
-            assert!(!a.to_string_lossy().contains('/'), "{}", a.display());
-        }
-        assert_eq!(a.canonicalize().unwrap(), b.canonicalize().unwrap());
-    };
-    let located = h.core.file_path(&p.id, id.clone(), "src/app.ts").await;
-    same(located.unwrap(), wt.join("src").join("app.ts"));
-    let located = h.core.file_path(&p.id, None, "src/app.ts").await;
-    same(located.unwrap(), r.join("src").join("app.ts"));
+    // Each checkout is read where it is.
+    let (root, _) = h.core.edit_root(&p.id, id.clone()).await.unwrap();
+    let t = crate::fsedit::read(Path::new(&root), "src/app.ts").unwrap();
+    assert_eq!(t.text.as_deref(), Some("const a = 3;\n"));
+    let (root, _) = h.core.edit_root(&p.id, None).await.unwrap();
+    let t = crate::fsedit::read(Path::new(&root), "src/app.ts").unwrap();
+    assert_eq!(t.text.as_deref(), Some("const a = 2;\n"));
 
     h.core
         .git_discard(&p.id, id.clone(), "new.ts")

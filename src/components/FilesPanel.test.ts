@@ -196,28 +196,11 @@ describe('FilesPanel context menu', () => {
       projects: [project()],
       agents: [agent(), agent({ id: 'a2', name: 'wt-agent', worktree: { path: 'C:/wt', branch: 'ccm/wt', baseBranch: 'main' } })],
     });
-    app.editors = [
-      { id: 'vscode', label: 'VS Code', command: 'code' },
-      { id: 'zed', label: 'Zed', command: 'zed' },
-    ];
     menu.close();
   });
   const entries = () => menu.open?.items.filter((i) => !i.separator) ?? [];
   const click = (label: string) => entries().find((i) => i.label === label)!.onClick!();
   const rightClick = async (name: RegExp) => fireEvent.contextMenu(await screen.findByRole('button', { name }));
-
-  it('edits a file with an installed editor, in the checkout of the agent that holds it', async () => {
-    app.filesScope = 'project';
-    const backend = fakeBackend({ git_files: () => [change('src/wt.ts', 'a2', true)] });
-    render(FilesPanel, { project: project(), agent: app.agents.a1 });
-    await rightClick(/wt\.ts/);
-    expect(entries().map((i) => i.label)).toEqual(['Éditer dans VS Code', 'Éditer dans Zed', 'Abandonner les modifications…']);
-    click('Éditer dans Zed');
-    expect(backend.called('open_file')[0].args).toEqual({ projectId: 'p1', agentId: 'a2', path: 'src/wt.ts', editor: 'zed' });
-    await rightClick(/wt\.ts/);
-    click('Éditer dans VS Code');
-    expect(backend.called('open_file')[1].args.editor).toBeNull();
-  });
 
   it('acts in the checkout a row comes from, even while another agent’s list is loading', async () => {
     let release: (files: FileChange[]) => void = () => {};
@@ -229,8 +212,10 @@ describe('FilesPanel context menu', () => {
     await rerender({ project: project(), agent: app.agents.a1 });
     await settle(); // a1's list is not there yet: the rows are still a2's
     await rightClick(/wt\.ts/);
-    click('Éditer dans VS Code');
-    expect(backend.called('open_file')[0].args).toMatchObject({ agentId: 'a2', path: 'src/wt.ts' });
+    expect(entries().map((i) => i.label)).toEqual(['Abandonner les modifications…']);
+    click('Abandonner les modifications…');
+    await (app.modal as Extract<typeof app.modal, { kind: 'confirm' }>).onConfirm(false);
+    expect(backend.called('git_discard')[0].args).toEqual({ projectId: 'p1', agentId: 'a2', path: 'src/wt.ts' });
     release([]);
   });
 

@@ -96,7 +96,7 @@ Actifs · en attente · terminés │ Session 5 h (barre, %, reset dans) · Hebd
 
 ## Réglages (⚙ barre de statut → modale)
 
-Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Windows, shells, éditeur externe, arrêt des process inactifs, raccourcis.
+Chemin de `claude`, modèle / effort / mode par défaut, son, notifications Windows, shells, arrêt des process inactifs, raccourcis.
 
 - **Proxy réseau** : URL HTTP(S) (avec identifiants éventuels) + exclusions `NO_PROXY`. Injecté dans les process `claude` (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`), les appels de quotas et le vérificateur de mises à jour ; option pour l'exporter aussi dans les terminaux intégrés.
 - Les coûts enregistrés viennent directement de Claude Code (`costUSD` par modèle). La grille de `pricing.rs` ne sert qu'à l'estimation en cours de tour ; un modèle absent de la grille n'a simplement pas d'estimation.

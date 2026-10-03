@@ -5,7 +5,6 @@ mod conv;
 mod core;
 #[cfg(test)]
 mod core_tests;
-mod editor;
 mod fsedit;
 mod git;
 mod hub;
@@ -204,9 +203,6 @@ pub fn run() {
             commands::set_remote_control,
             commands::stats,
             commands::refresh_usage,
-            commands::open_in_editor,
-            commands::open_file,
-            commands::detect_editors,
             commands::cancel_resume,
             commands::git_discard,
             commands::fs_tree,

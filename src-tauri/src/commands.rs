@@ -1,7 +1,6 @@
 //! Tauri commands invoked by the frontend.
 
 use crate::core::{Attachment, Core, SyncOp};
-use crate::editor::{self, EditorInfo};
 use crate::fsedit;
 use crate::model::*;
 use crate::pty::{self, ShellInfo, TermInfo};
@@ -30,7 +29,6 @@ pub struct InitialState {
     usage: UsageSnapshot,
     git: HashMap<String, GitInfo>,
     shells: Vec<ShellInfo>,
-    editors: Vec<EditorInfo>,
     terminals: Vec<TermInfo>,
     claude_found: bool,
     version: String,
@@ -46,7 +44,6 @@ pub fn subscribe(core: CoreState, channel: Channel<UiEvent>) -> InitialState {
         agents: core.agent_views(),
         ui: core.ui.read().clone(),
         shells: pty::detect_shells(&settings),
-        editors: editor::detect(),
         claude_found: crate::claude::resolve_binary(&settings.claude_path).is_some(),
         settings,
         usage: core.usage.lock().clone(),
@@ -390,43 +387,9 @@ pub async fn fs_base(
         .map_err(err)
 }
 
-/// The command of `editor` (an id from `detect_editors`), else the one of the settings.
-fn editor_command(core: &Core, editor: Option<&str>) -> anyhow::Result<String> {
-    let configured = core.settings.read().editor_command.clone();
-    editor::command_for(editor, &configured, &editor::detect())
-}
-
 #[tauri::command(async)]
 pub fn cancel_resume(core: CoreState, id: String) -> Res<()> {
     core.cancel_resume(&id).map_err(err)
-}
-
-#[tauri::command(async)]
-pub fn detect_editors() -> Vec<EditorInfo> {
-    editor::detect()
-}
-
-#[tauri::command(async)]
-pub fn open_in_editor(core: CoreState, path: String, editor: Option<String>) -> Res<()> {
-    let command = editor_command(&core, editor.as_deref()).map_err(err)?;
-    editor::open(&command, &path).map_err(err)
-}
-
-/// Opens a file of the files panel, found in the checkout that holds it.
-#[tauri::command]
-pub async fn open_file(
-    core: CoreState<'_>,
-    project_id: String,
-    agent_id: Option<String>,
-    path: String,
-    editor: Option<String>,
-) -> Res<()> {
-    let command = editor_command(&core, editor.as_deref()).map_err(err)?;
-    let full = core
-        .file_path(&project_id, agent_id, &path)
-        .await
-        .map_err(err)?;
-    editor::open(&command, &full.to_string_lossy()).map_err(err)
 }
 
 // ---------- terminals ----------

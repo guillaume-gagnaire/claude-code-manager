@@ -15,7 +15,6 @@ async function start(over: Partial<InitialState> = {}) {
     usage: { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 },
     git: {},
     shells: [],
-    editors: [],
     terminals: [],
     claudeFound: true,
     version: '0.1.0',
@@ -39,11 +38,6 @@ describe('AppState', () => {
     expect(app.project?.id).toBe('p1');
     expect(app.projectAgents.map((a) => a.id)).toEqual(['a1', 'a2']);
     expect(app.agent?.id).toBe('a1');
-  });
-
-  it('knows the editors installed on this machine', async () => {
-    await start({ editors: [{ id: 'zed', label: 'Zed', command: 'zed' }] });
-    expect(app.editors.map((e) => e.id)).toEqual(['zed']);
   });
 
   it('falls back to the first project when the saved one is gone', async () => {
@@ -214,7 +208,6 @@ describe('AppState start-up', () => {
       usage: { fiveHour: null, sevenDay: null, todayCost: 0, updatedAt: 0 },
       git: {},
       shells: [],
-      editors: [],
       terminals: [],
       claudeFound: true,
       version: '0.1.0',

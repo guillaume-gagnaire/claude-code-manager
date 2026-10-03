@@ -1,6 +1,5 @@
 <script lang="ts">
   import { commitViaAgent, mergeAgent } from '../lib/agent-actions';
-  import { editorItems } from '../lib/editors';
   import { basename, dirname } from '../lib/format';
   import { api } from '../lib/ipc';
   import { menu, type MenuItem } from '../lib/menu.svelte';
@@ -100,14 +99,7 @@
   }
 
   function fileMenu(e: MouseEvent, f: FileChange) {
-    const owner = diffOwner(f);
-    const open = (editor: string | null) => app.run(api.openFile(project.id, owner, f.path, editor));
-    menu.show(e, [
-      // A deleted file has nothing to open.
-      ...editorItems('Éditer dans', app.editors, app.settings.editorCommand, open, f.status === 'D'),
-      { label: '', separator: true },
-      discardItem(f, owner),
-    ]);
+    menu.show(e, [discardItem(f, diffOwner(f))]);
   }
 
   function discardItem(f: FileChange, owner: string | null): MenuItem {

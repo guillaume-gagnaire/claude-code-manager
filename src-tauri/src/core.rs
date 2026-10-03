@@ -17,7 +17,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1993,22 +1993,6 @@ impl<R: Runtime> Core<R> {
         git::discard(&root, path).await?;
         self.git.refresh(project_id);
         Ok(())
-    }
-
-    /// Where a file of the files panel is on disk.
-    pub async fn file_path(
-        &self,
-        project_id: &str,
-        agent_id: Option<String>,
-        path: &str,
-    ) -> Result<PathBuf> {
-        let root = self.files_root(project_id, agent_id).await?;
-        let full = Path::new(&root).join(path);
-        // git answers with forward slashes: some editors want native ones.
-        Ok(PathBuf::from(
-            full.to_string_lossy()
-                .replace('/', std::path::MAIN_SEPARATOR_STR),
-        ))
     }
 
     /// The repository graph (every branch, agents' worktree branches included) and the branch

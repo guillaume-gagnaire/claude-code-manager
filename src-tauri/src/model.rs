@@ -15,8 +15,6 @@ pub struct Settings {
     pub default_mode: String,
     pub sound: bool,
     pub os_notifications: bool,
-    /// Command used to open files, e.g. `code` (VS Code).
-    pub editor_command: String,
     /// Stop idle Claude processes after N minutes (0 = never). Sessions stay resumable.
     pub idle_stop_minutes: u32,
     pub pwsh_path: String,
@@ -61,7 +59,6 @@ impl Default for Settings {
             default_mode: "auto".into(),
             sound: true,
             os_notifications: true,
-            editor_command: "code".into(),
             idle_stop_minutes: 30,
             pwsh_path: String::new(),
             bash_path: String::new(),
@@ -405,6 +402,15 @@ mod tests {
             id: id.into(),
             text: t.into(),
         }
+    }
+
+    #[test]
+    fn settings_saved_with_an_external_editor_still_load() {
+        let s: Settings =
+            serde_json::from_str(r#"{"editorCommand":"code","sound":false}"#).unwrap();
+        assert!(!s.sound);
+        // The field is gone: saved again, it is not written back.
+        assert!(!serde_json::to_string(&s).unwrap().contains("editorCommand"));
     }
 
     #[test]

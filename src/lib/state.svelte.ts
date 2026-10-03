@@ -7,7 +7,6 @@ import { applyTheme } from './theme';
 import type {
   Agent,
   AgentStatus,
-  EditorInfo,
   GitInfo,
   LaunchState,
   ModelInfo,
@@ -62,8 +61,6 @@ class AppState {
   resources = $state<Resources>({ instances: 0, memory: 0, cpu: 0, agents: [] });
   git = $state<Record<string, GitInfo>>({});
   shells = $state<ShellInfo[]>([]);
-  /** VS Code, Cursor and Zed when installed. */
-  editors = $state<EditorInfo[]>([]);
   terminals = $state<TermInfo[]>([]);
   exitedTerms = $state<Record<string, number | null>>({});
   /** Launch commands' latest runs, by command id. */
@@ -157,7 +154,6 @@ class AppState {
     this.usage = s.usage;
     this.git = s.git;
     this.shells = s.shells;
-    this.editors = s.editors;
     this.claudeFound = s.claudeFound;
     this.version = s.version;
     this.models = s.models;
