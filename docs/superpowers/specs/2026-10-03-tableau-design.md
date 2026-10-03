@@ -13,7 +13,7 @@ Décisions validées le 2026-10-03 :
 - « Renvoyer » rend le ticket au même agent avec un commentaire ;
 - un ticket a un titre, une description et des critères ;
 - nombre maximal d'agents en parallèle réglable ;
-- **lancement de test** : ports réservés par worktree, recette de lancement écrite par l'agent, bouton « ▶ Tester » ; pour les tickets et pour tout agent à worktree.
+- **lancement de test** : ports réservés par worktree, recette de lancement écrite par l'agent (avec l'adresse qui montre directement la fonctionnalité), bouton « ▶ Tester » qui ouvre une modale, lance les serveurs, attend qu'ils répondent en HTTP puis ouvre le navigateur sur cette adresse ; pour les tickets et pour tout agent à worktree.
 
 ## Ticket
 
@@ -135,13 +135,21 @@ Pour tout agent à worktree, ticket ou non.
 
   ```json
   {"preparation": [{"commande": "npm install", "dossier": "web"}],
-   "processus": [{"nom": "api", "commande": "npm run dev", "dossier": "api", "env": {"PORT": "4110"}, "url": "http://localhost:4110"},
-                 {"nom": "web", "commande": "npm run dev -- --port 4111", "dossier": "web", "env": {"VITE_API_URL": "http://localhost:4110"}, "url": "http://localhost:4111"}]}
+   "processus": [{"nom": "api", "commande": "npm run dev", "dossier": "api", "env": {"PORT": "4110"}, "url": "http://localhost:4110/health"},
+                 {"nom": "web", "commande": "npm run dev -- --port 4111", "dossier": "web", "env": {"VITE_API_URL": "http://localhost:4110"}, "url": "http://localhost:4111"}],
+   "ouvrir": "http://localhost:4111/connexion?essais=5"}
   ```
 
-  `dossier` est relatif au worktree (confiné) ; les commandes tournent dans le shell par défaut du système.
+  `dossier` est relatif au worktree (confiné) ; les commandes tournent dans le shell par défaut du système. `url` d'un processus : adresse HTTP qui répond quand il est prêt (sans `url`, il n'est pas attendu). `ouvrir` : l'adresse qui montre **directement la fonctionnalité développée** (la page, l'écran, l'état précis à tester) ; à défaut, la première `url` des processus. Le prompt du ticket et la demande de préparation demandent à l'agent de la donner.
 - **« Préparer le lancement »** (clic droit sur un agent à worktree, et dans l'en-tête de l'agent tant qu'il n'a pas de recette) : envoie à l'agent la demande de recette avec ses ports.
-- **« ▶ Tester »** (carte d'un ticket qui a une recette, en-tête d'un agent qui a une recette) : lance la préparation si elle n'a pas encore réussi pour cette recette (étapes en séquence, chacune doit finir à 0), puis tous les processus, chacun dans son terminal ConPTY en lecture seule comme les commandes de lancement (log gardé, statut en cours / arrêté / terminé / planté, ⟳, ■). Ils apparaissent dans la section « Lancement » de la barre latérale sous un groupe au nom de l'agent ; clic → log. Les URL s'affichent en liens (« Ouvrir localhost:4111 ») sur la carte, dans l'en-tête du log et dans le groupe. « ■ Arrêter » arrête tout le groupe.
+- **« ▶ Tester »** (carte d'un ticket qui a une recette, en-tête d'un agent qui a une recette) ouvre la **modale « Tester <clé ou agent> »** et lance tout :
+  1. la préparation si elle n'a pas encore réussi pour cette recette (étapes en séquence, chacune doit finir à 0 ; une étape en échec arrête tout : « Préparation en échec (code N) » + « Voir le log ») ;
+  2. tous les processus, chacun dans son terminal ConPTY en lecture seule comme les commandes de lancement (log gardé, statut en cours / arrêté / terminé / planté, ⟳, ■) ;
+  3. pour chaque processus qui a une `url`, l'app l'interroge en HTTP (depuis le backend, sans proxy, toutes les 500 ms, 2 s par essai) jusqu'à recevoir une réponse, quel que soit son code ; 3 min sans réponse → « Pas de réponse de <url> après 3 min » ;
+  4. dès que tous répondent, le **navigateur par défaut s'ouvre sur l'adresse `ouvrir`**.
+
+  La modale montre une ligne par étape et par processus (« démarrage… », « en attente de localhost:4110… », « prêt · 1,8 s », « planté (code 1) » + « Voir le log »), puis « Ouvert dans le navigateur : <adresse> » avec « Rouvrir », « Voir les logs », « Tout arrêter » et « Fermer » (fermer la modale laisse tourner les serveurs). « ▶ Tester » alors que tout tourne déjà rouvre la modale sur l'état courant et le navigateur.
+  Les processus apparaissent aussi dans la section « Lancement » de la barre latérale sous un groupe au nom de l'agent ; clic → log. La carte du ticket affiche, tant qu'ils tournent, « ■ Arrêter » et le lien « Ouvrir » vers l'adresse `ouvrir`.
 - **Arrêt** : à la validation (étape 1), à l'archivage ou la suppression de l'agent, à la fermeture du projet. Les lancements de test ne survivent pas à un redémarrage.
 - **Fichiers copiés dans les worktrees** : réglage du projet, dans la modale des commandes de lancement, liste de motifs relatifs au projet (défaut `.env*` ; `**/.env*` pour les sous-dossiers). À la création de tout worktree, les fichiers non suivis par git qui correspondent sont copiés du dossier du projet.
 - Ressources partagées (base de données locale, conteneurs) : non isolées ; l'agent peut seulement les désigner par variables d'environnement.
@@ -168,12 +176,12 @@ Pour tout agent à worktree, ticket ou non.
 - `tickets.rs` (orchestration sur `Core`) : planificateur, départ, fin de tour (appelé depuis `Core::apply`), reprise au démarrage, validation, conflits, renvoi.
 - `Core::create_agent` gagne des options (nom, modèle, effort, mode, worktree imposé avec branche et base, prompt ajouté, ticket) ; `claude_args` ajoute `--append-system-prompt` ; `AgentRt::on_result` remonte le texte final du tour.
 - `git.rs` : `branches`, `worktree_add` avec branche et base données, emplacement d'extraction d'une branche (`worktree list --porcelain`), `commit_all`, `rebase` / `merge --ff-only`, `merge` dans un dossier donné, push d'une branche depuis un worktree, URL du dépôt distant.
-- Commandes : `ticket_create`, `ticket_update`, `ticket_delete`, `ticket_prioritize`, `ticket_start`, `ticket_resume`, `ticket_approve`, `ticket_reject`, `ticket_resolve_conflict`, `ticket_dismiss`, `board_set`, `git_branches`, `agent_prepare_launch`, `test_run_start` (comme `run_start`, pour une étape de la recette d'un agent).
+- Commandes : `ticket_create`, `ticket_update`, `ticket_delete`, `ticket_prioritize`, `ticket_start`, `ticket_resume`, `ticket_approve`, `ticket_reject`, `ticket_resolve_conflict`, `ticket_dismiss`, `board_set`, `git_branches`, `agent_prepare_launch`, `test_run_start` (comme `run_start`, pour une étape de la recette d'un agent), `http_ready(url) -> bool` (un essai HTTP sans proxy, 2 s max, vrai pour toute réponse).
 
 ## Frontend
 
 - `types.ts` / `ipc.ts` / `state.svelte.ts` : tickets par projet, événements, `app.board[projectId]` (vue tableau, non persistée) ; dans `App.svelte` le tableau passe avant l'éditeur et les autres vues ; `onScreen()` en tient compte.
-- Composants `board/Board.svelte`, `BoardColumn.svelte`, `TicketCard.svelte`, `TicketForm.svelte`, `RejectForm.svelte`, `modals/BoardSettingsModal.svelte`, `conv/CriteriaReport.svelte` ; sélecteur dans `Sidebar.svelte` ; groupe de lancements de test dans `RunsSection.svelte` ; champ « Fichiers copiés dans les worktrees » dans `RunConfigModal.svelte`.
+- Composants `board/Board.svelte`, `BoardColumn.svelte`, `TicketCard.svelte`, `TicketForm.svelte`, `RejectForm.svelte`, `modals/BoardSettingsModal.svelte`, `modals/TestLaunchModal.svelte`, `conv/CriteriaReport.svelte` ; sélecteur dans `Sidebar.svelte` ; groupe de lancements de test dans `RunsSection.svelte` ; champ « Fichiers copiés dans les worktrees » dans `RunConfigModal.svelte`.
 
 ## Hors périmètre
 
@@ -182,6 +190,6 @@ Dépendances entre tickets ; glisser-déposer des cartes ; plusieurs agents sur 
 ## Tests
 
 - Rust, `board.rs` : bloc `escouade` (dernier bloc, JSON invalide, critères manquants, `criteria`, recette, `dossier` qui sort du worktree), décisions de fin de tour (tous atteints, partiel, limite, rappel puis blocage, interrompu, erreur, limite d'usage), choix des tickets (rang, maximum, bloqués non comptés, pilote off + lancement manuel, quota), clé et slug, message de secours et validation du format, URL GitHub (https, ssh), allocation des ports (blocs pris, port occupé).
-- Rust, `core_tests.rs` (faux `claude` étendu : scénarios qui écrivent un fichier dans le worktree et terminent par un bloc `escouade` dont les critères atteints sont dictés par le message ; trace de `--append-system-prompt`) : ticket créé → agent et worktree `ticket/…` depuis la cible → boucles jusqu'à « À tester » ; limite de boucles → partiel ; renvoi ; reprise au démarrage ; validation merge / squash / rebase (cible extraite dans le projet, ou non → worktree temporaire), push et PR (dépôt distant nu local, sans `gh` → issue « à finaliser »), tests en échec → retour à l'agent, conflit (me demander, l'agent résout, annuler), nettoyage du worktree ; agent archivé à la main → ticket « À faire » ; copie des `.env*` ; `test_run_start` (cwd, variables de ports).
-- Vitest : tableau (colonnes, compteurs, places libres, pilote auto), formulaire, carte par colonne et par état (bloqué, question, conflit, validation en cours), Renvoyer, réglages (options, libellés, aperçu du commit), sélecteur de la barre latérale et pastille, étiquette de ticket sur la carte d'agent, carte « Bilan des critères », groupe de lancements de test.
+- Rust, `core_tests.rs` (faux `claude` étendu : scénarios qui écrivent un fichier dans le worktree et terminent par un bloc `escouade` dont les critères atteints sont dictés par le message ; trace de `--append-system-prompt`) : ticket créé → agent et worktree `ticket/…` depuis la cible → boucles jusqu'à « À tester » ; limite de boucles → partiel ; renvoi ; reprise au démarrage ; validation merge / squash / rebase (cible extraite dans le projet, ou non → worktree temporaire), push et PR (dépôt distant nu local, sans `gh` → issue « à finaliser »), tests en échec → retour à l'agent, conflit (me demander, l'agent résout, annuler), nettoyage du worktree ; agent archivé à la main → ticket « À faire » ; copie des `.env*` ; `test_run_start` (cwd, variables de ports) ; `http_ready` (serveur local qui répond 404 → vrai, port fermé → faux, proxy configuré ignoré).
+- Vitest : tableau (colonnes, compteurs, places libres, pilote auto), formulaire, carte par colonne et par état (bloqué, question, conflit, validation en cours), Renvoyer, réglages (options, libellés, aperçu du commit), sélecteur de la barre latérale et pastille, étiquette de ticket sur la carte d'agent, carte « Bilan des critères », groupe de lancements de test, modale « Tester » (préparation puis processus, attente HTTP, ouverture du navigateur sur `ouvrir` une fois tout prêt et pas avant, processus planté, délai dépassé, réouverture quand tout tourne déjà).
 - e2e (app réelle, faux `claude`) : créer un ticket → il passe « En cours » puis « À tester » → « Valider et merger » → le fichier de l'agent est sur la branche du projet et le ticket « Terminé ».
