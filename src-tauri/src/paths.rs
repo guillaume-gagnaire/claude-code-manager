@@ -280,7 +280,7 @@ pub fn test_dir(name: &str) -> PathBuf {
 }
 
 #[cfg(test)]
-fn make_link(target: &Path, link: &Path) -> bool {
+pub fn make_dir_link(target: &Path, link: &Path) -> bool {
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(target, link).is_ok()
@@ -300,6 +300,14 @@ fn make_link(target: &Path, link: &Path) -> bool {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
+}
+
+#[cfg(test)]
+pub fn make_file_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link).is_ok();
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_file(target, link).is_ok();
 }
 
 #[cfg(test)]
@@ -533,7 +541,7 @@ mod tests {
     fn refuses_a_link_that_points_outside() {
         let root = test_dir("contained-link");
         let outside = test_dir("contained-link-target");
-        let made = make_link(&outside, &root.join("out"));
+        let made = make_dir_link(&outside, &root.join("out"));
         if !made {
             eprintln!("Could not create link/junction (skipping test)");
             return;
@@ -545,7 +553,7 @@ mod tests {
     fn refuses_a_link_that_cannot_be_resolved() {
         let root = test_dir("contained-dangling");
         let target = root.join("missing-target");
-        let made = make_link(&target, &root.join("dangling"));
+        let made = make_dir_link(&target, &root.join("dangling"));
         if !made {
             eprintln!("Could not create link/junction (skipping test)");
             return;
