@@ -218,7 +218,11 @@ class AppState {
         break;
       case 'focus':
         this.selectProject(e.projectId);
-        if (e.agentId) this.selectAgent(e.agentId);
+        if (e.agentId) {
+          this.selectAgent(e.agentId);
+          // The agent is the point of the notification: show it, not the editor.
+          this.closeEditor(e.projectId);
+        }
         break;
       case 'terminalExit':
         this.exitedTerms[e.id] = e.code;
@@ -340,10 +344,14 @@ class AppState {
     this.ui.view = 'project';
     this.selectedTerm[projectId] = null;
     this.selectedLaunch[projectId] = null;
-    const st = (this.editor[projectId] ??= { on: true, source: req.source, places: {}, reveal: null });
+    // Always work through the stored `$state` proxies, not the raw objects the `??=` expressions return:
+    // a write on a raw object is lost for whoever already read the proxy.
+    this.editor[projectId] ??= { on: true, source: req.source, places: {}, reveal: null };
+    const st = this.editor[projectId];
     st.on = true;
     st.source = req.source;
-    const place = (st.places[req.source] ??= { open: [], active: null, expanded: {} });
+    st.places[req.source] ??= { open: [], active: null, expanded: {} };
+    const place = st.places[req.source];
     let path = req.path;
     if (!path && req.abs) {
       const t = trees.get(projectId, req.source) ?? (await trees.load(projectId, req.source).catch(() => undefined));
@@ -416,7 +424,10 @@ class AppState {
     if (!list.length) return;
     const cur = this.agent?.id;
     const idx = list.findIndex((a) => a.id === cur);
-    this.selectAgent(list[(idx + 1) % list.length].id);
+    const next = list[(idx + 1) % list.length];
+    this.selectAgent(next.id);
+    // Its question or its end of turn is what Ctrl+J is for: show the conversation, not the editor.
+    this.closeEditor(next.projectId);
   }
 
   toast(text: string, kind: Toast['kind'] = 'info') {

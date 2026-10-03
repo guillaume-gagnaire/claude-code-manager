@@ -321,6 +321,69 @@ describe('editor', () => {
     expect(app.attention).toEqual({});
     vi.restoreAllMocks();
   });
+
+  it('gives way to a launch command picked in the sidebar', async () => {
+    resetApp({
+      projects: [project({ runCommands: [{ id: 'c1', name: 'Front', command: 'x', shell: 'pwsh', cwd: '' }] })],
+      agents: [agent()],
+    });
+    fakeBackend();
+    await app.openEditor({ source: 'project' });
+    expect(app.editorOn).toBe(true);
+    app.selectLaunch('c1');
+    expect(app.editorOn).toBe(false);
+    expect(app.runCommand?.id).toBe('c1');
+  });
+
+  it('still opens the file when the state was read while the tree of its source was loading', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    fakeBackend({
+      fs_tree: async () => {
+        await gate;
+        return { root: 'C:/code/demo-api/.claude/worktrees/wt', files: [], truncated: false };
+      },
+    });
+    const opening = app.openEditor({ source: 'a2', abs: 'C:\\code\\demo-api\\.claude\\worktrees\\wt\\src\\x.ts', line: 3 });
+    const place = app.editor.p1.places.a2;
+    expect([place.active, place.open.length, app.editor.p1.reveal]).toEqual([null, 0, null]);
+    release();
+    await opening;
+    expect(app.editor.p1.places.a2.active).toBe('src/x.ts');
+    expect(app.editor.p1.places.a2.open).toEqual(['src/x.ts']);
+    expect(app.editor.p1.places.a2.expanded).toEqual({ src: true });
+    expect(app.editor.p1.reveal).toMatchObject({ path: 'src/x.ts', line: 3 });
+  });
+});
+
+describe('editor and the agent a notification or Ctrl+J brings up', () => {
+  beforeEach(() => resetApp());
+
+  it('closes the editor of the project when a notification is clicked, to show the agent', async () => {
+    const { emit } = await start();
+    await app.openEditor({ source: 'project' });
+    expect(app.editorOn).toBe(true);
+    emit({ type: 'focus', projectId: 'p1', agentId: 'a2' });
+    expect(app.editorOn).toBe(false);
+    expect(app.agent?.id).toBe('a2');
+  });
+
+  it('closes the editor of the project when Ctrl+J goes to the next agent waiting', async () => {
+    const { emit } = await start();
+    emit({ type: 'agent', agent: agent({ id: 'a2', name: 'tests-e2e', createdAt: 2, status: 'waiting' }) });
+    await app.openEditor({ source: 'project' });
+    expect(app.editorOn).toBe(true);
+    app.nextWaiting();
+    expect(app.agent?.id).toBe('a2');
+    expect(app.editorOn).toBe(false);
+  });
+
+  it('keeps the editor open when an agent is picked in the sidebar', async () => {
+    await start();
+    await app.openEditor({ source: 'project' });
+    app.selectAgent('a2');
+    expect(app.editorOn).toBe(true);
+  });
 });
 
 describe('quitting with unsaved files', () => {

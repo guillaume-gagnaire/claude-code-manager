@@ -19,4 +19,13 @@ describe('terminals', () => {
     expect(app.term?.id).toBe('t1');
     expect(app.runCommand).toBeNull();
   });
+
+  it('shows a new terminal in place of the editor of the project', async () => {
+    fakeBackend();
+    await app.openEditor({ source: 'project' });
+    expect(app.editorOn).toBe(true);
+    await newTerminal('p1', 'pwsh');
+    expect(app.editorOn).toBe(false);
+    expect(app.term?.id).toBe('t1');
+  });
 });

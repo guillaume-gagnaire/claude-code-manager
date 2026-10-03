@@ -24,6 +24,7 @@ export async function newTerminal(projectId: string, shell = app.shells[0]?.id) 
   app.terminals.push(info);
   app.selectedTerm[projectId] = info.id;
   app.selectedLaunch[projectId] = null;
+  app.closeEditor(projectId);
 }
 
 export function closeTerminal(id: string) {
