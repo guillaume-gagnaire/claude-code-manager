@@ -192,6 +192,17 @@ describe('CodeEditor', () => {
     expect(viewOf(container).state.selection.main.head).toBe(6);
   });
 
+  it('tells which request for a line it brought into view', async () => {
+    const onrevealed = vi.fn();
+    const props = { ...base, docKey: 'k1', text: 'a\nb\nc\n', version: 0, onchange: () => {}, onrevealed };
+    const { container, rerender } = render(CodeEditor, props);
+    await tick();
+    expect(onrevealed).not.toHaveBeenCalled();
+    await rerender({ ...props, reveal: { line: 3, seq: 7 } });
+    expect(viewOf(container).state.selection.main.head).toBe(4);
+    expect(onrevealed).toHaveBeenCalledExactlyOnceWith(7);
+  });
+
   it('takes the language once it is loaded', async () => {
     const props = { ...base, docKey: 'k1', text: 'const a = 1;\n', version: 0, onchange: () => {} };
     const { container, rerender } = render(CodeEditor, props);

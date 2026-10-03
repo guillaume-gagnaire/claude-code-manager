@@ -23,6 +23,7 @@
     reveal = null,
     onchange,
     oncursor,
+    onrevealed,
   }: {
     docKey: string;
     text: string;
@@ -33,6 +34,8 @@
     reveal?: { line: number; seq: number } | null;
     onchange: (text: string) => void;
     oncursor: (pos: { line: number; col: number }) => void;
+    /** The line of request `seq` is in view: the request is done, it must not move the cursor again. */
+    onrevealed?: (seq: number) => void;
   } = $props();
 
   let host: HTMLDivElement;
@@ -142,6 +145,7 @@
       const pos = view.state.doc.line(n).from;
       view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
       view.focus();
+      onrevealed?.(r.seq);
     });
   });
 </script>

@@ -167,6 +167,11 @@
   });
 
   const reveal = $derived(st?.reveal && st.reveal.path === activePath ? st.reveal : null);
+  /** Done once: the tab shown again, or the view opened again, keeps the cursor where the user left it. */
+  function revealed(seq: number) {
+    const s = app.editor[project.id];
+    if (s?.reveal?.seq === seq) s.reveal = null;
+  }
   const sizeMb = (n: number) => (n / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
 
   function closeTab(path: string) {
@@ -279,6 +284,7 @@
             {indent}
             {changes}
             {reveal}
+            onrevealed={revealed}
             onchange={(t) => buffers.edit(buf.key, t)}
             oncursor={(c) => (cursor = c)}
           />

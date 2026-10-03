@@ -277,6 +277,22 @@ describe('EditorView', () => {
     expect(app.toasts).toHaveLength(1);
   });
 
+  it('brings the line asked for into view once, not each time its tab is shown again', async () => {
+    backend({ fs_read: (a) => text(a.path === 'README.md' ? '# demo\n' : 'a\nb\nc\nd\n') });
+    await app.openEditor({ source: 'project', path: 'README.md' });
+    await app.openEditor({ source: 'project', path: 'src/app.ts', line: 3 });
+    const { container } = render(EditorView, { project: project() });
+    const shown = () => container.querySelector('.cm-content')?.textContent;
+    expect(await screen.findByText('Ln 3, Col 1')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /README\.md/ }));
+    await expect.poll(shown).toBe('# demo');
+    await userEvent.click(screen.getByRole('tab', { name: /app\.ts/ }));
+    await expect.poll(shown).toBe('abcd');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByText('Ln 1, Col 1')).toBeInTheDocument();
+    expect(app.editor.p1.reveal).toBeNull();
+  });
+
   it('does not show the previous file’s comparison on the one just opened', async () => {
     backend({ fs_base: (a) => ({ reference: 'HEAD', text: a.path === 'README.md' ? '# demo\n' : 'const a = 1;\n' }) });
     await app.openEditor({ source: 'project', path: 'README.md' });
