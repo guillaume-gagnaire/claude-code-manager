@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { basename } from '../../lib/format';
   import type { Agent, GitInfo, Project } from '../../lib/types';
   import StatusDot from '../StatusDot.svelte';
 
@@ -15,7 +16,10 @@
 
   const branch = $derived(git?.branch || 'projet');
   const current = $derived(source === 'project' ? null : (agents.find((a) => a.id === source) ?? null));
-  const projectCount = $derived(git ? git.modified + git.added + git.deleted : 0);
+  // `git` tallies the project's own changes together with those of every worktree: take the worktrees out.
+  const projectCount = $derived(
+    git ? Math.max(0, git.modified + git.added + git.deleted - agents.reduce((n, a) => n + (git.agents[a.id] ?? 0), 0)) : 0,
+  );
 
   function pick(s: string) {
     open = false;
@@ -51,7 +55,11 @@
         {@const n = git?.agents[a.id] ?? 0}
         <button class="opt" role="menuitemradio" aria-checked={source === a.id} onclick={() => pick(a.id)}>
           <span class="ic"><StatusDot status={a.status} size={7} /></span>
-          <span class="txt"><span class="nm">{a.name}</span><span class="sub mono">.claude/worktrees/{a.name} · {a.model}</span></span>
+          <span class="txt"
+            ><span class="nm">{a.name}</span><span class="sub mono"
+              >.claude/worktrees/{a.worktree ? basename(a.worktree.path) : a.name} · {a.model}</span
+            ></span
+          >
           <span class="count mono" class:some={n > 0}>{n ? `${n} modif.` : 'propre'}</span>
           <span class="check">{source === a.id ? '✓' : ''}</span>
         </button>

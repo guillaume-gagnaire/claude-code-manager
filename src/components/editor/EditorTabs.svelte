@@ -24,7 +24,7 @@
       aria-selected={t.active}
       title={t.path}
       onclick={() => onselect(t.path)}
-      onkeydown={(e) => e.key === 'Enter' && onselect(t.path)}
+      onkeydown={(e) => e.target === e.currentTarget && e.key === 'Enter' && onselect(t.path)}
       onauxclick={(e) => e.button === 1 && onclose(t.path)}
     >
       <span class="name" style:color={t.status ? SC[t.status] : undefined}>{t.name}</span>
@@ -32,7 +32,7 @@
         class="close"
         class:dirty={t.dirty}
         aria-label={`Fermer ${t.name}`}
-        title={t.dirty ? 'Non enregistré' : 'Fermer'}
+        title={t.dirty ? 'Fermer (non enregistré)' : 'Fermer'}
         onclick={(e) => {
           e.stopPropagation();
           onclose(t.path);
@@ -99,10 +99,12 @@
   .close.dirty .x {
     display: none;
   }
-  .close.dirty:hover .dot {
+  .close.dirty:hover .dot,
+  .close.dirty:focus-visible .dot {
     display: none;
   }
-  .close.dirty:hover .x {
+  .close.dirty:hover .x,
+  .close.dirty:focus-visible .x {
     display: inline;
   }
 </style>

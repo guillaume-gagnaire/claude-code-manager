@@ -21,4 +21,22 @@ describe('EditorTabs', () => {
     expect(onclose).toHaveBeenCalledWith('b.ts');
     expect(onselect).toHaveBeenCalledTimes(1);
   });
+
+  it('closes a background tab from the keyboard without selecting it', async () => {
+    const onselect = vi.fn();
+    const onclose = vi.fn();
+    render(EditorTabs, { tabs, onselect, onclose });
+    screen.getByRole('button', { name: 'Fermer b.ts' }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onclose).toHaveBeenCalledWith('b.ts');
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it('still selects a tab with Enter when the tab itself has the focus', async () => {
+    const onselect = vi.fn();
+    render(EditorTabs, { tabs, onselect, onclose: () => {} });
+    screen.getByRole('tab', { name: /b\.ts/ }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onselect).toHaveBeenCalledWith('b.ts');
+  });
 });

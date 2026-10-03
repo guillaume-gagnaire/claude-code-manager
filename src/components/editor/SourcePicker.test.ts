@@ -17,7 +17,7 @@ describe('SourcePicker', () => {
       project: project(),
       source: 'project',
       agents: [wt],
-      git: gitInfo({ modified: 2, added: 1, agents: { a2: 4 } }),
+      git: gitInfo({ modified: 6, added: 1, agents: { a2: 4 } }),
       onpick,
     });
     await userEvent.click(screen.getByRole('button', { name: /Source : main/ }));
@@ -27,5 +27,37 @@ describe('SourcePicker', () => {
     await userEvent.click(screen.getByRole('menuitemradio', { name: /refacto/ }));
     expect(onpick).toHaveBeenCalledWith('a2');
     expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument();
+  });
+
+  it('does not count the worktrees’ changes on the project branch', async () => {
+    render(SourcePicker, {
+      project: project(),
+      source: 'project',
+      agents: [wt],
+      git: gitInfo({ modified: 4, agents: { a2: 4 } }),
+      onpick: () => {},
+    });
+    await userEvent.click(screen.getByRole('button', { name: /Source : main/ }));
+    expect(screen.getByRole('menuitemradio', { name: /main/ })).toHaveTextContent('propre');
+    expect(screen.getByRole('menuitemradio', { name: /main/ })).not.toHaveTextContent('Δ');
+    expect(screen.getByRole('menuitemradio', { name: /refacto/ })).toHaveTextContent('4 modif.');
+  });
+
+  it('shows the real folder of a worktree, not the agent’s name', async () => {
+    const renamed = agent({
+      id: 'a3',
+      name: 'nouveau-nom',
+      model: 'opus',
+      worktree: {
+        path: 'C:\\code\\demo-api\\.claude\\worktrees\\dossier-initial',
+        branch: 'escouade/dossier-initial',
+        baseBranch: 'main',
+      },
+    });
+    render(SourcePicker, { project: project(), source: 'project', agents: [renamed], git: gitInfo(), onpick: () => {} });
+    await userEvent.click(screen.getByRole('button', { name: /Source : main/ }));
+    const option = screen.getByRole('menuitemradio', { name: /nouveau-nom/ });
+    expect(option).toHaveTextContent('.claude/worktrees/dossier-initial · opus');
+    expect(option).not.toHaveTextContent('worktrees/nouveau-nom');
   });
 });
