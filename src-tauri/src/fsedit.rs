@@ -1,6 +1,7 @@
 //! The embedded editor's access to files: a source's file list, reading and writing a file, and
 //! the version a file is compared with.
 
+use crate::git;
 use crate::paths::contained;
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
@@ -226,6 +227,77 @@ fn write_via(path: &Path, tmp: &Path, bytes: &[u8]) -> Result<()> {
         return Err(e.into());
     }
     Ok(())
+}
+
+/// More files than that and the tree is cut.
+pub const MAX_TREE_FILES: usize = 50_000;
+
+/// The files of a source, relative to `root` with forward slashes.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Tree {
+    pub root: String,
+    pub files: Vec<String>,
+    pub truncated: bool,
+}
+
+/// What git lists (tracked and untracked, ignored files and the agents' worktrees left out), or
+/// the folder walked when it is not a repository.
+pub async fn tree(root: &str) -> Tree {
+    tree_up_to(root, MAX_TREE_FILES).await
+}
+
+/// `tree`, cut at `max` files (a smaller `max` lets the cut be tested).
+async fn tree_up_to(root: &str, max: usize) -> Tree {
+    let mut files = match git::toplevel(root).await {
+        Some(_) => git::list_files(root).await.unwrap_or_default(),
+        None => {
+            let mut f = git::walk_files(root, max + 1);
+            f.sort();
+            f
+        }
+    };
+    let truncated = files.len() > max;
+    files.truncate(max);
+    Tree {
+        root: root.to_string(),
+        files,
+        truncated,
+    }
+}
+
+/// The version a file is compared with, and what it is called.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Base {
+    /// "HEAD", or the branch a worktree left.
+    pub reference: String,
+    /// None when the file is not there (new), is not a file or is not text.
+    pub text: Option<String>,
+}
+
+/// HEAD's version of `rel`; for a worktree (`base_branch` given), the version where its branch
+/// left that base, so that the agent's commits count as changes. None outside a repository.
+pub async fn base(root: &str, base_branch: Option<&str>, rel: &str) -> Result<Option<Base>> {
+    validate_rel(rel)?;
+    contained(Path::new(root), rel)?;
+    if git::toplevel(root).await.is_none() {
+        return Ok(None);
+    }
+    let head = || ("HEAD".to_string(), "HEAD".to_string());
+    let (rev, reference) = match base_branch {
+        Some(b) => match git::text(root, &["merge-base", "HEAD", b]).await {
+            Ok(sha) if !sha.is_empty() => (sha, b.to_string()),
+            _ => head(),
+        },
+        None => head(),
+    };
+    let spec = format!("{rev}:./{}", rel.replace('\\', "/"));
+    let text = match git::run(root, &["cat-file", "blob", &spec]).await {
+        Ok(bytes) => decode(&bytes).text,
+        Err(_) => None,
+    };
+    Ok(Some(Base { reference, text }))
 }
 
 #[cfg(test)]
@@ -483,5 +555,125 @@ mod tests {
             "{err}"
         );
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "secret\n");
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    fn repo(name: &str) -> std::path::PathBuf {
+        let r = test_dir(name);
+        git(&r, &["init", "-q", "-b", "main"]);
+        git(&r, &["config", "user.email", "t@t"]);
+        git(&r, &["config", "user.name", "t"]);
+        git(&r, &["config", "core.autocrlf", "false"]);
+        std::fs::create_dir_all(r.join("src")).unwrap();
+        std::fs::write(r.join("src/app.ts"), "const a = 1;\n").unwrap();
+        std::fs::write(r.join(".gitignore"), "dist/\n").unwrap();
+        git(&r, &["add", "-A"]);
+        git(&r, &["commit", "-qm", "init"]);
+        r
+    }
+
+    #[tokio::test]
+    async fn lists_the_files_git_knows_without_the_ignored_ones() {
+        let r = repo("fsedit-tree");
+        std::fs::create_dir_all(r.join("dist")).unwrap();
+        std::fs::write(r.join("dist/out.js"), "x").unwrap();
+        std::fs::write(r.join("notes.md"), "n").unwrap();
+        let t = tree(&r.to_string_lossy()).await;
+        assert_eq!(t.files, vec![".gitignore", "notes.md", "src/app.ts"]);
+        assert!(!t.truncated);
+        assert_eq!(t.root, r.to_string_lossy());
+    }
+
+    #[tokio::test]
+    async fn lists_a_plain_folder_by_walking_it() {
+        let d = test_dir("fsedit-tree-plain");
+        std::fs::create_dir_all(d.join("node_modules/x")).unwrap();
+        std::fs::write(d.join("node_modules/x/i.js"), "").unwrap();
+        std::fs::write(d.join("a.txt"), "").unwrap();
+        assert_eq!(tree(&d.to_string_lossy()).await.files, vec!["a.txt"]);
+    }
+
+    #[tokio::test]
+    async fn compares_with_head_or_with_where_a_branch_left_its_base() {
+        let r = repo("fsedit-base");
+        let root = r.to_string_lossy().to_string();
+        std::fs::write(r.join("src/app.ts"), "const a = 2;\n").unwrap();
+        let b = base(&root, None, "src/app.ts").await.unwrap().unwrap();
+        assert_eq!(
+            (b.reference.as_str(), b.text.as_deref()),
+            ("HEAD", Some("const a = 1;\n"))
+        );
+        let new = base(&root, None, "src/new.ts").await.unwrap().unwrap();
+        assert_eq!(new.text, None);
+        // A branch with commits of its own: compared with where it left main.
+        git(&r, &["checkout", "-qb", "feature"]);
+        git(&r, &["commit", "-qam", "two"]);
+        let b = base(&root, Some("main"), "src/app.ts")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (b.reference.as_str(), b.text.as_deref()),
+            ("main", Some("const a = 1;\n"))
+        );
+        assert!(base(&root, None, "../x").await.is_err());
+        let plain = test_dir("fsedit-base-plain");
+        assert_eq!(
+            base(&plain.to_string_lossy(), None, "a.txt").await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn base_refuses_a_path_that_does_not_name_a_file() {
+        let r = repo("fsedit-base-invalid");
+        let root = r.to_string_lossy().to_string();
+        for rel in [".", "./", "src/.", ""] {
+            let err = base(&root, None, rel).await.unwrap_err().to_string();
+            assert!(err.contains("chemin invalide"), "{rel:?}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_base_of_a_folder_is_not_a_listing_taken_for_text() {
+        let r = repo("fsedit-base-folder");
+        let b = base(&r.to_string_lossy(), None, "src")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(b.text, None);
+    }
+
+    #[tokio::test]
+    async fn a_tree_too_big_is_cut_and_says_so() {
+        let r = repo("fsedit-tree-cut");
+        for n in 0..3 {
+            std::fs::write(r.join(format!("f{n}.txt")), "").unwrap();
+        }
+        let root = r.to_string_lossy();
+        // .gitignore, f0..f2 and src/app.ts: five files.
+        let t = tree_up_to(&root, 4).await;
+        assert_eq!((t.files.len(), t.truncated), (4, true));
+        let t = tree_up_to(&root, 5).await;
+        assert_eq!((t.files.len(), t.truncated), (5, false));
+
+        let d = test_dir("fsedit-tree-cut-plain");
+        for n in 0..3 {
+            std::fs::write(d.join(format!("p{n}.txt")), "").unwrap();
+        }
+        let t = tree_up_to(&d.to_string_lossy(), 2).await;
+        assert_eq!((t.files.len(), t.truncated), (2, true));
+        let t = tree_up_to(&d.to_string_lossy(), 3).await;
+        assert_eq!((t.files.len(), t.truncated), (3, false));
     }
 }

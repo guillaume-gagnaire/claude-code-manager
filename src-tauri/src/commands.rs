@@ -2,6 +2,7 @@
 
 use crate::core::{Attachment, Core, SyncOp};
 use crate::editor::{self, EditorInfo};
+use crate::fsedit;
 use crate::model::*;
 use crate::pty::{self, ShellInfo, TermInfo};
 use crate::stats::StatsView;
@@ -323,6 +324,68 @@ pub async fn git_discard(
     path: String,
 ) -> Res<()> {
     core.git_discard(&project_id, agent_id, &path)
+        .await
+        .map_err(err)
+}
+
+// ---------- embedded editor ----------
+
+#[tauri::command]
+pub async fn fs_tree(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+) -> Res<fsedit::Tree> {
+    let (root, _) = core.edit_root(&project_id, agent_id).await.map_err(err)?;
+    Ok(fsedit::tree(&root).await)
+}
+
+#[tauri::command]
+pub async fn fs_read(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+    path: String,
+) -> Res<fsedit::FileText> {
+    let (root, _) = core.edit_root(&project_id, agent_id).await.map_err(err)?;
+    fsedit::read(std::path::Path::new(&root), &path).map_err(err)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn fs_write(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+    path: String,
+    text: String,
+    eol: String,
+    bom: bool,
+    expected_hash: Option<String>,
+) -> Res<String> {
+    let (root, _) = core.edit_root(&project_id, agent_id).await.map_err(err)?;
+    let hash = fsedit::write(
+        std::path::Path::new(&root),
+        &path,
+        &text,
+        &eol,
+        bom,
+        expected_hash.as_deref(),
+    )
+    .map_err(err)?;
+    core.git.refresh(&project_id);
+    Ok(hash)
+}
+
+#[tauri::command]
+pub async fn fs_base(
+    core: CoreState<'_>,
+    project_id: String,
+    agent_id: Option<String>,
+    path: String,
+) -> Res<Option<fsedit::Base>> {
+    let (root, base) = core.edit_root(&project_id, agent_id).await.map_err(err)?;
+    fsedit::base(&root, base.as_deref(), &path)
         .await
         .map_err(err)
 }

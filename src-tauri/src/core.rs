@@ -1941,6 +1941,24 @@ impl<R: Runtime> Core<R> {
         }
     }
 
+    /// The folder the editor shows for `agent_id`: its worktree (with the branch it left), else
+    /// the project's repository, else the project's folder when it is not one.
+    pub async fn edit_root(
+        &self,
+        project_id: &str,
+        agent_id: Option<String>,
+    ) -> Result<(String, Option<String>)> {
+        let project = self.project(project_id)?;
+        if let Some(a) = &agent_id {
+            let worktree = self.agent(a)?.lock().meta.worktree.clone();
+            if let Some(wt) = worktree {
+                return Ok((wt.path, Some(wt.base_branch)));
+            }
+        }
+        let root = self.toplevel(&project.path).await.unwrap_or(project.path);
+        Ok((root, None))
+    }
+
     pub async fn git_diff(
         self: &Arc<Self>,
         project_id: &str,

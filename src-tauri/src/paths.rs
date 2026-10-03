@@ -198,7 +198,6 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 /// `rel` inside `root`, refused when it could leave it: absolute or drive-prefixed paths, `..`,
 /// or a symbolic link on the way that points outside. `rel` may not exist yet (a file to create).
-#[allow(dead_code)]
 pub fn contained(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     use std::path::Component;
     let out = || anyhow::anyhow!("chemin hors du dossier : {rel}");
@@ -305,9 +304,13 @@ pub fn make_dir_link(target: &Path, link: &Path) -> bool {
 #[cfg(test)]
 pub fn make_file_link(target: &Path, link: &Path) -> bool {
     #[cfg(unix)]
-    return std::os::unix::fs::symlink(target, link).is_ok();
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
     #[cfg(windows)]
-    return std::os::windows::fs::symlink_file(target, link).is_ok();
+    {
+        std::os::windows::fs::symlink_file(target, link).is_ok()
+    }
 }
 
 #[cfg(test)]

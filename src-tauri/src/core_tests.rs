@@ -1186,3 +1186,34 @@ async fn launch_commands_are_saved_with_the_project() {
     let saved = std::fs::read_to_string(h.dir.join("data").join("state.json")).unwrap();
     assert!(saved.contains("npm run dev"), "{saved}");
 }
+
+#[tokio::test]
+async fn the_editor_reads_and_writes_the_checkout_of_its_source() {
+    let h = harness("core-edit-root");
+    let (p, r) = h.project(true).await;
+    let a = h.core.create_agent(&p.id, None).await.unwrap();
+    let wt = PathBuf::from(a.meta.worktree.clone().unwrap().path);
+    std::fs::write(wt.join("src").join("app.ts"), "const a = 3;\n").unwrap();
+
+    let (root, base) = h
+        .core
+        .edit_root(&p.id, Some(a.meta.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        Path::new(&root).canonicalize().unwrap(),
+        wt.canonicalize().unwrap()
+    );
+    assert_eq!(base.as_deref(), Some("main"));
+    let t = crate::fsedit::read(Path::new(&root), "src/app.ts").unwrap();
+    assert_eq!(t.text.as_deref(), Some("const a = 3;\n"));
+
+    let (root, base) = h.core.edit_root(&p.id, None).await.unwrap();
+    assert_eq!(
+        Path::new(&root).canonicalize().unwrap(),
+        r.canonicalize().unwrap()
+    );
+    assert_eq!(base, None);
+    let t = crate::fsedit::read(Path::new(&root), "src/app.ts").unwrap();
+    assert_eq!(t.text.as_deref(), Some("const a = 1;\n"));
+}
