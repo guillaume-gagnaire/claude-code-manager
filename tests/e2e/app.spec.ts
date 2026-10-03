@@ -57,7 +57,8 @@ test('uncommitted changes show up in the tab counter, the files panel and the di
   await page.getByRole('button', { name: /Fichiers/ }).click();
   await page.getByRole('button', { name: 'Tout le projet' }).click();
   await expect(page.locator('.panel')).toContainText('app.ts');
-  await page.getByRole('button', { name: /app\.ts/ }).click();
+  // The row's own button, not its `</>` editor button (whose name also holds the file name).
+  await page.locator('.filerow .file').filter({ hasText: 'app.ts' }).click();
   const diff = page.getByRole('dialog', { name: 'src/app.ts' });
   await expect(diff).toContainText('const b = 3;');
   await page.keyboard.press('Escape');
@@ -72,7 +73,8 @@ test('a changed file is reverted or deleted from its context menu', async ({ app
   await page.getByRole('button', { name: /Fichiers/ }).click();
   await page.getByRole('button', { name: 'Tout le projet' }).click();
   const panel = page.locator('.panel');
-  const file = (name: RegExp) => panel.getByRole('button', { name });
+  // The row's own button, not its `</>` editor button (whose name also holds the file name).
+  const file = (name: RegExp) => panel.locator('.filerow .file').filter({ hasText: name });
 
   await file(/app\.ts/).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Abandonner les modifications…' }).click();
@@ -434,4 +436,39 @@ test('project tabs can be reordered (drag and drop logic)', async ({ app }) => {
     .nth(1)
     .dragTo(page.locator('.tabs .tab').nth(0), { targetPosition: { x: 5, y: 10 } });
   await expect(tabs).toHaveText(['second', 'demo-api']);
+});
+
+test('a file is browsed, edited and saved in the embedded editor', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo);
+  await page.getByRole('button', { name: 'Parcourir' }).click();
+  await page.getByRole('treeitem', { name: /src/ }).click();
+  await page.getByRole('treeitem', { name: /app\.ts/ }).click();
+  await expect(page.getByRole('tab', { name: /app\.ts/ })).toBeVisible();
+  const code = page.locator('.cm-content');
+  await expect(code).toContainText('const a = 1;');
+  await code.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('export const b = 2;');
+  await expect(page.getByText(/● Non enregistré/)).toBeVisible();
+  await page.keyboard.press('Control+S');
+  await expect(page.getByText('Enregistré', { exact: true })).toBeVisible();
+  expect(fs.readFileSync(path.join(app.repo, 'src', 'app.ts'), 'utf8')).toBe('const a = 1;\nexport const b = 2;');
+  await page.getByRole('button', { name: '← Conversation' }).click();
+  await expect(page.locator('main.conv')).toBeVisible();
+});
+
+test('a file of an agent’s worktree opens in the editor from the uncommitted files', async ({ app }) => {
+  const { page } = app;
+  await addProject(page, app.repo, { worktrees: true });
+  const worktrees = path.join(app.repo, '.claude', 'worktrees');
+  await expect.poll(() => (fs.existsSync(worktrees) ? fs.readdirSync(worktrees).length : 0)).toBe(1);
+  const wt = path.join(worktrees, fs.readdirSync(worktrees)[0]);
+  fs.writeFileSync(path.join(wt, 'src', 'app.ts'), 'const a = 42;\n');
+  await page.getByRole('button', { name: /Fichiers/ }).click();
+  // The row's editor button shows on hover.
+  await page.locator('.filerow').filter({ hasText: 'app.ts' }).hover();
+  await page.getByRole('button', { name: 'Ouvrir app.ts dans l’éditeur' }).click();
+  await expect(page.locator('.cm-content')).toContainText('const a = 42;');
+  await expect(page.getByText('1 ligne modifiée vs main')).toBeVisible();
 });

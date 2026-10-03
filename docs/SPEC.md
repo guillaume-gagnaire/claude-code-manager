@@ -64,13 +64,20 @@ Dossier (+ Parcourir…), détection git (sinon `git init`), nom, aperçu d'ongl
 
 ## Git & fichiers
 
-- Panneau « Non commités » : portée « Cet agent » / « Tout le projet », attribution par worktree (ou par outils Edit/Write de l'agent hors mode worktree).
+- Panneau « Non commités » : portée « Cet agent » / « Tout le projet », attribution par worktree (ou par outils Edit/Write de l'agent hors mode worktree). Clic → diff ; bouton `</>` ou clic droit → éditeur.
 - Onglet « Historique » du même panneau : git graph des 300 derniers commits de tout le dépôt (branches locales et distantes, tags, branches `ccm/…` des agents étiquetées de leur nom). La branche de l'agent (son worktree, sinon la branche courante) est mise en avant, le reste atténué. Clic sur un commit → son diff (contre le premier parent pour un merge) dans la vue diff. Rafraîchi à chaque commit, merge ou branche.
 - « Voir le diff » : vue diff plein écran (unifiée / côte à côte ; choix partagé avec le volet de la disposition moitié / moitié et les diffs de la conversation, et mémorisé).
 - « Commit… » : envoie à l'agent une demande de commit de ses changements (il rédige le message).
 - Mode worktree : `<projet>/.claude/worktrees/<agent>`, branche dédiée. Bouton « Merger dans <branche> » (merge ou squash) ; suppression de l'agent → nettoyage worktree + branche.
 - Compteurs git rafraîchis par watcher de fichiers (debounce), pas par polling.
 - Synchro du checkout principal du projet avec son dépôt distant : commits à tirer / à pousser par rapport à la branche suivie. Fetch en arrière-plan peu après le démarrage puis toutes les 5 min, un dépôt à la fois, sans jamais demander d'identifiants (ni fenêtre Git Credential Manager) ; échecs seulement journalisés. Pull en avance rapide uniquement (branches divergées : message clair, rebase ou merge à faire à la main), Push (une branche sans branche suivie, ou dont la branche distante a été supprimée, est publiée sur origin, ou l'unique dépôt distant), Fetch à la demande. Rien à synchroniser en HEAD détachée ou sans dépôt distant.
+
+## Éditeur
+
+- Mode éditeur dans la zone principale d'un projet : « `</>` Éditeur » dans l'en-tête d'un agent (son worktree, ou le projet sans worktree), « Parcourir » dans le pied de la barre latérale et « Éditeur » dans la barre d'onglets (branche du projet), bouton `</>` et clic droit sur un fichier non commité, liens des fichiers édités dans la conversation (à la ligne modifiée). Remplace l'ouverture dans un éditeur externe.
+- Sélecteur de source : branche du projet ou worktree d'un agent (nombre de modifications) ; arborescence des fichiers connus de git (ignorés exclus), lettres M / A, onglets avec point « non enregistré ».
+- CodeMirror 6 aux couleurs du design : coloration, recherche (Ctrl+F), indentation détectée, marques des lignes modifiées par rapport à HEAD (projet) ou à la branche de départ (worktree), compte dans l'en-tête.
+- Ctrl+S enregistre (fins de ligne et BOM conservés, écriture atomique). Un fichier changé sur le disque se recharge s'il n'est pas modifié ; sinon un bandeau propose « Recharger » ou « Garder ma version ». Fermer un onglet ou quitter avec des fichiers non enregistrés demande confirmation.
 
 ## Notifications
 
