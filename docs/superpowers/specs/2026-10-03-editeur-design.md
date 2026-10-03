@@ -100,7 +100,7 @@ La racine de la source est donnée par `files_root(project_id, agent_id)` (workt
 
 ## Retrait de l'éditeur externe
 
-- Rust : `editor.rs` supprimé (les fonctions encore utiles ailleurs, comme la résolution d'un programme dans le PATH, migrent dans un petit module) ; commandes `detect_editors`, `open_in_editor`, `open_file` ; `InitialState.editors` ; `Settings.editor_command` (un ancien `settings.json` qui le contient se charge toujours, le champ est ignoré).
+- Rust : `editor.rs` supprimé (rien d'autre n'utilise sa résolution d'un programme dans le PATH ; le tableau la reprendra dans un petit module `which.rs` pour trouver `gh`) ; commandes `detect_editors`, `open_in_editor`, `open_file` ; `InitialState.editors` ; `Settings.editor_command` (un ancien `settings.json` qui le contient se charge toujours, le champ est ignoré).
 - Frontend : `lib/editors.ts`, type `EditorInfo`, `Settings.editorCommand`, section « Éditeur » des réglages, menu « Éditeur ▾ », entrées « Éditer dans… » et « Ouvrir le worktree dans l'éditeur ».
 - Docs : `docs/SPEC.md` (réglages, panneau, nouvelle section « Éditeur »), README.
 
