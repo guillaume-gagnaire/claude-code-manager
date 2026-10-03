@@ -5,6 +5,13 @@ import { trees } from './trees.svelte';
 
 const text = (t: string, hash = 'h1', eol: 'lf' | 'crlf' = 'lf') => ({ kind: 'text', text: t, size: t.length, hash, eol, bom: false });
 
+/** A value to hand out later, to make an answer come after what happens in between. */
+const deferred = <T>() => {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+};
+
 describe('buffers', () => {
   beforeEach(() => buffers.reset());
 
@@ -116,6 +123,166 @@ describe('buffers', () => {
     buffers.close(k);
     expect(buffers.all[k]).toBeUndefined();
     expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 0 });
+  });
+
+  it('reads a file once when it is opened twice at the same time', async () => {
+    const gate = deferred<unknown>();
+    const backend = fakeBackend({ fs_read: () => gate.promise, fs_base: () => null, set_unsaved: () => null });
+    const first = buffers.open('p1', 'project', 'x.ts');
+    const second = buffers.open('p1', 'project', 'x.ts');
+    gate.resolve(text('a\n'));
+    const [a, b] = await Promise.all([first, second]);
+    expect(backend.called('fs_read')).toHaveLength(1);
+    expect(a.key).toBe(b.key);
+    expect(Object.keys(buffers.all)).toEqual([a.key]);
+  });
+
+  it('keeps what is typed while a save is in flight', async () => {
+    const written = deferred<string>();
+    const backend = fakeBackend({
+      fs_read: () => text('a\n'),
+      fs_base: () => null,
+      fs_write: () => written.promise,
+      set_unsaved: () => null,
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(k, 'b\n');
+    const saving = buffers.save(k);
+    buffers.edit(k, 'c\n');
+    written.resolve('h2');
+    expect(await saving).toBe(true);
+    expect(backend.called('fs_write')[0].args.text).toBe('b\n');
+    expect(buffers.all[k]).toMatchObject({ text: 'c\n', saved: 'b\n', hash: 'h2', disk: 'ok' });
+    expect(buffers.isDirty(buffers.all[k])).toBe(true);
+    expect(buffers.unsaved).toBe(1);
+    expect(backend.called('set_unsaved').at(-1)?.args).toEqual({ count: 1 });
+  });
+
+  it('is not undone by an answer from the disk that comes after a save', async () => {
+    const late = deferred<unknown>();
+    let slow = false;
+    fakeBackend({
+      fs_read: () => (slow ? late.promise : text('a\n', 'h1')),
+      fs_base: () => null,
+      fs_write: () => 'h9',
+      set_unsaved: () => null,
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(k, 'mine\n');
+    slow = true;
+    const refreshing = buffers.refresh(k);
+    expect(await buffers.keepMine(k)).toBe(true);
+    late.resolve(text('agent\n', 'hA'));
+    await refreshing;
+    expect(buffers.all[k]).toMatchObject({ text: 'mine\n', saved: 'mine\n', hash: 'h9', disk: 'ok', version: 0 });
+  });
+
+  it('does not take an answer from the disk that comes while the file is being written', async () => {
+    const late = deferred<unknown>();
+    const written = deferred<string>();
+    let phase: 'open' | 'gone' | 'slow' = 'open';
+    fakeBackend({
+      fs_read: () => {
+        if (phase === 'gone') throw 'x.ts introuvable';
+        return phase === 'slow' ? late.promise : text('a\n', 'h1');
+      },
+      fs_base: () => null,
+      fs_write: () => written.promise,
+      set_unsaved: () => null,
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    phase = 'gone';
+    await buffers.refresh(k);
+    expect(buffers.all[k].disk).toBe('deleted');
+    phase = 'slow';
+    const keeping = buffers.keepMine(k);
+    const refreshing = buffers.refresh(k);
+    late.resolve(text('agent\n', 'hA'));
+    await refreshing;
+    expect(buffers.all[k]).toMatchObject({ text: 'a\n', hash: 'h1', version: 0 });
+    written.resolve('h2');
+    expect(await keeping).toBe(true);
+    expect(buffers.all[k]).toMatchObject({ text: 'a\n', saved: 'a\n', hash: 'h2', disk: 'ok', version: 0 });
+  });
+
+  it('is not undone by a reload that was answered after a save', async () => {
+    const late = deferred<unknown>();
+    let slow = false;
+    fakeBackend({
+      fs_read: () => (slow ? late.promise : text('a\n', 'h1')),
+      fs_base: () => null,
+      fs_write: () => 'h9',
+      set_unsaved: () => null,
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(k, 'mine\n');
+    slow = true;
+    const reloading = buffers.reload(k);
+    expect(await buffers.save(k)).toBe(true);
+    late.resolve(text('a\n', 'h1'));
+    await reloading;
+    expect(buffers.all[k]).toMatchObject({ text: 'mine\n', saved: 'mine\n', hash: 'h9', disk: 'ok', version: 0 });
+  });
+
+  it('flags a file that vanished when reloading it, and still fails on other errors', async () => {
+    let failure: string | null = null;
+    fakeBackend({
+      fs_read: () => {
+        if (failure) throw failure;
+        return text('a\n');
+      },
+      fs_base: () => null,
+      set_unsaved: () => null,
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(k, 'mine\n');
+    failure = 'x.ts introuvable';
+    await expect(buffers.reload(k)).resolves.toBeUndefined();
+    expect(buffers.all[k]).toMatchObject({ disk: 'deleted', text: 'mine\n', version: 0 });
+    failure = 'boom';
+    await expect(buffers.reload(k)).rejects.toBe('boom');
+  });
+
+  it('reads again a file that was missing or failed to open when it is opened again', async () => {
+    let state: 'missing' | 'broken' | 'there' = 'missing';
+    const backend = fakeBackend({
+      fs_read: () => {
+        if (state === 'missing') throw 'x.ts introuvable';
+        if (state === 'broken') throw 'boom';
+        return text('a\n');
+      },
+      fs_base: () => null,
+      set_unsaved: () => null,
+    });
+    expect((await buffers.open('p1', 'project', 'x.ts')).kind).toBe('missing');
+    state = 'broken';
+    expect(await buffers.open('p1', 'project', 'x.ts')).toMatchObject({ kind: 'error', error: 'boom' });
+    state = 'there';
+    const b = await buffers.open('p1', 'project', 'x.ts');
+    expect(b).toMatchObject({ kind: 'text', text: 'a\n', error: null });
+    expect(buffers.all[b.key]).toMatchObject({ kind: 'text', text: 'a\n' });
+    expect(backend.called('fs_read')).toHaveLength(3);
+  });
+
+  it('tells the backend again about the unsaved files when a report failed', async () => {
+    let fail = true;
+    const backend = fakeBackend({
+      fs_read: () => text('a'),
+      fs_base: () => null,
+      set_unsaved: () => {
+        if (fail) {
+          fail = false;
+          throw 'backend gone';
+        }
+        return null;
+      },
+    });
+    const k = (await buffers.open('p1', 'project', 'x.ts')).key;
+    buffers.edit(k, 'b');
+    await new Promise((r) => setTimeout(r, 0));
+    buffers.edit(k, 'bb');
+    await expect.poll(() => backend.called('set_unsaved')).toHaveLength(2);
+    expect(backend.called('set_unsaved').map((c) => c.args)).toEqual([{ count: 1 }, { count: 1 }]);
   });
 });
 

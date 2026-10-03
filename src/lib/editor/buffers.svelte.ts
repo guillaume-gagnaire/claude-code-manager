@@ -54,7 +54,9 @@ class Buffers {
 
   open(projectId: string, source: string, path: string): Promise<Buffer> {
     const key = this.key(projectId, source, path);
-    if (this.all[key]) return Promise.resolve(this.all[key]);
+    const open = this.all[key];
+    // A file that was missing or unreadable is read again, it may be there now.
+    if (open && open.kind !== 'missing' && open.kind !== 'error') return Promise.resolve(open);
     let p = this.pending.get(key);
     if (!p) {
       p = this.load(key, projectId, source, path).finally(() => this.pending.delete(key));
@@ -154,15 +156,35 @@ class Buffers {
     return this.save(key, true);
   }
 
+  /**
+   * The file as it is on disk now, null when it vanished, undefined when a save landed or is under way
+   * meanwhile: the answer is then older than the buffer and must not be taken.
+   */
+  private async read(b: Buffer): Promise<FileText | null | undefined> {
+    const hash = b.hash;
+    let f: FileText | null;
+    try {
+      f = await api.fsRead(b.projectId, sourceAgent(b.source), b.path);
+    } catch (e) {
+      if (!notFound(e)) throw e;
+      f = null;
+    }
+    return b.hash !== hash || this.saving.has(b.key) ? undefined : f;
+  }
+
   /** Reads the file again: a clean one takes the new text, a modified one is flagged. */
   async refresh(key: string) {
     const b = this.all[key];
     if (!b || b.kind !== 'text') return;
-    let f: FileText;
+    let f: FileText | null | undefined;
     try {
-      f = await api.fsRead(b.projectId, sourceAgent(b.source), b.path);
-    } catch (e) {
-      if (notFound(e)) b.disk = 'deleted';
+      f = await this.read(b);
+    } catch {
+      return;
+    }
+    if (f === undefined) return;
+    if (f === null) {
+      b.disk = 'deleted';
       return;
     }
     if (f.kind === 'text') {
@@ -188,7 +210,12 @@ class Buffers {
   async reload(key: string) {
     const b = this.all[key];
     if (!b) return;
-    const f = await api.fsRead(b.projectId, sourceAgent(b.source), b.path);
+    const f = await this.read(b);
+    if (f === undefined) return;
+    if (f === null) {
+      b.disk = 'deleted';
+      return;
+    }
     this.take(b, f);
     b.disk = 'ok';
     b.version++;
@@ -213,7 +240,10 @@ class Buffers {
     const n = this.unsaved;
     if (n === this.sent) return;
     this.sent = n;
-    api.setUnsaved(n).catch(() => {});
+    api.setUnsaved(n).catch(() => {
+      // Not told: the next change tells it again, even if the count is the same.
+      if (this.sent === n) this.sent = -1;
+    });
   }
 }
 
