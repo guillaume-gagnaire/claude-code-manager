@@ -3,11 +3,12 @@
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import { bracketMatching, indentOnInput, indentUnit } from '@codemirror/language';
   import { search, searchKeymap } from '@codemirror/search';
-  import { Compartment, EditorState, type Extension } from '@codemirror/state';
+  import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state';
   import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
   import { onDestroy, onMount, untrack } from 'svelte';
   import type { LineChanges } from '../../lib/editor/changes';
   import { changeGutter, setChanges } from '../../lib/editor/gutter';
+  import { reloadChange } from '../../lib/editor/reload';
   import { editorTheme, PHRASES } from '../../lib/editor/theme';
 
   // `docKey` names the file shown: another one replaces the whole editor state. `version` changes
@@ -48,10 +49,17 @@
     EditorState.tabSize.of(i.tabs ? 4 : i.size),
   ];
 
+  function reportCursor(state: EditorState) {
+    const head = state.selection.main.head;
+    const line = state.doc.lineAt(head);
+    oncursor({ line: line.number, col: head - line.from + 1 });
+  }
+
   function makeState(doc: string) {
     return EditorState.create({
       doc,
       extensions: [
+        EditorState.allowMultipleSelections.of(true),
         changeGutter(),
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -69,11 +77,7 @@
         ind.of(indentExt(untrack(() => indent))),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !applying) onchange(u.state.doc.toString());
-          if (u.selectionSet || u.docChanged) {
-            const head = u.state.selection.main.head;
-            const line = u.state.doc.lineAt(head);
-            oncursor({ line: line.number, col: head - line.from + 1 });
-          }
+          if (u.selectionSet || u.docChanged) reportCursor(u.state);
         }),
       ],
     });
@@ -82,6 +86,7 @@
   onMount(() => {
     view = new EditorView({ state: makeState(untrack(() => text)), parent: host });
     view.dispatch({ effects: setChanges.of(untrack(() => changes)) });
+    reportCursor(view.state);
   });
   onDestroy(() => view?.destroy());
 
@@ -95,12 +100,20 @@
         shownVersion = v;
         view.setState(makeState(text));
         view.dispatch({ effects: setChanges.of(changes) });
+        reportCursor(view.state);
       } else if (v !== shownVersion) {
         shownVersion = v;
-        const head = Math.min(view.state.selection.main.head, text.length);
-        applying = true;
-        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, selection: { anchor: head } });
-        applying = false;
+        // Only what differs is replaced, outside of the history: the selections follow the text they were on,
+        // and undo never brings back what was there before the reload.
+        const change = reloadChange(view.state.doc.toString(), view.state.toText(text).toString());
+        if (change) {
+          applying = true;
+          try {
+            view.dispatch({ changes: change, annotations: Transaction.addToHistory.of(false) });
+          } finally {
+            applying = false;
+          }
+        }
       }
     });
   });

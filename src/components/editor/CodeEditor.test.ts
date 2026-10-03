@@ -1,6 +1,8 @@
+import { undo } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
 import { ensureSyntaxTree, indentUnit, syntaxTree } from '@codemirror/language';
 import { openSearchPanel } from '@codemirror/search';
+import { EditorSelection, Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { render } from '@testing-library/svelte';
 import { tick } from 'svelte';
@@ -63,6 +65,109 @@ describe('CodeEditor', () => {
     expect(viewOf(container).state.selection.main.head).toBe(6);
     await rerender({ ...props, text: 'a', version: 2 });
     expect(viewOf(container).state.selection.main.head).toBe(1);
+  });
+
+  it('cannot be undone back over a text reloaded from disk, only over what was typed', async () => {
+    const onchange = vi.fn();
+    const props = { ...base, docKey: 'k1', onchange };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\nb\n', version: 0 });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ changes: { from: 4, insert: 'x' }, userEvent: 'input.type' });
+    await rerender({ ...props, text: 'new\na\nb\nx', version: 1 });
+    expect(view.state.doc.toString()).toBe('new\na\nb\nx');
+    onchange.mockClear();
+    undo(view);
+    expect(view.state.doc.toString()).toBe('new\na\nb\n');
+    expect(onchange).toHaveBeenLastCalledWith('new\na\nb\n');
+    undo(view);
+    expect(view.state.doc.toString()).toBe('new\na\nb\n');
+  });
+
+  it('does not bring back, by undoing, a text the reload replaced', async () => {
+    const onchange = vi.fn();
+    const props = { ...base, docKey: 'k1', onchange };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\n', version: 0 });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ changes: { from: 0, insert: 'x' }, userEvent: 'input.type' });
+    await rerender({ ...props, text: 'agent\n', version: 1 });
+    onchange.mockClear();
+    undo(view);
+    expect(view.state.doc.toString()).toBe('agent\n');
+    expect(onchange).not.toHaveBeenCalledWith('xa\n');
+    expect(onchange).not.toHaveBeenCalledWith('a\n');
+  });
+
+  it('keeps the cursor on the same text when lines are added above it by a reload', async () => {
+    const props = { ...base, docKey: 'k1', version: 0, onchange: () => {} };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\nb\nc\n' });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ selection: { anchor: 3 } });
+    expect(view.state.doc.lineAt(3).number).toBe(2);
+    await rerender({ ...props, text: 'x\ny\na\nb\nc\n', version: 1 });
+    const head = view.state.selection.main.head;
+    expect(view.state.doc.lineAt(head).number).toBe(4);
+    expect(view.state.doc.lineAt(head).text).toBe('b');
+  });
+
+  it('keeps several cursors across a reload', async () => {
+    const props = { ...base, docKey: 'k1', version: 0, onchange: () => {} };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\nb\nc\n' });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(5)]) });
+    await rerender({ ...props, text: 'x\ny\na\nb\nc\n', version: 1 });
+    expect(view.state.selection.ranges.map((r) => view.state.doc.lineAt(r.head).text)).toEqual(['b', 'c']);
+  });
+
+  it('finds what changed in a text with Windows line breaks too', async () => {
+    const props = { ...base, docKey: 'k1', version: 0, onchange: () => {} };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\r\nb\r\n' });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ selection: { anchor: 3 } });
+    await rerender({ ...props, text: 'x\r\na\r\nb\r\n', version: 1 });
+    expect(view.state.doc.toString()).toBe('x\na\nb\n');
+    expect(view.state.doc.lineAt(view.state.selection.main.head).text).toBe('b');
+  });
+
+  it('leaves the document and its undo history alone when the reload brings nothing new', async () => {
+    const onchange = vi.fn();
+    const props = { ...base, docKey: 'k1', onchange };
+    const { container, rerender } = render(CodeEditor, { ...props, text: 'a\n', version: 0 });
+    await tick();
+    const view = viewOf(container);
+    // typed a while ago, so that the history keeps it apart from what comes next
+    view.dispatch({ changes: { from: 0, insert: 'x' }, annotations: Transaction.time.of(Date.now() - 1000) });
+    await rerender({ ...props, text: 'xa\n', version: 1 });
+    expect(view.state.doc.toString()).toBe('xa\n');
+    expect(onchange).toHaveBeenCalledTimes(1);
+    undo(view);
+    expect(view.state.doc.toString()).toBe('a\n');
+  });
+
+  it('allows several cursors', async () => {
+    const { container } = render(CodeEditor, { ...base, docKey: 'k1', text: 'ab\ncd\n', version: 0, onchange: () => {} });
+    await tick();
+    const view = viewOf(container);
+    view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(2)]) });
+    expect(view.state.selection.ranges.length).toBe(2);
+  });
+
+  it('reports the cursor when a file is shown, at first and on every switch', async () => {
+    const oncursor = vi.fn();
+    const props = { ...base, oncursor, version: 0, onchange: () => {} };
+    const { container, rerender } = render(CodeEditor, { ...props, docKey: 'k1', text: 'ab\ncd\n' });
+    await tick();
+    expect(oncursor).toHaveBeenCalledWith({ line: 1, col: 1 });
+    viewOf(container).dispatch({ selection: { anchor: 4 } });
+    expect(oncursor).toHaveBeenLastCalledWith({ line: 2, col: 2 });
+    const calls = oncursor.mock.calls.length;
+    await rerender({ ...props, docKey: 'k2', text: 'xyz\n' });
+    expect(oncursor.mock.calls.length).toBeGreaterThan(calls);
+    expect(oncursor).toHaveBeenLastCalledWith({ line: 1, col: 1 });
   });
 
   it('marks the changed lines in the gutter, follows new changes and applies those of another file', async () => {

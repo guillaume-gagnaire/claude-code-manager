@@ -43,7 +43,8 @@ export const editorTheme = [
       '.cm-lineNumbers .cm-gutterElement': { padding: '0 14px 0 8px' },
       '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text)' },
       '.cm-activeLine': { backgroundColor: 'color-mix(in oklch, var(--accent) 9%, transparent)' },
-      '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+      // As specific as the base theme's rules (it has one per focus), or its colors win over ours.
+      '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, ::selection': {
         backgroundColor: 'color-mix(in oklch, var(--accent) 28%, transparent)',
       },
       '.cm-change-gutter': { width: '4px' },
@@ -70,7 +71,7 @@ export const editorTheme = [
       '.cm-panels': { backgroundColor: 'var(--elev)', color: 'var(--text)' },
       '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--line)' },
       '.cm-searchMatch': { backgroundColor: 'color-mix(in oklch, var(--wait) 30%, transparent)' },
-      '.cm-matchingBracket': { backgroundColor: 'var(--elev2)', outline: '1px solid var(--line2)' },
+      '&.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--elev2)', outline: '1px solid var(--line2)' },
     },
     { dark: true },
   ),
