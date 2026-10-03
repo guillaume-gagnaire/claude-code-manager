@@ -218,6 +218,32 @@ describe('EditorView', () => {
     expect(buffers.all[key]).toBeUndefined();
   });
 
+  it('creates a deleted file again with "Enregistrer", even without a change', async () => {
+    let gone = false;
+    const be = backend({
+      fs_read: () => (gone ? Promise.reject('fichier introuvable') : text('const a = 2;\n')),
+      // As the backend does: a write expecting the file it read is refused once that file is gone.
+      fs_write: (a) => {
+        if (gone && a.expectedHash) return Promise.reject('deleted');
+        gone = false;
+        return 'h5';
+      },
+    });
+    await app.openEditor({ source: 'project', path: 'src/app.ts' });
+    render(EditorView, { project: project() });
+    const key = buffers.key('p1', 'project', 'src/app.ts');
+    await expect.poll(() => buffers.all[key]?.kind).toBe('text');
+    gone = true;
+    await buffers.refresh(key);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ce fichier a été supprimé.');
+    const save = screen.getByRole('button', { name: 'Enregistrer' });
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await expect.poll(() => be.called('fs_write').length).toBe(1);
+    expect(be.called('fs_write')[0].args).toMatchObject({ path: 'src/app.ts', text: 'const a = 2;\n', expectedHash: null });
+    await expect.poll(() => screen.queryByRole('alert')).toBeNull();
+  });
+
   it('reads a file again that was missing, when its tab is shown again', async () => {
     let there = false;
     backend({ fs_read: (a) => (a.path === 'README.md' && !there ? Promise.reject('fichier introuvable') : text('# demo\n')) });

@@ -198,6 +198,8 @@
   }
 
   const keep = (key: string) => buffers.keepMine(key).catch((e) => app.toast(`Enregistrement impossible : ${e}`, 'error'));
+  // A deleted file without changes can only be written by creating it again, as its banner offers.
+  const save = () => (buf && !dirty && buf.disk === 'deleted' ? keep(buf.key) : saveActive());
   const reload = (key: string) => buffers.reload(key).catch((e) => app.toast(String(e), 'error'));
 </script>
 
@@ -216,7 +218,7 @@
     {#if buf?.kind === 'text'}
       <span class="hint mono" class:dirty>{dirty ? `● Non enregistré · ${keyLabel('Ctrl+S')}` : 'Enregistré'}</span>
     {/if}
-    <button class="btn" class:primary={dirty} disabled={buf?.kind !== 'text' || (!dirty && buf.disk === 'ok')} onclick={() => saveActive()}
+    <button class="btn" class:primary={dirty} disabled={buf?.kind !== 'text' || (!dirty && buf.disk === 'ok')} onclick={save}
       >Enregistrer</button
     >
   </header>
